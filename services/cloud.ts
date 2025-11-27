@@ -1,18 +1,16 @@
-
-import { initializeApp } from 'firebase/app';
+import * as firebaseApp from 'firebase/app';
 import { getFirestore, collection, doc, setDoc, onSnapshot, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { INVENTORY_ITEMS, MOCK_SCHEDULE_WEEK02, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
 
-// --- ⚠️ IMPORTANT: PASTE YOUR FIREBASE CONFIG HERE ⚠️ ---
-// 1. Go to Firebase Console -> Project Settings -> General -> Your Apps
-// 2. Copy the config object and replace the one below.
+// --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "REPLACE_WITH_YOUR_API_KEY",
-  authDomain: "onesip-manager.firebaseapp.com",
-  projectId: "onesip-manager",
-  storageBucket: "onesip-manager.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abcdef123456"
+  apiKey: "AIzaSyBDfYlwxPV9pASCLu4U5ffGvv6lK5qGC4A",
+  authDomain: "onesip--management.firebaseapp.com",
+  projectId: "onesip--management",
+  storageBucket: "onesip--management.firebasestorage.app",
+  messagingSenderId: "6590856722",
+  appId: "1:6590856722:web:bf4abcc0a51de16fae62cb",
+  measurementId: "G-GXZYD1GB8E"
 };
 
 let db: any = null;
@@ -20,14 +18,12 @@ let isConfigured = false;
 
 // Initialize Firebase
 try {
-    if (firebaseConfig.apiKey !== "REPLACE_WITH_YOUR_API_KEY") {
-        const app = initializeApp(firebaseConfig);
-        db = getFirestore(app);
-        isConfigured = true;
-        console.log("🔥 Cloud Connected Successfully");
-    } else {
-        console.warn("⚠️ Firebase not configured. Using local mode.");
-    }
+    // Cast to any to bypass "Module has no exported member" TS error if types are mismatched
+    const initializeApp = (firebaseApp as any).initializeApp;
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    isConfigured = true;
+    console.log("🔥 Cloud Connected Successfully to: onesip--management");
 } catch (e) {
     console.error("Firebase Init Error:", e);
 }
@@ -35,10 +31,22 @@ try {
 export const isCloudEnabled = () => isConfigured;
 
 // --- INITIAL DATA SEEDING ---
-// If the cloud is empty, upload our local constants to initialize it.
+// Checks if critical collections exist. If not, uploads local defaults.
 export const seedInitialData = async () => {
     if (!db) return;
     
+    // Check specific collections to determine if seeding is needed
+    // We check 'config/inventory' as a proxy for "is the DB initialized?"
+    const checkRef = doc(db, 'config', 'inventory');
+    const checkSnap = await getDoc(checkRef);
+
+    if (checkSnap.exists()) {
+        console.log("✅ Database already initialized. Skipping seed.");
+        return;
+    }
+
+    console.log("🌱 Database empty. Seeding initial data...");
+
     const collections = [
         { name: 'config', id: 'inventory', data: { list: INVENTORY_ITEMS } },
         { name: 'config', id: 'schedule', data: { week: MOCK_SCHEDULE_WEEK02 } },
@@ -48,11 +56,11 @@ export const seedInitialData = async () => {
     ];
 
     for (const col of collections) {
-        const ref = doc(db, col.name, col.id);
-        const snap = await getDoc(ref);
-        if (!snap.exists()) {
-            await setDoc(ref, col.data);
-            console.log(`Seeded ${col.id}`);
+        try {
+            await setDoc(doc(db, col.name, col.id), col.data);
+            console.log(`✅ Seeded: ${col.id}`);
+        } catch (e) {
+            console.error(`Error seeding ${col.id}:`, e);
         }
     }
 };

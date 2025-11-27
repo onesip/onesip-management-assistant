@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Icon } from './components/Icons';
 import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, TEAM_MEMBERS, MOCK_SCHEDULE_WEEK02, INITIAL_MENU_DATA, INITIAL_WIKI_DATA, INITIAL_ANNOUNCEMENT_DATA, USERS } from './constants';
@@ -11,34 +10,17 @@ import * as Cloud from './services/cloud';
 const CloudSetupModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
     if (!isOpen) return null;
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4 backdrop-blur-md">
-            <div className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl text-center">
-                <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce"><Icon name="Globe" size={32}/></div>
-                <h2 className="text-2xl font-black text-gray-900 mb-2">Connect to the Cloud</h2>
-                <p className="text-gray-500 mb-6 text-sm">To enable real-time sync across all devices, you need to paste your Firebase Config.</p>
-                
-                <div className="text-left bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6 text-xs text-gray-600 font-mono overflow-x-auto">
-                    <p className="font-bold text-gray-800 mb-2">// services/cloud.ts</p>
-                    <p>const firebaseConfig = &#123;</p>
-                    <p className="pl-4 text-green-600">apiKey: "PASTE_HERE",</p>
-                    <p className="pl-4 text-green-600">authDomain: "...",</p>
-                    <p className="pl-4 text-green-600">projectId: "...",</p>
-                    <p>&#125;;</p>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl text-center animate-fade-in">
+                <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Icon name="Globe" size={24} />
                 </div>
-
-                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-left mb-6">
-                    <h3 className="font-bold text-blue-800 text-sm mb-1">How to get keys:</h3>
-                    <ol className="list-decimal list-inside text-xs text-blue-700 space-y-1">
-                        <li>Go to <b>console.firebase.google.com</b></li>
-                        <li>Create a project -> Add Web App (`&lt;/&gt;`)</li>
-                        <li>Copy the `firebaseConfig` object</li>
-                        <li>Open <b>services/cloud.ts</b> in your code editor</li>
-                        <li>Paste it at the top and save!</li>
-                    </ol>
-                </div>
-
-                <button onClick={onClose} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition">
-                    I Have Updated The Code
+                <h3 className="font-black text-xl text-gray-900 mb-2">Cloud Sync Unavailable</h3>
+                <p className="text-gray-500 text-sm mb-6 leading-relaxed">
+                    The database connection could not be established. The app will work in <strong>Offline Mode</strong>, saving data to this device only.
+                </p>
+                <button onClick={onClose} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition">
+                    Understand & Continue
                 </button>
             </div>
         </div>
