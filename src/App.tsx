@@ -33,6 +33,13 @@ function getTodayMMDD() {
     return `${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
 }
 
+function getYouTubeId(url: string | undefined) {
+    if (!url) return null;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+}
+
 // --- Shared Components ---
 
 const CloudSetupModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
@@ -370,4 +377,189 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     const createNewItem = () => { const id = Date.now().toString(); if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]} }; };
     const handleSave = () => { if (!editingItem) return; let updatedList; let setList; if (view === 'sop') { updatedList = sopList.some((i:any) => i.id === editingItem.id) ? sopList.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...sopList, editingItem]; setList = setSopList; Cloud.saveContent('sops', updatedList); } else if (view === 'training') { updatedList = trainingLevels.some((i:any) => i.id === editingItem.id) ? trainingLevels.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...trainingLevels, editingItem]; setList = setTrainingLevels; Cloud.saveContent('training', updatedList); } else { updatedList = recipes.some((i:any) => i.id === editingItem.id) ? recipes.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...recipes, editingItem]; setList = setRecipes; Cloud.saveContent('recipes', updatedList); } setList(updatedList); setEditingItem(null); };
     const handleDelete = (id: string) => { if(!window.confirm("Delete this item?")) return; if (view === 'sop') { const list = sopList.filter((i:any) => i.id !== id); setSopList(list); Cloud.saveContent('sops', list); } else if (view === 'training') { const list = trainingLevels.filter((i:any) => i.id !== id); setTrainingLevels(list); Cloud.saveContent('training', list); } else { const list = recipes.filter((i:any) => i.id !== id); setRecipes(list); Cloud.saveContent('recipes', list); } };
-    const renderEditorFields = () => { if (!editingItem) return null; if (view === 'training') { return (<div className="space-y-4"><div><label className="block text-xs font-bold text-emerald-500 mb-1">MODULE TITLE</label><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm mb-1 text-white" placeholder="ZH Title" value={editingItem.title.zh} onChange={e => setEditingItem({...editingItem, title: {...editingItem.title, zh: e.target.value}})} /><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white" placeholder="EN Title" value={editingItem.title.en} onChange={e => setEditingItem({...editingItem, title: {...editingItem.title, en: e.target.value}})} /></div><div><label className="block text-xs font-bold text-emerald-500 mb-1">DESCRIPTION</label><textarea className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white h-20" placeholder="EN Description" value={editingItem.desc.en} onChange={e => setEditingItem({...editingItem, desc: {...editingItem.desc, en: e.target.value}})} /></div><div><label className="block text-xs font-bold text-red-500 mb-1 flex items-center gap-2"><Icon name="Play" size={12}/> YOUTUBE VIDEO LINK</label><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white" placeholder="https://youtu.be/..." value={editingItem.youtubeLink || ''} onChange={e => setEditingItem({...editingItem, youtubeLink: e.target.value})} /></div><div><label className="block text-xs font-bold text-emerald-500 mb-2">CONTENT SECTIONS</label>{editingItem.content.map((section: any, idx: number) => (<div key={idx} className="bg-gray-800 p-3 rounded mb-2 border border-gray-700"><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-xs mb-1 text-white font-bold" placeholder="Section Title (EN)" value={section.title.en} onChange={e => { const newContent = [...editingItem.content]; newContent[idx].title.en = e.target.value; setEditingItem({...editingItem, content: newContent}); }} /><textarea className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-xs text-white h-24" placeholder="Body Text (EN)" value={section.body.en} onChange={e => { const newContent = [...editingItem.content]; newContent[idx].body.en = e.target.value; setEditingItem({...editingItem, content: newContent}); }} /></div>))}<button onClick={() => setEditingItem({...editingItem, content: [...editingItem.content, {title:{zh:'',en:''}, body:{zh:'',en:''}}]})} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Section</button></div></div>); } if (view === 'sop') { return (<div className="space-y-4"><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white font-bold" placeholder="Title (EN)" value={editingItem.title.en} onChange={e => setEditingItem({...editingItem, title: {...editingItem.title, en: e.target.value}})} /><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white" placeholder="Category (e.g. Opening)" value={editingItem.category} onChange={e => setEditingItem({...editingItem, category: e.target.value})} /><div><label className="block text-xs font-bold text-emerald-500 mb-1">CONTENT (EN)</label><textarea className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white h-40 font-mono" value={editingItem.content.en} onChange={e => setEditingItem({...editingItem, content: {...editingItem.content, en: e.target.value}})} /></div><div><label className="block text-xs font-bold text-emerald-500 mb-1">CONTENT (ZH)</label><textarea className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white h-40 font-mono" value={editingItem.content.zh} onChange={e => setEditingItem({...editingItem, content: {...editingItem.content, zh: e.target.value}})} /></div></div>); } return (<div className="space-y-4"><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white font-bold" placeholder="Name (EN)" value={editingItem.name.en} onChange={e => setEditingItem({...editingItem, name:
+    const renderEditorFields = () => { if (!editingItem) return null; if (view === 'training') { return (<div className="space-y-4"><div><label className="block text-xs font-bold text-emerald-500 mb-1">MODULE TITLE</label><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm mb-1 text-white" placeholder="ZH Title" value={editingItem.title.zh} onChange={e => setEditingItem({...editingItem, title: {...editingItem.title, zh: e.target.value}})} /><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white" placeholder="EN Title" value={editingItem.title.en} onChange={e => setEditingItem({...editingItem, title: {...editingItem.title, en: e.target.value}})} /></div><div><label className="block text-xs font-bold text-emerald-500 mb-1">DESCRIPTION</label><textarea className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white h-20" placeholder="EN Description" value={editingItem.desc.en} onChange={e => setEditingItem({...editingItem, desc: {...editingItem.desc, en: e.target.value}})} /></div><div><label className="block text-xs font-bold text-red-500 mb-1 flex items-center gap-2"><Icon name="Play" size={12}/> YOUTUBE VIDEO LINK</label><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white" placeholder="https://youtu.be/..." value={editingItem.youtubeLink || ''} onChange={e => setEditingItem({...editingItem, youtubeLink: e.target.value})} /></div><div><label className="block text-xs font-bold text-emerald-500 mb-2">CONTENT SECTIONS</label>{editingItem.content.map((section: any, idx: number) => (<div key={idx} className="bg-gray-800 p-3 rounded mb-2 border border-gray-700"><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-xs mb-1 text-white font-bold" placeholder="Section Title (EN)" value={section.title.en} onChange={e => { const newContent = [...editingItem.content]; newContent[idx].title.en = e.target.value; setEditingItem({...editingItem, content: newContent}); }} /><textarea className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-xs text-white h-24" placeholder="Body Text (EN)" value={section.body.en} onChange={e => { const newContent = [...editingItem.content]; newContent[idx].body.en = e.target.value; setEditingItem({...editingItem, content: newContent}); }} /></div>))}<button onClick={() => setEditingItem({...editingItem, content: [...editingItem.content, {title:{zh:'',en:''}, body:{zh:'',en:''}}]})} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Section</button></div></div>); } if (view === 'sop') { return (<div className="space-y-4"><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white font-bold" placeholder="Title (EN)" value={editingItem.title.en} onChange={e => setEditingItem({...editingItem, title: {...editingItem.title, en: e.target.value}})} /><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white" placeholder="Category (e.g. Opening)" value={editingItem.category} onChange={e => setEditingItem({...editingItem, category: e.target.value})} /><div><label className="block text-xs font-bold text-emerald-500 mb-1">CONTENT (EN)</label><textarea className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white h-40 font-mono" value={editingItem.content.en} onChange={e => setEditingItem({...editingItem, content: {...editingItem.content, en: e.target.value}})} /></div><div><label className="block text-xs font-bold text-emerald-500 mb-1">CONTENT (ZH)</label><textarea className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white h-40 font-mono" value={editingItem.content.zh} onChange={e => setEditingItem({...editingItem, content: {...editingItem.content, zh: e.target.value}})} /></div></div>); } return (<div className="space-y-4"><input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white font-bold" placeholder="Name (EN)" value={editingItem.name.en} onChange={e => setEditingItem({...editingItem, name: {...editingItem.name, en: e.target.value}})} /> <input className="w-full bg-gray-900 border border-gray-700 p-2 rounded text-sm text-white font-bold" placeholder="Name (ZH)" value={editingItem.name.zh} onChange={e => setEditingItem({...editingItem, name: {...editingItem.name, zh: e.target.value}})} /></div>); };
+
+    return (
+        <div className="h-full flex flex-col bg-gray-900 text-white">
+           <div className="p-4 bg-gray-800 border-b border-gray-700 flex justify-between items-center">
+               <h2 className="text-xl font-bold">{t.editor_title}</h2>
+               <button onClick={onExit}><Icon name="X" /></button>
+           </div>
+           <div className="flex-1 overflow-y-auto p-4">
+                <div className="flex gap-2 mb-4">
+                     {['training', 'sop', 'recipes'].map(m => (
+                         <button key={m} onClick={() => setView(m as any)} className={`px-4 py-2 rounded text-xs font-bold uppercase ${view === m ? 'bg-emerald-500 text-white' : 'bg-gray-800 text-gray-400'}`}>{m}</button>
+                     ))}
+                </div>
+                
+                {editingItem ? (
+                    <div className="bg-gray-800 p-4 rounded-xl border border-gray-700">
+                        {renderEditorFields()}
+                        <div className="flex gap-3 mt-4">
+                            <button onClick={() => setEditingItem(null)} className="flex-1 py-3 bg-gray-700 rounded-xl font-bold text-gray-300">Cancel</button>
+                            <button onClick={handleSave} className="flex-1 py-3 bg-emerald-600 rounded-xl font-bold text-white">Save Changes</button>
+                        </div>
+                    </div>
+                ) : (
+                   <div className="space-y-2">
+                       <button onClick={() => setEditingItem(createNewItem())} className="w-full py-4 border-2 border-dashed border-gray-700 rounded-xl text-gray-500 font-bold hover:border-emerald-500 hover:text-emerald-500 transition">+ Add New Item</button>
+                       {(view === 'training' ? trainingLevels : view === 'sop' ? sopList : recipes).map((item: any) => (
+                           <div key={item.id} className="bg-gray-800 p-4 rounded-xl flex justify-between items-center border border-gray-700">
+                               <div>
+                                   <h3 className="font-bold text-sm">{item.title?.en || item.name?.en}</h3>
+                                   <p className="text-xs text-gray-500">{item.id}</p>
+                               </div>
+                               <div className="flex gap-2">
+                                   <button onClick={() => setEditingItem(item)} className="p-2 bg-blue-900 text-blue-400 rounded"><Icon name="Edit" size={16}/></button>
+                                   <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-900 text-red-400 rounded"><Icon name="Trash" size={16}/></button>
+                               </div>
+                           </div>
+                       ))}
+                   </div>
+                )}
+           </div>
+        </div>
+    );
+};
+
+const StaffDashboard = ({ user, lang, setLang, data, actions, onLogout }: any) => {
+    const [view, setView] = useState<StaffViewMode>('home');
+    const { t } = { t: TRANSLATIONS[lang] };
+    
+    const renderView = () => {
+        switch(view) {
+            case 'inventory': return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={actions.setInventoryList} currentUser={user} onSubmit={Cloud.saveInventoryReport}/>;
+            case 'contact': return <ContactView t={t} lang={lang} />;
+            case 'chat': return <ChatView t={t} currentUser={user} messages={data.messages} setMessages={actions.setMessages} notices={data.notices} onExit={() => setView('home')} />;
+            case 'training': return <TrainingView data={{ trainingLevels: data.trainingLevels, t, lang }} onComplete={() => {}} />;
+            case 'sop': return <LibraryView data={{ sopList: data.sopList, t, lang }} onOpenChecklist={() => {}} />;
+            case 'recipes': return (
+                <div className="h-full overflow-y-auto bg-gray-50 p-4 pb-20">
+                    <h2 className="text-2xl font-black text-gray-900 mb-4">{t.recipes}</h2>
+                    {data.recipes.map((r: any) => <DrinkCard key={r.id} drink={r} lang={lang} t={t} />)}
+                </div>
+            );
+            default: return (
+                <div className="p-6 bg-gray-50 h-full overflow-y-auto pb-20">
+                    <div className="flex justify-between items-center mb-6">
+                        <div><h1 className="text-2xl font-black text-gray-900">{t.hello} {user.name}</h1><p className="text-gray-500">{t.ready}</p></div>
+                        <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold">{user.name[0]}</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        {[
+                            { id: 'training', icon: 'GraduationCap', color: 'bg-green-100 text-green-700', label: t.training },
+                            { id: 'sop', icon: 'Book', color: 'bg-blue-100 text-blue-700', label: t.sop },
+                            { id: 'recipes', icon: 'Coffee', color: 'bg-orange-100 text-orange-700', label: t.recipes },
+                            { id: 'inventory', icon: 'Package', color: 'bg-purple-100 text-purple-700', label: t.stock },
+                            { id: 'contact', icon: 'Phone', color: 'bg-pink-100 text-pink-700', label: t.contact },
+                            { id: 'chat', icon: 'MessageSquare', color: 'bg-indigo-100 text-indigo-700', label: t.chat }
+                        ].map(item => (
+                            <button key={item.id} onClick={() => setView(item.id as any)} className={`${item.color} p-4 rounded-2xl flex flex-col items-center justify-center gap-2 shadow-sm aspect-square hover:scale-95 transition`}>
+                                <Icon name={item.icon} size={28} />
+                                <span className="font-bold text-sm">{item.label}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+    };
+
+    return (
+        <div className="h-full flex flex-col bg-white">
+            <div className="flex-1 overflow-hidden relative">
+                {renderView()}
+            </div>
+            <div className="bg-white border-t p-2 flex justify-around items-center shrink-0 safe-area-bottom">
+                <button onClick={() => setView('home')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${view === 'home' ? 'text-indigo-600' : 'text-gray-400'}`}>
+                    <Icon name="Grid" size={20} />
+                    <span className="text-[10px] font-bold">{t.home}</span>
+                </button>
+                <button onClick={() => setLang(lang === 'en' ? 'zh' : 'en')} className="p-2 rounded-xl flex flex-col items-center gap-1 text-gray-400">
+                    <span className="text-xs font-black border border-current rounded px-1">{lang.toUpperCase()}</span>
+                    <span className="text-[10px] font-bold">Lang</span>
+                </button>
+                <button onClick={onLogout} className="p-2 rounded-xl flex flex-col items-center gap-1 text-gray-400">
+                    <Icon name="LogOut" size={20} />
+                    <span className="text-[10px] font-bold">Exit</span>
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const App = () => {
+  const [user, setUser] = useState<User | null>(null);
+  const [adminMode, setAdminMode] = useState<'manager' | 'owner' | 'editor' | null>(null);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [lang, setLang] = useState<Lang>('en');
+  
+  const [inventoryList, setInventoryList] = useState(INVENTORY_ITEMS);
+  const [schedule, setSchedule] = useState(MOCK_SCHEDULE_WEEK02);
+  const [sopList, setSopList] = useState(SOP_DATABASE);
+  const [trainingLevels, setTrainingLevels] = useState(TRAINING_LEVELS);
+  const [recipes, setRecipes] = useState(DRINK_RECIPES);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [messages, setMessages] = useState<DirectMessage[]>([]);
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [swaps, setSwaps] = useState<SwapRequest[]>([]);
+  const [salesRecords, setSalesRecords] = useState<SalesRecord[]>([]);
+  const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
+
+  useEffect(() => {
+    Cloud.seedInitialData();
+    const unsubInv = Cloud.subscribeToInventory(setInventoryList);
+    const unsubSched = Cloud.subscribeToSchedule(setSchedule);
+    const unsubContent = Cloud.subscribeToContent((data) => {
+        if(data.sops) setSopList(data.sops);
+        if(data.training) setTrainingLevels(data.training);
+        if(data.recipes) setRecipes(data.recipes);
+    });
+    const unsubLogs = Cloud.subscribeToLogs(setLogs);
+    const unsubChat = Cloud.subscribeToChat(setMessages, setNotices);
+    const unsubSwaps = Cloud.subscribeToSwaps(setSwaps);
+    const unsubSales = Cloud.subscribeToSales(setSalesRecords);
+    const unsubInvHist = Cloud.subscribeToInventoryHistory(setInventoryHistory);
+
+    return () => {
+        unsubInv(); unsubSched(); unsubContent(); unsubLogs(); unsubChat(); unsubSwaps(); unsubSales(); unsubInvHist();
+    };
+  }, []);
+
+  const t = TRANSLATIONS[lang];
+
+  if (adminMode === 'owner') {
+      return <OwnerDashboard data={{ inventoryList, setInventoryList, t, lang, inventoryHistory, salesRecords, setSalesRecords }} onExit={() => setAdminMode(null)} />;
+  }
+
+  if (adminMode === 'editor') {
+      return <EditorDashboard data={{ sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t, lang }} onExit={() => setAdminMode(null)} />;
+  }
+
+  if (!user) {
+      return (
+          <>
+            <LoginScreen t={t} onLogin={setUser} />
+            <div className="fixed top-4 right-4 z-50">
+                <button onClick={() => setShowAdminLogin(true)} className="bg-gray-800 text-white p-2 rounded-full opacity-30 hover:opacity-100 transition">
+                    <Icon name="Lock" size={16} />
+                </button>
+            </div>
+            <AdminLoginModal isOpen={showAdminLogin} onClose={() => setShowAdminLogin(false)} onLogin={(role) => { setShowAdminLogin(false); setAdminMode(role); }} />
+          </>
+      );
+  }
+
+  return (
+      <StaffDashboard 
+          user={user} 
+          lang={lang} 
+          setLang={setLang}
+          data={{ inventoryList, schedule, sopList, trainingLevels, recipes, logs, messages, notices, swaps }} 
+          actions={{ setInventoryList, setLogs, setMessages }}
+          onLogout={() => setUser(null)}
+      />
+  );
+};
+
+export default App;
