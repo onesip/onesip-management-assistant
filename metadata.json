@@ -1,0 +1,7 @@
+{
+  "name": "ONESIP Pocket Manager AI",
+  "description": "Intelligent multi-party collaboration and supervision platform for retail operations.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
