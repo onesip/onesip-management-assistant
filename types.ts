@@ -149,6 +149,7 @@ export interface InventoryItem {
     name: Translation;
     unit: string;
     threshold?: number;
+    defaultVal?: string; // Added for Owner presets
     category?: 'raw' | 'packaging' | 'dairy';
 }
 
@@ -166,6 +167,10 @@ export interface ScheduleDay {
     zh: string;
     morning: string[]; // List of names
     evening: string[]; // List of names
+    hours?: {
+        morning: { start: string, end: string };
+        evening: { start: string, end: string };
+    };
 }
 
 export interface WeeklySchedule {
@@ -179,6 +184,32 @@ export interface Notice {
     content: string;
     date: string;
     isUrgent: boolean;
+    frequency?: 'always' | 'daily' | 'once'; // New frequency setting
+}
+
+export interface SwapRequest {
+    id: string;
+    requesterName: string;
+    requesterId: string;
+    requesterDate: string; // Date of the shift being given away
+    requesterShift: 'morning' | 'evening';
+    
+    targetName: string; // The person being asked
+    targetId: string;
+    targetDate: string; // Date of the shift being taken (usually same if swapping on same day, or different)
+    targetShift: 'morning' | 'evening';
+
+    status: 'pending' | 'accepted_by_peer' | 'rejected' | 'approved'; // approved means Manager finalized
+    timestamp: number;
+}
+
+export interface SalesRecord {
+    id: string;
+    date: string;
+    timeSlot: '15:00' | '19:00';
+    amount: number;
+    weatherTemp: number;
+    weatherCode: number;
 }
 
 export interface ToppingSlot {
@@ -200,3 +231,5 @@ export interface ContactItem {
     phone: string | null;
     note?: string;
 }
+
+export type StaffViewMode = 'home' | 'team' | 'contact' | 'inventory' | 'recipes' | 'training' | 'sop' | 'chat' | 'checklist';

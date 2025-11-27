@@ -1,5 +1,6 @@
+
 import * as firebaseApp from 'firebase/app';
-import { getFirestore, collection, doc, setDoc, onSnapshot, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, onSnapshot, getDoc, updateDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
 import { INVENTORY_ITEMS, MOCK_SCHEDULE_WEEK02, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
 
 // --- FIREBASE CONFIGURATION ---
@@ -52,7 +53,10 @@ export const seedInitialData = async () => {
         { name: 'config', id: 'schedule', data: { week: MOCK_SCHEDULE_WEEK02 } },
         { name: 'config', id: 'content', data: { sops: SOP_DATABASE, training: TRAINING_LEVELS, recipes: DRINK_RECIPES } },
         { name: 'data', id: 'logs', data: { entries: [] } },
-        { name: 'data', id: 'chat', data: { messages: [], notices: [] } }
+        { name: 'data', id: 'chat', data: { messages: [], notices: [] } },
+        { name: 'data', id: 'swaps', data: { requests: [] } },
+        { name: 'data', id: 'sales', data: { records: [] } },
+        { name: 'data', id: 'inventory_history', data: { reports: [] } }
     ];
 
     for (const col of collections) {
@@ -105,6 +109,27 @@ export const subscribeToChat = (callback: (msgs: any[], notices: any[]) => void)
     });
 };
 
+export const subscribeToSwaps = (callback: (requests: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'swaps'), (doc) => {
+        if (doc.exists()) callback(doc.data().requests || []);
+    });
+};
+
+export const subscribeToSales = (callback: (records: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'sales'), (doc) => {
+        if (doc.exists()) callback(doc.data().records || []);
+    });
+};
+
+export const subscribeToInventoryHistory = (callback: (reports: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'inventory_history'), (doc) => {
+        if (doc.exists()) callback(doc.data().reports || []);
+    });
+};
+
 // --- ACTIONS (WRITING TO CLOUD) ---
 
 export const saveInventoryList = async (list: any[]) => {
@@ -114,8 +139,10 @@ export const saveInventoryList = async (list: any[]) => {
 
 export const saveInventoryReport = async (report: any) => {
     if (!db) return;
-    // Save report to a separate collection history
-    await setDoc(doc(db, 'history', report.id.toString()), report);
+    // Save report to the dedicated array for history listing
+    await setDoc(doc(db, 'data', 'inventory_history'), {
+        reports: arrayUnion(report)
+    }, { merge: true });
 };
 
 export const saveSchedule = async (week: any) => {
@@ -133,16 +160,17 @@ export const saveLog = async (logEntry: any) => {
 
 export const saveMessage = async (message: any) => {
     if (!db) return;
-    await updateDoc(doc(db, 'data', 'chat'), {
+    // Use setDoc with merge to ensure document exists, solving "sync issues" if doc is missing
+    await setDoc(doc(db, 'data', 'chat'), {
         messages: arrayUnion(message)
-    });
+    }, { merge: true });
 };
 
 export const saveNotice = async (notice: any) => {
     if (!db) return;
-    await updateDoc(doc(db, 'data', 'chat'), {
+    await setDoc(doc(db, 'data', 'chat'), {
         notices: arrayUnion(notice)
-    });
+    }, { merge: true });
 };
 
 export const saveContent = async (type: 'sops' | 'training' | 'recipes', data: any[]) => {
@@ -150,4 +178,23 @@ export const saveContent = async (type: 'sops' | 'training' | 'recipes', data: a
     await updateDoc(doc(db, 'config', 'content'), {
         [type]: data
     });
+};
+
+export const saveSwapRequest = async (request: any) => {
+    if (!db) return;
+    await setDoc(doc(db, 'data', 'swaps'), {
+        requests: arrayUnion(request)
+    }, { merge: true });
+};
+
+export const updateSwapRequests = async (requests: any[]) => {
+    if (!db) return;
+    await updateDoc(doc(db, 'data', 'swaps'), { requests });
+};
+
+export const saveSalesRecord = async (record: any) => {
+    if (!db) return;
+    await setDoc(doc(db, 'data', 'sales'), {
+        records: arrayUnion(record)
+    }, { merge: true });
 };
