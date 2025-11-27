@@ -1,5 +1,5 @@
 
-import { SopItem, TrainingLevel, ChecklistTemplate, DrinkRecipe, Translation, CustomerMenuItem, WikiItem, AnnouncementData, InventoryItem, WeeklySchedule, ToppingSlot, SyrupSlot, ContactItem } from './types';
+import { SopItem, TrainingLevel, ChecklistTemplate, DrinkRecipe, Translation, CustomerMenuItem, WikiItem, AnnouncementData, InventoryItem, WeeklySchedule, ToppingSlot, SyrupSlot, ContactItem, User } from './types';
 
 export const TRANSLATIONS: Record<string, any> = {
     zh: {
@@ -12,29 +12,43 @@ export const TRANSLATIONS: Record<string, any> = {
         stock: "库存",
         logs: "记录",
         ai: "AI",
+        chat: "聊天",
         
         // General
-        hello: "Hello, Team!",
+        hello: "你好,",
         ready: "准备好开始工作了吗？",
         clock_in: "上班打卡",
         clock_out: "下班打卡",
-        select_employee: "请选择员工 (必选)",
+        select_employee: "自动识别员工",
         cancel: "取消",
         confirm: "确认",
         save: "保存",
         delete: "删除",
         edit: "编辑",
         add_new: "添加新项",
+        download_csv: "导出 Excel (CSV)",
+        
+        // Login
+        login_title: "ONESIP 员工登录",
+        enter_phone: "输入手机号",
+        enter_code: "输入验证码",
+        get_code: "获取验证码",
+        login_btn: "登录",
+        invalid_phone: "手机号未注册",
+        invalid_code: "验证码错误",
+        code_sent: "验证码已发送: 1234",
         
         // Inventory
         inventory_title: "库存管理",
         item_name: "物品名称",
         end_count: "盘点数",
         waste: "报损数",
-        send_stock_report: "发送盘点邮件",
-        send_stock_report_confirm: "即将发送库存盘点给店长，确认？",
+        save_report: "保存盘点数据",
+        save_report_confirm: "确认保存当前盘点数据到后台？",
+        save_success: "数据已保存至后台数据库！",
         owner_dashboard: "库存中控台 (Owner)",
         manage_presets: "管理预设值",
+        report_history: "历史记录",
         
         // Editor
         editor_title: "内容编辑器",
@@ -47,12 +61,31 @@ export const TRANSLATIONS: Record<string, any> = {
         sop_library: "SOP 知识库",
         team_title: "本周排班",
         contact_title: "常用联系人",
+        my_shift: "我的班次",
+        next_shift: "下一次值班",
+        no_shift: "暂无排班",
+        
+        // Chat
+        team_board: "团队公告板",
+        type_message: "输入消息...",
+        no_messages: "暂无消息",
+        recent: "最近",
         
         // Manager
         manager_title: "店长后台",
         drag_hint: "拖动员工名字到排班表 (每班最多3人)",
         morning_shift: "早班 (10:00-15:00)",
         evening_shift: "晚班 (14:30-19:00)",
+        work_hours: "工时统计",
+        total_hours: "总工时",
+        financial_dashboard: "财务仪表盘",
+        budget_max: "预算上限",
+        hourly_wage: "时薪设置",
+        est_cost: "预计成本 (排班)",
+        actual_cost: "实际成本 (打卡)",
+        balance: "结余 (预算-实际)",
+        set_wages: "设置员工工资",
+        download_logs: "导出打卡记录",
         
         // Content
         opening_title: "早班开铺",
@@ -71,29 +104,43 @@ export const TRANSLATIONS: Record<string, any> = {
         stock: "Inventory",
         logs: "Logs",
         ai: "AI",
+        chat: "Chat",
 
         // General
-        hello: "Hello, Team!",
+        hello: "Hello,",
         ready: "Ready to work?",
         clock_in: "Clock In",
         clock_out: "Clock Out",
-        select_employee: "Select Staff (Required)",
+        select_employee: "Auto-detected",
         cancel: "Cancel",
         confirm: "Confirm",
         save: "Save",
         delete: "Delete",
         edit: "Edit",
         add_new: "Add New",
+        download_csv: "Download CSV",
+
+        // Login
+        login_title: "ONESIP Staff Login",
+        enter_phone: "Phone Number",
+        enter_code: "Verification Code",
+        get_code: "Get Code",
+        login_btn: "Login",
+        invalid_phone: "Number not registered",
+        invalid_code: "Invalid code",
+        code_sent: "Code sent: 1234",
 
         // Inventory
         inventory_title: "Inventory Mgmt",
         item_name: "Item",
         end_count: "Count",
         waste: "Waste",
-        send_stock_report: "Send Report",
-        send_stock_report_confirm: "Send inventory report to manager?",
+        save_report: "Save Report",
+        save_report_confirm: "Save current inventory data to database?",
+        save_success: "Report saved to database!",
         owner_dashboard: "Inventory Command (Owner)",
         manage_presets: "Manage Presets",
+        report_history: "Report History",
 
         // Editor
         editor_title: "Content Editor",
@@ -106,12 +153,31 @@ export const TRANSLATIONS: Record<string, any> = {
         sop_library: "SOP Library",
         team_title: "Weekly Schedule",
         contact_title: "Contacts",
+        my_shift: "My Shifts",
+        next_shift: "Next Shift",
+        no_shift: "No upcoming shifts",
+        
+        // Chat
+        team_board: "Team Board",
+        type_message: "Type a message...",
+        no_messages: "No messages yet",
+        recent: "Recent",
 
         // Manager
         manager_title: "Manager Dashboard",
         drag_hint: "Drag names to schedule (Max 3/shift)",
         morning_shift: "Morning (10:00-15:00)",
         evening_shift: "Evening (14:30-19:00)",
+        work_hours: "Work Hours",
+        total_hours: "Total Hours",
+        financial_dashboard: "Financial Dashboard",
+        budget_max: "Budget Max",
+        hourly_wage: "Hourly Wage",
+        est_cost: "Est. Cost (Sched)",
+        actual_cost: "Actual Cost (Logs)",
+        balance: "Balance",
+        set_wages: "Set Wages",
+        download_logs: "Export Logs",
 
         // Content
         opening_title: "Opening",
@@ -122,24 +188,42 @@ export const TRANSLATIONS: Record<string, any> = {
     }
 };
 
+// Normalized Database: All phones stored as pure digits starting with 31
+export const USERS: User[] = [
+    { id: 'u_ruru', name: 'RURU', role: 'staff', phone: '31684684907' },
+    { id: 'u_yang', name: 'Yang', role: 'boss', phone: '31625491808' },
+    { id: 'u_haohui', name: 'Haohui', role: 'maintenance', phone: '31681166148' },
+    { id: 'u_lambert', name: 'Lambert', role: 'manager', phone: '31626419957' },
+    { id: 'u_zhiyi', name: 'Zhiyi', role: 'staff', phone: '31630047391' },
+    { id: 'u_tingshan', name: 'Tingshan', role: 'staff', phone: '31659343108' },
+    { id: 'u_kloe', name: 'Kloe', role: 'staff', phone: '31645747056' },
+    { id: 'u_maidou', name: 'Maidou', role: 'staff', phone: '31684866535' },
+    { id: 'u_xinrui', name: 'Xinrui', role: 'staff', phone: '31628895082' },
+    { id: 'u_linda', name: 'Linda', role: 'staff', phone: '31638100725' },
+    { id: 'u_mengchu', name: 'Mengchu', role: 'staff', phone: '31616928771' },
+    { id: 'u_najata', name: 'Najata', role: 'staff', phone: '31684244371' },
+    // Julia has no phone in record, so she cannot login via phone.
+    // { id: 'u_julia', name: 'Julia', role: 'staff', phone: '' }, 
+];
+
 export const TEAM_MEMBERS: string[] = [
     "RURU", "Yang", "Haohui", "Lambert", "Zhiyi", "Tingshan", 
     "Kloe", "Maidou", "Xinrui", "Linda", "Mengchu", "Julia", "Najata"
 ];
 
 export const CONTACTS_DATA: ContactItem[] = [
-    { id: 'c_yang', name: 'Yang', role: { zh: '店主', en: 'Boss' }, phone: '+31625491808' },
-    { id: 'c_lambert', name: 'Lambert', role: { zh: '店长', en: 'Manager' }, phone: '+31626419957' },
-    { id: 'c_haohui', name: 'Haohui', role: { zh: '维修师傅', en: 'Maintenance' }, phone: '+31681166148' },
-    { id: 'c_ruru', name: 'RURU', role: { zh: '员工', en: 'Staff' }, phone: '+31684684907' },
-    { id: 'c_zhiyi', name: 'Zhiyi', role: { zh: '员工', en: 'Staff' }, phone: '+31630047391' },
-    { id: 'c_tingshan', name: 'Tingshan', role: { zh: '员工', en: 'Staff' }, phone: '+31659343108' },
-    { id: 'c_kloe', name: 'Kloe', role: { zh: '员工', en: 'Staff' }, phone: '+31645747056' },
-    { id: 'c_maidou', name: 'Maidou', role: { zh: '员工', en: 'Staff' }, phone: '+31684866535' },
-    { id: 'c_xinrui', name: 'Xinrui', role: { zh: '员工', en: 'Staff' }, phone: '+31628895082' },
-    { id: 'c_linda', name: 'Linda', role: { zh: '员工', en: 'Staff' }, phone: '+31638100725' },
-    { id: 'c_mengchu', name: 'Mengchu', role: { zh: '员工', en: 'Staff' }, phone: '+31616928771' },
-    { id: 'c_najata', name: 'Najata', role: { zh: '员工', en: 'Staff' }, phone: '+31684244371' },
+    { id: 'c_yang', name: 'Yang', role: { zh: '店主', en: 'Boss' }, phone: '+31 6 25491808' },
+    { id: 'c_lambert', name: 'Lambert', role: { zh: '店长', en: 'Manager' }, phone: '+31 6 26419957' },
+    { id: 'c_haohui', name: 'Haohui', role: { zh: '维修师傅', en: 'Maintenance' }, phone: '+31 6 81166148' },
+    { id: 'c_ruru', name: 'RURU', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 84684907' },
+    { id: 'c_zhiyi', name: 'Zhiyi', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 30047391' },
+    { id: 'c_tingshan', name: 'Tingshan', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 59343108' },
+    { id: 'c_kloe', name: 'Kloe', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 45747056' },
+    { id: 'c_maidou', name: 'Maidou', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 84866535' },
+    { id: 'c_xinrui', name: 'Xinrui', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 28895082' },
+    { id: 'c_linda', name: 'Linda', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 38100725' },
+    { id: 'c_mengchu', name: 'Mengchu', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 16928771' },
+    { id: 'c_najata', name: 'Najata', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 84244371' },
     { id: 'c_julia', name: 'Julia', role: { zh: '员工', en: 'Staff' }, phone: null },
 ];
 
@@ -319,7 +403,7 @@ export const SYRUP_LAYOUT: { left: SyrupSlot[]; right: SyrupSlot[] } = {
 };
 
 export const DRINK_RECIPES: DrinkRecipe[] = [
-    // ... (Existing recipes) ...
+    // ... (Existing recipes kept same)
      {
         id: 'm1', name: {zh: '桂圆红枣黑茶', en: 'Longan Jujube Black'}, cat: 'Milk Tea', size: '500ml', ice: 'Cold/Warm', sugar: '100%-0%',
         toppings: {zh: '珍珠 1勺', en: 'Tapioca 1 spoon'},
@@ -328,7 +412,6 @@ export const DRINK_RECIPES: DrinkRecipe[] = [
             warm: [{zh:'加1勺珍珠',en:'Add 1 spoon tapioca'}, {zh:'在雪克杯加2粉勺(70g)桂圆红枣酱',en:'Add 2 powder spoons sauce to Shaker'}, {zh:'机器出茶',en:'Machine dispense'}, {zh:'蒸汽加热至70度',en:'Steam to 70°C'}, {zh:'倒入纸杯',en:'Pour to paper cup'}, {zh:'放入红枣肉',en:'Add jujube pieces'}, {zh:'封口',en:'Seal cup'}]
         }
     },
-    // ... (All other recipes from previous constants.ts should be preserved here) ...
      {
         id: 'm2', name: {zh: '烤奶', en: 'Roasted Milk Tea'}, cat: 'Milk Tea', size: '500ml', ice: 'Cold/Warm', sugar: '100%-0%',
         toppings: {zh: '珍珠 1勺', en: 'Tapioca 1 spoon'},
@@ -501,8 +584,8 @@ export const DRINK_RECIPES: DrinkRecipe[] = [
         id: 'bs1', name: {zh: '黑糖咖啡珍珠鲜奶', en: 'Brown Sugar Coffee Milk'}, cat: 'Brown Sugar', size: '500ml', ice: 'Cold/Warm', sugar: '100%-0%',
         toppings: {zh: '珍珠, 黑糖挂壁', en: 'Tapioca, Brown sugar wall'},
         steps: {
-            cold: [{zh:'加珍珠',en:'Add Tapioca'}, {zh:'黑糖挂壁',en:'Brown sugar on wall'}, {zh:'机器出奶',en:'Dispense milk'}, {zh:'加冰',en:'Add ice'}, {zh:'加咖啡液',en:'Add coffee'}, {zh:'封口',en:'Seal'}],
-            warm: [{zh:'加珍珠',en:'Add Tapioca'}, {zh:'黑糖挂壁',en:'Brown sugar on wall'}, {zh:'机器出奶加热',en:'Dispense milk & Steam'}, {zh:'加咖啡液',en:'Add coffee'}, {zh:'封口',en:'Seal'}]
+            cold: [{zh:'加珍珠, 黑糖挂壁',en:'Add Tapioca'}, {zh:'黑糖挂壁',en:'Brown sugar on wall'}, {zh:'机器出奶',en:'Dispense milk'}, {zh:'加冰',en:'Add ice'}, {zh:'加咖啡液',en:'Add coffee'}, {zh:'封口',en:'Seal'}],
+            warm: [{zh:'加珍珠, 黑糖挂壁',en:'Add Tapioca'}, {zh:'黑糖挂壁',en:'Brown sugar on wall'}, {zh:'机器出奶加热',en:'Dispense milk & Steam'}, {zh:'加咖啡液',en:'Add coffee'}, {zh:'封口',en:'Seal'}]
         }
     },
     {

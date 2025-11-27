@@ -1,8 +1,26 @@
 
-
 import React from 'react';
 
 export type Lang = 'zh' | 'en';
+
+export type UserRole = 'boss' | 'manager' | 'staff' | 'maintenance';
+
+export interface User {
+    id: string;
+    name: string;
+    phone: string;
+    role: UserRole;
+    avatar?: string;
+}
+
+export interface DirectMessage {
+    id: string;
+    fromId: string;
+    toId: string;
+    content: string;
+    timestamp: string;
+    read: boolean;
+}
 
 export interface Translation {
   zh: string;
@@ -22,6 +40,7 @@ export interface TrainingLevel {
   title: Translation;
   subtitle: Translation;
   desc: Translation;
+  youtubeLink?: string; // Added for video support
   content: { title: Translation; body: Translation }[]; 
   quiz: QuizItem[];
 }
@@ -67,7 +86,8 @@ export interface LogEntry {
   time: string;
   status?: string;
   type?: 'clock-in' | 'clock-out' | 'checklist' | 'inventory' | 'training-complete';
-  name?: string;
+  name?: string; // Should match User.name
+  userId?: string; // Link to User.id
   reason?: string; 
   duration?: number;
   kpi?: string;
@@ -135,7 +155,8 @@ export interface InventoryItem {
 export interface InventoryReport {
     id: number;
     date: string;
-    submittedBy: string;
+    submittedBy: string; // User Name
+    userId?: string; // User ID
     data: Record<string, { end: string, waste: string }>;
 }
 
