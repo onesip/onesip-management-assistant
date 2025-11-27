@@ -422,144 +422,398 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     );
 };
 
-const StaffDashboard = ({ user, lang, setLang, data, actions, onLogout }: any) => {
-    const [view, setView] = useState<StaffViewMode>('home');
-    const { t } = { t: TRANSLATIONS[lang] };
-    
-    const renderView = () => {
-        switch(view) {
-            case 'inventory': return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={actions.setInventoryList} currentUser={user} onSubmit={Cloud.saveInventoryReport}/>;
-            case 'contact': return <ContactView t={t} lang={lang} />;
-            case 'chat': return <ChatView t={t} currentUser={user} messages={data.messages} setMessages={actions.setMessages} notices={data.notices} onExit={() => setView('home')} />;
-            case 'training': return <TrainingView data={{ trainingLevels: data.trainingLevels, t, lang }} onComplete={() => {}} />;
-            case 'sop': return <LibraryView data={{ sopList: data.sopList, t, lang }} onOpenChecklist={() => {}} />;
-            case 'recipes': return (
-                <div className="h-full overflow-y-auto bg-gray-50 p-4 pb-20">
-                    <h2 className="text-2xl font-black text-gray-900 mb-4">{t.recipes}</h2>
-                    {data.recipes.map((r: any) => <DrinkCard key={r.id} drink={r} lang={lang} t={t} />)}
-                </div>
-            );
-            default: return (
-                <div className="p-6 bg-gray-50 h-full overflow-y-auto pb-20">
-                    <div className="flex justify-between items-center mb-6">
-                        <div><h1 className="text-2xl font-black text-gray-900">{t.hello} {user.name}</h1><p className="text-gray-500">{t.ready}</p></div>
-                        <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold">{user.name[0]}</div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        {[
-                            { id: 'training', icon: 'GraduationCap', color: 'bg-green-100 text-green-700', label: t.training },
-                            { id: 'sop', icon: 'Book', color: 'bg-blue-100 text-blue-700', label: t.sop },
-                            { id: 'recipes', icon: 'Coffee', color: 'bg-orange-100 text-orange-700', label: t.recipes },
-                            { id: 'inventory', icon: 'Package', color: 'bg-purple-100 text-purple-700', label: t.stock },
-                            { id: 'contact', icon: 'Phone', color: 'bg-pink-100 text-pink-700', label: t.contact },
-                            { id: 'chat', icon: 'MessageSquare', color: 'bg-indigo-100 text-indigo-700', label: t.chat }
-                        ].map(item => (
-                            <button key={item.id} onClick={() => setView(item.id as any)} className={`${item.color} p-4 rounded-2xl flex flex-col items-center justify-center gap-2 shadow-sm aspect-square hover:scale-95 transition`}>
-                                <Icon name={item.icon} size={28} />
-                                <span className="font-bold text-sm">{item.label}</span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            );
+const CustomerApp = ({ onSwitchMode, data }: { onSwitchMode: () => void, data: any }) => {
+    return (<div className="h-screen bg-white flex flex-col items-center justify-center p-6 text-center"><div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-6"><Icon name="Coffee" size={32} /></div><h1 className="text-3xl font-black mb-2 text-gray-900">Customer Kiosk</h1><p className="text-gray-500 mb-8 max-w-xs">Self-service ordering system is currently under maintenance.</p><button onClick={onSwitchMode} className="bg-gray-100 text-gray-900 px-6 py-3 rounded-xl font-bold hover:bg-gray-200 transition">Switch to Staff Mode</button></div>);
+};
+
+// ... ManagerDashboard updates ...
+
+const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
+    const currentUser = { id: 'u_lambert', name: 'Lambert', role: 'manager', phone: '31626419957' } as User;
+    const { schedule, setSchedule, notices, setNotices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests } = data;
+    const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests'>('schedule');
+    const [draggedEmployee, setDraggedEmployee] = useState<string | null>(null);
+    const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
+    const [wages, setWages] = useState<Record<string, number>>(() => JSON.parse(localStorage.getItem('onesip_wages') || '{}'));
+    const [weekOffset, setWeekOffset] = useState(0); 
+
+    useEffect(() => { localStorage.setItem('onesip_budget_max', budgetMax.toString()); }, [budgetMax]);
+    useEffect(() => { localStorage.setItem('onesip_wages', JSON.stringify(wages)); }, [wages]);
+
+    const calculateFinancials = () => {
+        const stats: Record<string, { morning: number, evening: number, estHours: number, estCost: number, actualHours: number, actualCost: number }> = {};
+        TEAM_MEMBERS.forEach(m => { stats[m] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 }; });
+        if (schedule?.days) {
+            schedule.days.forEach((day: any) => {
+                day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ });
+                day.evening.forEach((p: string) => { if(stats[p]) stats[p].evening++ });
+            });
         }
+        const userLogs: Record<string, LogEntry[]> = {};
+        if (logs) { logs.forEach((l: LogEntry) => { if (!l.name) return; if (!userLogs[l.name]) userLogs[l.name] = []; userLogs[l.name].push(l); }); }
+        Object.keys(userLogs).forEach(name => {
+            if(!stats[name]) return;
+            const sorted = userLogs[name].sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+            let lastIn: number | null = null;
+            sorted.forEach(log => {
+                if (log.shift === 'clock-in') { lastIn = new Date(log.time).getTime(); } else if (log.shift === 'clock-out' && lastIn) { const diffHrs = (new Date(log.time).getTime() - lastIn) / (1000 * 60 * 60); if (diffHrs > 0 && diffHrs < 16) { stats[name].actualHours += diffHrs; } lastIn = null; }
+            });
+        });
+        let totalEstCost = 0; let totalActualCost = 0;
+        Object.keys(stats).forEach(p => { const estH = (stats[p].morning * 5) + (stats[p].evening * 4.5); const wage = wages[p] || 12; stats[p].estHours = estH; stats[p].estCost = estH * wage; stats[p].actualCost = stats[p].actualHours * wage; totalEstCost += stats[p].estCost; totalActualCost += stats[p].actualCost; });
+        return { stats, totalEstCost, totalActualCost };
+    };
+    const { stats, totalEstCost, totalActualCost } = calculateFinancials();
+    const exportCSV = () => { let csvContent = "data:text/csv;charset=utf-8,"; csvContent += "Name,Role,Morning Shifts,Evening Shifts,Est Hours,Actual Hours,Hourly Wage,Est Cost,Actual Cost\n"; Object.keys(stats).forEach(p => { const s = stats[p]; if (s.estHours > 0 || s.actualHours > 0) { csvContent += `${p},Staff,${s.morning},${s.evening},${s.estHours.toFixed(1)},${s.actualHours.toFixed(1)},${wages[p] || 12},${s.estCost.toFixed(2)},${s.actualCost.toFixed(2)}\n`; } }); csvContent += `TOTAL,,,,,,${totalEstCost.toFixed(2)},${totalActualCost.toFixed(2)}\n`; csvContent += `BUDGET,,,,,,${budgetMax},${budgetMax}\n`; csvContent += `BALANCE (Actual),,,,,,${(budgetMax - totalActualCost).toFixed(2)}\n`; const encodedUri = encodeURI(csvContent); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "onesip_financial_report.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
+    const ensureScheduleDays = () => { if (!schedule.days) return; const requiredIndex = (weekOffset + 1) * 7; if (schedule.days.length < requiredIndex) { const newDays = [...schedule.days]; const lastDay = newDays[newDays.length - 1]; let [m, d] = lastDay.date.split('-').map(Number); const needed = requiredIndex - newDays.length; for(let i=0; i<needed; i++) { d++; if (d > 31) { d=1; m++; } const dateStr = `${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; newDays.push({ name: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"][(newDays.length)%7], zh: ["周一","周二","周三","周四","周五","周六","周日"][(newDays.length)%7], date: dateStr, morning: [], evening: [], hours: { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end:'19:00'} } }); } const newSched = {...schedule, days: newDays}; setSchedule(newSched); Cloud.saveSchedule(newSched); } };
+    useEffect(() => { ensureScheduleDays(); }, [weekOffset]);
+    const handleDrop = (e: React.DragEvent, dayIdx: number, shiftType: 'morning' | 'evening') => { e.preventDefault(); const name = e.dataTransfer.getData("text/plain"); if (name && schedule?.days) { const realIdx = dayIdx + (weekOffset * 7); if (!schedule.days[realIdx]) { ensureScheduleDays(); return; } const currentShifts = schedule.days[realIdx][shiftType]; if (currentShifts.length >= 3) { alert("Max 3 people!"); return; } if (currentShifts.includes(name)) { alert("Already in shift!"); return; } const newSchedule = { ...schedule }; newSchedule.days[realIdx][shiftType].push(name); setSchedule(newSchedule); Cloud.saveSchedule(newSchedule); } };
+    const removeShift = (dayIdx: number, shiftType: 'morning' | 'evening', nameIndex: number) => { const realIdx = dayIdx + (weekOffset * 7); const newSchedule = { ...schedule }; newSchedule.days[realIdx][shiftType].splice(nameIndex, 1); setSchedule(newSchedule); Cloud.saveSchedule(newSchedule); };
+    const updateHours = (dayIdx: number, type: 'morning'|'evening', field: 'start'|'end', value: string) => { const realIdx = dayIdx + (weekOffset * 7); const newSchedule = { ...schedule }; if (!newSchedule.days[realIdx].hours) { newSchedule.days[realIdx].hours = { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end:'19:00'} }; } newSchedule.days[realIdx].hours![type][field] = value; setSchedule(newSchedule); Cloud.saveSchedule(newSchedule); };
+
+    // --- REVISED MANAGER CONFIRM SWAP LOGIC (FIXED) ---
+    const confirmSwap = (req: SwapRequest) => {
+        // Deep clone to ensure React state updates and no reference issues
+        const newSchedule = JSON.parse(JSON.stringify(schedule));
+        let reqFound = false;
+        let targetFound = false;
+
+        // Helpers acting on the cloned object
+        const removeFromShift = (day: any, shift: 'morning' | 'evening', name: string) => {
+            const idx = day[shift].indexOf(name);
+            if (idx !== -1) {
+                day[shift].splice(idx, 1);
+                return true;
+            }
+            return false;
+        };
+
+        const addToShift = (day: any, shift: 'morning' | 'evening', name: string) => {
+            if (!day[shift].includes(name)) {
+                day[shift].push(name);
+            }
+        };
+
+        const reqDay = newSchedule.days.find((d: any) => d.date === req.requesterDate);
+        const targetDay = newSchedule.days.find((d: any) => d.date === req.targetDate);
+
+        if (!reqDay || !targetDay) return alert("Error: Schedule dates not found.");
+
+        // 1. Remove Requester
+        if (removeFromShift(reqDay, req.requesterShift, req.requesterName)) reqFound = true;
+        else return alert(`Error: ${req.requesterName} not found in ${req.requesterDate} ${req.requesterShift}`);
+
+        // 2. Remove Target (if present - strict swap)
+        if (removeFromShift(targetDay, req.targetShift, req.targetName)) targetFound = true;
+        
+        // 3. Swap
+        addToShift(targetDay, req.targetShift, req.requesterName);
+        addToShift(reqDay, req.requesterShift, req.targetName);
+
+        setSchedule(newSchedule);
+        Cloud.saveSchedule(newSchedule);
+
+        const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === req.id ? {...r, status: 'approved'} : r);
+        setSwapRequests(updatedReqs);
+        Cloud.updateSwapRequests(updatedReqs);
+
+        alert("✅ Swap Confirmed & Schedule Updated!");
     };
 
+    const currentWeekDays = schedule?.days ? schedule.days.slice(weekOffset * 7, (weekOffset + 1) * 7) : [];
+    const managerPendingRequests = swapRequests?.filter((r: SwapRequest) => r.status === 'accepted_by_peer') || [];
+
     return (
-        <div className="h-full flex flex-col bg-white">
-            <div className="flex-1 overflow-hidden relative">
-                {renderView()}
+        <div className="h-full flex flex-col bg-indigo-50 overflow-hidden">
+            <div className="bg-indigo-600 p-6 text-white shadow-lg shrink-0">
+                <div className="flex justify-between items-center mb-4"><div><h1 className="text-2xl font-black">{t.manager_title}</h1><p className="text-xs text-indigo-200">Ops & Team</p></div><button onClick={onExit} className="bg-indigo-500 p-2 rounded-lg"><Icon name="LogOut" /></button></div>
+                <div className="flex bg-indigo-800/50 p-1 rounded-xl overflow-x-auto no-scrollbar gap-1"><button onClick={() => setView('schedule')} className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-bold ${view === 'schedule' ? 'bg-white text-indigo-600' : 'text-indigo-200'}`}>Scheduling</button><button onClick={() => setView('requests')} className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-bold ${view === 'requests' ? 'bg-white text-indigo-600' : 'text-indigo-200'}`}>Requests ({managerPendingRequests.length})</button><button onClick={() => setView('logs')} className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-bold ${view === 'logs' ? 'bg-white text-indigo-600' : 'text-indigo-200'}`}>Monitoring</button><button onClick={() => setView('chat')} className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-bold ${view === 'chat' ? 'bg-white text-indigo-600' : 'text-indigo-200'}`}>Chat</button><button onClick={() => setView('financial')} className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-bold ${view === 'financial' ? 'bg-white text-indigo-600' : 'text-indigo-200'}`}>Financial</button></div>
             </div>
-            <div className="bg-white border-t p-2 flex justify-around items-center shrink-0 safe-area-bottom">
-                <button onClick={() => setView('home')} className={`p-2 rounded-xl flex flex-col items-center gap-1 ${view === 'home' ? 'text-indigo-600' : 'text-gray-400'}`}>
-                    <Icon name="Grid" size={20} />
-                    <span className="text-[10px] font-bold">{t.home}</span>
-                </button>
-                <button onClick={() => setLang(lang === 'en' ? 'zh' : 'en')} className="p-2 rounded-xl flex flex-col items-center gap-1 text-gray-400">
-                    <span className="text-xs font-black border border-current rounded px-1">{lang.toUpperCase()}</span>
-                    <span className="text-[10px] font-bold">Lang</span>
-                </button>
-                <button onClick={onLogout} className="p-2 rounded-xl flex flex-col items-center gap-1 text-gray-400">
-                    <Icon name="LogOut" size={20} />
-                    <span className="text-[10px] font-bold">Exit</span>
-                </button>
+            <div className="flex-1 overflow-hidden relative flex flex-col">
+                {view === 'financial' && (<div className="flex-1 overflow-y-auto p-4 bg-gray-50"><div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"><div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm"><h3 className="text-xs font-bold text-gray-500 uppercase mb-1">Total Budget</h3><div className="flex items-center gap-2"><span className="text-gray-400">€</span><input type="number" className="text-2xl font-black text-gray-900 w-full outline-none" value={budgetMax} onChange={e => setBudgetMax(Number(e.target.value))} /></div></div><div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm"><h3 className="text-xs font-bold text-gray-500 uppercase mb-1">Estimated Cost</h3><p className="text-2xl font-black text-indigo-400">€{totalEstCost.toFixed(2)}</p></div><div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm"><h3 className="text-xs font-bold text-gray-500 uppercase mb-1">Actual Cost</h3><p className="text-2xl font-black text-indigo-600">€{totalActualCost.toFixed(2)}</p></div><div className={`p-4 rounded-xl border shadow-sm ${budgetMax - totalActualCost >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}><h3 className={`text-xs font-bold uppercase mb-1 ${budgetMax - totalActualCost >= 0 ? 'text-green-600' : 'text-red-600'}`}>Balance</h3><p className={`text-2xl font-black ${budgetMax - totalActualCost >= 0 ? 'text-green-700' : 'text-red-700'}`}>€{(budgetMax - totalActualCost).toFixed(2)}</p></div></div><div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6"><div className="p-4 border-b bg-gray-50 flex justify-between items-center"><h3 className="font-bold text-gray-800">Staff Wages & Actuals</h3><button onClick={exportCSV} className="text-xs bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-indigo-200"><Icon name="List" size={14}/> Export CSV</button></div><div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-gray-50 text-gray-500 text-xs uppercase"><tr><th className="p-3">Staff</th><th className="p-3">Wage (€/hr)</th><th className="p-3">Est. Hours</th><th className="p-3">Actual Hours</th><th className="p-3 text-right">Actual Pay</th></tr></thead><tbody className="divide-y divide-gray-100">{Object.keys(stats).filter(p => stats[p].estHours > 0 || stats[p].actualHours > 0 || wages[p]).map(p => (<tr key={p}><td className="p-3 font-bold text-gray-900">{p}</td><td className="p-3"><input type="number" className="w-16 border rounded p-1 text-center bg-gray-50" value={wages[p] || 12} onChange={e => setWages({...wages, [p]: Number(e.target.value)})}/></td><td className="p-3 font-mono text-gray-400">{stats[p].estHours}h</td><td className="p-3 font-mono font-bold text-indigo-600">{stats[p].actualHours.toFixed(1)}h</td><td className="p-3 text-right font-bold text-gray-900">€{stats[p].actualCost.toFixed(2)}</td></tr>))}</tbody></table></div></div></div>)}
+                {view === 'requests' && (<div className="flex-1 overflow-y-auto p-4 bg-gray-50"><h3 className="font-bold text-indigo-900 mb-4">Pending Swap Confirmations</h3><div className="space-y-3">{managerPendingRequests.length === 0 && <p className="text-gray-400 text-sm text-center">No swaps pending manager approval.</p>}{managerPendingRequests.map((req: SwapRequest) => (<div key={req.id} className="bg-white p-4 rounded-xl shadow-sm border border-green-200 relative overflow-hidden"><div className="absolute top-0 right-0 bg-green-500 text-white text-[10px] px-2 py-1 font-bold uppercase rounded-bl-xl">Staff Agreed</div><div className="flex justify-between items-center mb-2 mt-2"><div className="flex items-center gap-2"><span className="font-bold text-gray-800">{req.requesterName}</span><Icon name="ArrowLeft" className="rotate-180 text-gray-400" size={14}/><span className="font-bold text-gray-800">{req.targetName}</span></div></div><div className="text-sm text-gray-500 mb-3 bg-gray-50 p-2 rounded"><div className="flex justify-between"><span>{req.requesterName}: <strong>{req.requesterDate} ({req.requesterShift})</strong></span></div><div className="text-center text-xs text-gray-300 my-1">⇅</div><div className="flex justify-between"><span>{req.targetName}: <strong>{req.targetDate} ({req.targetShift})</strong></span></div></div><button onClick={() => confirmSwap(req)} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold text-sm shadow-md hover:bg-indigo-700 transition">Finalize & Update Schedule</button></div>))}</div></div>)}
+                {view === 'schedule' && schedule?.days && (<div className="flex h-full flex-col md:flex-row overflow-hidden"><div className="w-full md:w-1/3 bg-white border-r border-indigo-100 p-4 overflow-y-auto shadow-xl z-10 shrink-0 h-48 md:h-full"><div className="mb-4 bg-indigo-50 p-4 rounded-xl border border-indigo-100"><h3 className="text-sm font-black text-indigo-900 mb-2">Staff List</h3><p className="text-xs text-gray-500 mb-2">Drag names to schedule</p><div className="flex flex-wrap gap-2">{TEAM_MEMBERS.map(member => (<div key={member} draggable onDragStart={(e) => {e.dataTransfer.setData("text/plain", member); setDraggedEmployee(member);}} className="px-3 py-2 bg-white rounded-lg text-xs font-bold text-gray-700 cursor-move border shadow-sm hover:scale-105 transition">{member}</div>))}</div></div></div><div className="flex-1 overflow-y-auto p-4 bg-gray-50"><div className="flex justify-between items-center mb-4"><button onClick={() => setWeekOffset(Math.max(0, weekOffset - 1))} disabled={weekOffset===0} className="p-2 bg-white rounded-full shadow disabled:opacity-50"><Icon name="ChevronLeft" /></button><span className="font-bold text-gray-700">Week {weekOffset + 1} (Planning up to 8 weeks)</span><button onClick={() => setWeekOffset(Math.min(7, weekOffset + 1))} className="p-2 bg-white rounded-full shadow"><Icon name="ChevronRight" /></button></div><div className="space-y-4">{currentWeekDays.map((day: any, idx: number) => { const mStart = day.hours?.morning?.start || '10:00'; const mEnd = day.hours?.morning?.end || '15:00'; const eStart = day.hours?.evening?.start || '14:30'; const eEnd = day.hours?.evening?.end || '19:00'; return (<div key={idx} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200"><div className="flex justify-between items-center mb-3"><h3 className="font-bold text-gray-800">{day.name} <span className="text-gray-400 font-normal text-xs ml-1">{day.zh} ({day.date})</span></h3></div><div className="mb-3"><div className="flex justify-between items-center mb-1"><div className="text-[10px] font-bold text-orange-500 uppercase">{t.morning_shift}</div><div className="flex gap-1 text-[10px]"><input className="w-10 text-center border rounded bg-gray-50" value={mStart} onChange={e=>updateHours(idx,'morning','start',e.target.value)} /><span>-</span><input className="w-10 text-center border rounded bg-gray-50" value={mEnd} onChange={e=>updateHours(idx,'morning','end',e.target.value)} /></div></div><div onDrop={(e) => handleDrop(e, idx, 'morning')} onDragOver={(e)=>e.preventDefault()} className="min-h-[40px] border-2 border-dashed rounded-lg p-2 flex flex-wrap gap-2 bg-orange-50/30 border-orange-200">{day.morning.map((name: string, i: number) => (<div key={i} className="bg-orange-100 text-orange-800 text-xs font-bold px-2 py-1 rounded flex items-center gap-1">{name}<button onClick={() => removeShift(idx, 'morning', i)}><Icon name="X" size={12}/></button></div>))}</div></div><div><div className="flex justify-between items-center mb-1"><div className="text-[10px] font-bold text-indigo-500 uppercase">{t.evening_shift}</div><div className="flex gap-1 text-[10px]"><input className="w-10 text-center border rounded bg-gray-50" value={eStart} onChange={e=>updateHours(idx,'evening','start',e.target.value)} /><span>-</span><input className="w-10 text-center border rounded bg-gray-50" value={eEnd} onChange={e=>updateHours(idx,'evening','end',e.target.value)} /></div></div><div onDrop={(e) => handleDrop(e, idx, 'evening')} onDragOver={(e)=>e.preventDefault()} className="min-h-[40px] border-2 border-dashed rounded-lg p-2 flex flex-wrap gap-2 bg-indigo-50/30 border-indigo-200">{day.evening.map((name: string, i: number) => (<div key={i} className="bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-1 rounded flex items-center gap-1">{name}<button onClick={() => removeShift(idx, 'evening', i)}><Icon name="X" size={12}/></button></div>))}</div></div></div>); })}</div></div></div>)}
+                {view === 'logs' && (<div className="flex-1 overflow-y-auto p-4 flex flex-col"><h3 className="font-bold text-indigo-900 mb-4">Activity Logs</h3><div className="space-y-2">{logs?.map((log: LogEntry) => (<div key={log.id} className="bg-white p-3 rounded-lg border flex justify-between items-center shadow-sm"><div><div className="font-bold text-sm text-gray-800 flex items-center gap-2">{log.name || 'System'} <span className={`text-[10px] px-2 py-0.5 rounded-full ${log.type?.includes('clock') ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>{log.type}</span></div><div className="text-xs text-gray-500 mt-1">{log.time} - {log.shift}</div></div>{log.reason && <div className="text-[10px] font-bold bg-gray-50 px-2 py-1 rounded border border-gray-200 text-gray-600">{log.reason}</div>}</div>))}</div></div>)}
+                {view === 'chat' && (<ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} />)}
             </div>
         </div>
     );
 };
 
-const App = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [adminMode, setAdminMode] = useState<'manager' | 'owner' | 'editor' | null>(null);
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
-  const [lang, setLang] = useState<Lang>('en');
-  
-  const [inventoryList, setInventoryList] = useState(INVENTORY_ITEMS);
-  const [schedule, setSchedule] = useState(MOCK_SCHEDULE_WEEK02);
-  const [sopList, setSopList] = useState(SOP_DATABASE);
-  const [trainingLevels, setTrainingLevels] = useState(TRAINING_LEVELS);
-  const [recipes, setRecipes] = useState(DRINK_RECIPES);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [messages, setMessages] = useState<DirectMessage[]>([]);
-  const [notices, setNotices] = useState<Notice[]>([]);
-  const [swaps, setSwaps] = useState<SwapRequest[]>([]);
-  const [salesRecords, setSalesRecords] = useState<SalesRecord[]>([]);
-  const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
+const StaffApp = ({ onSwitchMode, data, onLogout, currentUser }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User }) => {
+    // ... (Same as before with GPS updates)
+    const { lang, setLang, menuItems, setMenuItems, promoData, setPromoData, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests } = data;
+    const [view, setView] = useState<StaffViewMode>('home');
+    const [currentShift, setCurrentShift] = useState<string | null>(null);
+    const [showAdminLogin, setShowAdminLogin] = useState(false);
+    const [adminRole, setAdminRole] = useState<'none' | 'manager' | 'owner' | 'editor'>('none');
+    const [activeNotice, setActiveNotice] = useState<Notice | null>(null);
+    const getLoc = (obj: any) => obj[lang] || obj['zh'];
+    const unreadMessages = data.directMessages.filter((m: DirectMessage) => m.toId === currentUser.id && !m.read).length;
+    const getNextShift = () => { if (!schedule || !schedule.days || !Array.isArray(schedule.days)) return null; const today = new Date(); for (const day of schedule.days) { if (day.morning.includes(currentUser.name)) return { day: day.name, date: day.date, type: 'Morning', zh: day.zh }; if (day.evening.includes(currentUser.name)) return { day: day.name, date: day.date, type: 'Evening', zh: day.zh }; } return null; };
+    const nextShift = getNextShift();
+    useEffect(() => { if (notices && notices.length > 0) { const latest = notices[notices.length - 1]; const lastSeen = localStorage.getItem(`notice_seen_${latest.id}`); const todayStr = new Date().toLocaleDateString(); if (latest.frequency === 'always') { setActiveNotice(latest); } else if (latest.frequency === 'daily') { if (lastSeen !== todayStr) { setActiveNotice(latest); localStorage.setItem(`notice_seen_${latest.id}`, todayStr); } } else if (latest.frequency === 'once') { if (!lastSeen) { setActiveNotice(latest); localStorage.setItem(`notice_seen_${latest.id}`, 'seen'); } } } }, [notices]);
 
-  useEffect(() => {
-    Cloud.seedInitialData();
-    const unsubInv = Cloud.subscribeToInventory(setInventoryList);
-    const unsubSched = Cloud.subscribeToSchedule(setSchedule);
-    const unsubContent = Cloud.subscribeToContent((data) => {
-        if(data.sops) setSopList(data.sops);
-        if(data.training) setTrainingLevels(data.training);
-        if(data.recipes) setRecipes(data.recipes);
-    });
-    const unsubLogs = Cloud.subscribeToLogs(setLogs);
-    const unsubChat = Cloud.subscribeToChat(setMessages, setNotices);
-    const unsubSwaps = Cloud.subscribeToSwaps(setSwaps);
-    const unsubSales = Cloud.subscribeToSales(setSalesRecords);
-    const unsubInvHist = Cloud.subscribeToInventoryHistory(setInventoryHistory);
+    // --- SMART CLOCK-IN SYSTEM (GPS + SCHEDULE + TASK RULES) ---
+    const handleClockLog = (type: 'clock-in' | 'clock-out') => {
+        const now = new Date();
+        const todayStr = getTodayMMDD();
+        const fullTodayStr = now.toLocaleDateString();
 
-    return () => {
-        unsubInv(); unsubSched(); unsubContent(); unsubLogs(); unsubChat(); unsubSwaps(); unsubSales(); unsubInvHist();
+        // 1. SCHEDULE VALIDATION (Strict)
+        const daySchedule = schedule?.days?.find((d: any) => d.date === todayStr);
+        const isScheduledMorning = daySchedule?.morning?.includes(currentUser.name);
+        const isScheduledEvening = daySchedule?.evening?.includes(currentUser.name);
+
+        if (!daySchedule || (!isScheduledMorning && !isScheduledEvening)) {
+            alert(`⛔️ Clock-in Blocked\nYou are not scheduled for today (${todayStr}).`);
+            return;
+        }
+
+        // 2. TASK COMPLETION RULES (For Clock-Out only)
+        if (type === 'clock-out') {
+            const isMorningShiftTime = now.getHours() < 16; 
+            // Check logs for today
+            const todayLogs = logs.filter(l => new Date(l.time).toLocaleDateString() === fullTodayStr);
+            const hasInventory = todayLogs.some(l => l.type === 'inventory');
+            const hasClosing = todayLogs.some(l => l.type === 'checklist' && (l.shift.includes('Closing') || l.shift.includes('晚班')));
+
+            if (isMorningShiftTime) {
+                // Morning Requirement: Inventory
+                if (!hasInventory) return alert("⚠️ Cannot Clock Out\nYou must complete 'Inventory Management' first.");
+            } else {
+                // Evening Requirement: Inventory + Closing SOP
+                let missing = [];
+                if (!hasInventory) missing.push("Inventory Management");
+                if (!hasClosing) missing.push("Closing SOP Checklist");
+                
+                if (missing.length > 0) {
+                    return alert(`⚠️ Cannot Clock Out\nPlease complete: \n- ${missing.join('\n- ')}`);
+                }
+            }
+        }
+        
+        // 3. GPS CHECK
+        if (!navigator.geolocation) {
+            alert("Geolocation is not supported. Proceeding with 'GPS Unknown'.");
+            performClockIn(type, "GPS Unknown");
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const dist = getDistanceFromLatLonInKm(
+                    position.coords.latitude, 
+                    position.coords.longitude, 
+                    STORE_COORDS.lat, 
+                    STORE_COORDS.lng
+                );
+                
+                // 500m threshold as per requirement
+                // If < 500m, mark as "300m内" (Within 300m)
+                // If > 500m, mark as "300m外" (Outside 300m)
+                let locTag = "";
+                let alertMsg = "";
+
+                if (dist <= 500) {
+                    locTag = "300m内"; // Label requested
+                    alertMsg = `✅ Success! Location: Within 300m`;
+                } else {
+                    locTag = "300m外"; // Label requested
+                    alertMsg = `⚠️ Warning: You are far from the store (${Math.round(dist)}m). Marked as Outside 300m.`;
+                }
+
+                alert(alertMsg);
+                performClockIn(type, locTag);
+            },
+            (error) => {
+                console.error("GPS Error", error);
+                alert("⚠️ GPS Error. Please allow location access.");
+                performClockIn(type, "GPS Error");
+            },
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        );
     };
-  }, []);
 
-  const t = TRANSLATIONS[lang];
+    const performClockIn = (type: 'clock-in' | 'clock-out', locationTag: string) => {
+        const newLog: LogEntry = { 
+            id: Date.now(), 
+            shift: type, 
+            name: currentUser.name, 
+            userId: currentUser.id, 
+            time: new Date().toLocaleString(), 
+            type: type, 
+            reason: locationTag // Storing GPS tag here
+        };
+        setLogs([newLog, ...logs]);
+        Cloud.saveLog(newLog);
+    };
 
-  if (adminMode === 'owner') {
-      return <OwnerDashboard data={{ inventoryList, setInventoryList, t, lang, inventoryHistory, salesRecords, setSalesRecords }} onExit={() => setAdminMode(null)} />;
-  }
+    const requestSwap = (reqData: any) => {
+        const targetUser = USERS.find(u => u.name === reqData.targetName);
+        if (!targetUser) return alert("User not found");
+        
+        const req: SwapRequest = {
+            id: Date.now().toString(),
+            requesterName: currentUser.name,
+            requesterId: currentUser.id,
+            requesterDate: reqData.sourceDate,
+            requesterShift: reqData.sourceShift,
+            targetName: reqData.targetName,
+            targetId: targetUser.id,
+            targetDate: reqData.targetDate,
+            targetShift: reqData.targetShift,
+            status: 'pending',
+            timestamp: Date.now()
+        };
+        Cloud.saveSwapRequest(req);
+        // Explicit Confirmation for Requester
+        alert(`✅ Request Sent!\n\nYou asked ${reqData.targetName} to swap.\nWait for them to accept in their app.`);
+    };
 
-  if (adminMode === 'editor') {
-      return <EditorDashboard data={{ sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t, lang }} onExit={() => setAdminMode(null)} />;
-  }
+    const handleSwapDrop = (e: React.DragEvent, targetDate: string, targetShift: 'morning'|'evening', targetName: string) => {
+        e.preventDefault();
+        e.stopPropagation(); 
+        
+        try {
+            const rawData = e.dataTransfer.getData("application/json");
+            if (!rawData) return;
+            const data = JSON.parse(rawData);
+            
+            if (data.user === currentUser.name && targetName !== currentUser.name) {
+                // Confirmation Dialog
+                const confirmMsg = `Confirm Swap Request?\n\nMy Shift: ${data.date} (${data.shift})\nTarget: ${targetName} on ${targetDate} (${targetShift})`;
+                if (window.confirm(confirmMsg)) {
+                    requestSwap({
+                        sourceDate: data.date,
+                        sourceShift: data.shift,
+                        targetName: targetName,
+                        targetDate: targetDate,
+                        targetShift: targetShift
+                    });
+                }
+            }
+        } catch (err) {
+            console.error("Swap drop error", err);
+        }
+    };
 
-  if (!user) {
-      return (
-          <>
-            <LoginScreen t={t} onLogin={setUser} />
-            <div className="fixed top-4 right-4 z-50">
-                <button onClick={() => setShowAdminLogin(true)} className="bg-gray-800 text-white p-2 rounded-full opacity-30 hover:opacity-100 transition">
-                    <Icon name="Lock" size={16} />
-                </button>
-            </div>
-            <AdminLoginModal isOpen={showAdminLogin} onClose={() => setShowAdminLogin(false)} onLogin={(role) => { setShowAdminLogin(false); setAdminMode(role); }} />
-          </>
-      );
-  }
+    const handleSwapAction = (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
+        const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? {...r, status: action} : r);
+        setSwapRequests(updatedReqs);
+        Cloud.updateSwapRequests(updatedReqs);
+    };
 
-  return (
-      <StaffDashboard 
-          user={user} 
-          lang={lang} 
-          setLang={setLang}
-          data={{ inventoryList, schedule, sopList, trainingLevels, recipes, logs, messages, notices, swaps }} 
-          actions={{ setInventoryList, setLogs, setMessages }}
-          onLogout={() => setUser(null)}
-      />
-  );
+    // ... (submitChecklist, handleInventorySubmit, renderStaffView same as before with updated calls)
+    const submitChecklist = () => { if (!currentShift) return; const tmpl = CHECKLIST_TEMPLATES[currentShift]; const newLog: LogEntry = { id: Date.now(), shift: getLoc(tmpl.title), name: currentUser.name, userId: currentUser.id, time: new Date().toLocaleString(), status: 'Completed', type: 'checklist' }; setLogs([newLog, ...logs]); Cloud.saveLog(newLog); setCurrentShift(null); setView('sop'); alert(t.submit_success); };
+    const handleInventorySubmit = (reportData: any) => { const newLog: LogEntry = { id: Date.now(), shift: "Inventory", name: reportData.submittedBy, userId: reportData.userId, time: new Date().toLocaleString(), type: 'inventory', reason: "Submitted Report" }; setLogs([newLog, ...logs]); Cloud.saveLog(newLog); const report: InventoryReport = { id: Date.now(), date: new Date().toLocaleDateString(), submittedBy: reportData.submittedBy, userId: reportData.userId, data: reportData.data }; Cloud.saveInventoryReport(report); };
+
+    if (adminRole === 'manager') return <ManagerDashboard data={data} onExit={() => setAdminRole('none')} />;
+    if (adminRole === 'owner') return <OwnerDashboard data={data} onExit={() => setAdminRole('none')} />;
+    if (adminRole === 'editor') return <EditorDashboard data={data} onExit={() => setAdminRole('none')} />;
+
+    const clientSchedule = { ...schedule, days: schedule?.days?.slice(0, 14) || [] };
+    const myPendingSwaps = swapRequests?.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending') || [];
+    const mySwapHistory = swapRequests?.filter((r: SwapRequest) => (r.requesterId === currentUser.id || r.targetId === currentUser.id) && !(r.targetId === currentUser.id && r.status === 'pending')).sort((a,b) => b.timestamp - a.timestamp) || [];
+
+    const renderStaffView = () => {
+        if (view === 'team') {
+            return (
+                <div className="h-full overflow-y-auto p-4 bg-gray-50 animate-fade-in">
+                    <h2 className="text-2xl font-black text-gray-900 mb-4">{t.team_title} (2 Weeks)</h2>
+                    
+                    {/* Action Items: Incoming Requests */}
+                    {myPendingSwaps.length > 0 && (<div className="bg-yellow-50 border border-yellow-200 p-4 rounded-xl mb-4 shadow-sm"><h3 className="font-bold text-yellow-800 mb-2 flex items-center gap-2"><Icon name="Bell" size={16}/> Swap Requests (Action Required)</h3>{myPendingSwaps.map((req: SwapRequest) => (<div key={req.id} className="bg-white p-3 rounded-lg shadow-sm mb-2 border border-gray-100"><p className="text-sm text-gray-700"><strong>{req.requesterName}</strong> wants your shift on <strong>{req.targetDate}</strong>.<br/>They offer: <strong>{req.requesterDate} ({req.requesterShift})</strong>.</p><div className="flex gap-2 mt-2"><button onClick={()=>handleSwapAction(req.id, 'accepted_by_peer')} className="flex-1 bg-green-100 text-green-700 py-2 rounded-lg text-xs font-bold hover:bg-green-200 transition">Agree</button><button onClick={()=>handleSwapAction(req.id, 'rejected')} className="flex-1 bg-red-100 text-red-700 py-2 rounded-lg text-xs font-bold hover:bg-red-200 transition">Decline</button></div></div>))}</div>)}
+                    
+                    {/* Status Tracker: My Outgoing/Processed Requests */}
+                    {mySwapHistory.length > 0 && (
+                        <div className="mb-6 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                            <h3 className="font-bold text-gray-400 text-xs uppercase mb-3 flex items-center gap-2"><Icon name="List" size={12}/> Request Status</h3>
+                            {mySwapHistory.map(req => {
+                                let statusColor = 'bg-gray-100 text-gray-500';
+                                let statusText = 'Waiting';
+                                if (req.status === 'pending') { statusColor = 'bg-orange-100 text-orange-600'; statusText = 'Wait for Peer'; }
+                                if (req.status === 'accepted_by_peer') { statusColor = 'bg-blue-100 text-blue-600'; statusText = 'Wait for Manager'; }
+                                if (req.status === 'approved') { statusColor = 'bg-green-100 text-green-600'; statusText = 'Approved'; }
+                                if (req.status === 'rejected') { statusColor = 'bg-red-100 text-red-600'; statusText = 'Rejected'; }
+                                
+                                return (
+                                    <div key={req.id} className="flex justify-between items-center mb-2 last:mb-0 border-b last:border-0 pb-2 last:pb-0">
+                                        <div className="text-xs">
+                                            <div className="flex items-center gap-1 font-bold text-gray-700">
+                                                <span>{req.requesterId === currentUser.id ? 'You' : req.requesterName}</span>
+                                                <span className="text-gray-400">⇄</span>
+                                                <span>{req.targetId === currentUser.id ? 'You' : req.targetName}</span>
+                                            </div>
+                                            <div className="text-[10px] text-gray-400 mt-0.5">{req.requesterDate} ({req.requesterShift})</div>
+                                        </div>
+                                        <span className={`text-[10px] px-2 py-1 rounded-full font-bold ${statusColor}`}>{statusText}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    <div className="space-y-4"><div className="text-xs text-gray-400 bg-gray-100 p-2 rounded text-center">💡 Tip: Drag YOUR name onto another person to request a swap.</div>{clientSchedule?.days?.map((day, idx) => { const isMyMorning = currentUser && day.morning.includes(currentUser.name); const isMyEvening = currentUser && day.evening.includes(currentUser.name); const isMyDay = isMyMorning || isMyEvening; return (<div key={idx} className={`p-4 rounded-xl shadow-sm border transition-all ${isMyDay ? 'bg-indigo-50 border-indigo-200 ring-2 ring-indigo-100' : 'bg-white border-gray-100'}`}><div className="flex justify-between items-center mb-3"><h3 className={`font-bold ${isMyDay ? 'text-indigo-900' : 'text-gray-800'}`}>{day.name} <span className="text-gray-400 font-normal text-xs ml-1">{day.zh} ({day.date})</span></h3>{isMyDay && <span className="text-[10px] bg-indigo-600 text-white px-2 py-1 rounded-full font-bold">{t.my_shift}</span>}</div><div className="mb-3"><div className="text-[10px] font-bold text-orange-500 uppercase mb-1 flex justify-between"><span>{t.morning_shift}</span>{day.hours?.morning && <span className="text-gray-400 font-mono">{day.hours.morning.start}-{day.hours.morning.end}</span>}</div><div className="flex flex-wrap gap-2">{day.morning.length > 0 ? day.morning.map((name, i) => (<div key={i} draggable={name === currentUser.name} onDragStart={(e) => { e.dataTransfer.setData("application/json", JSON.stringify({user: name, date: day.date, shift: 'morning'})); }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleSwapDrop(e, day.date, 'morning', name)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all relative ${name === currentUser?.name ? 'bg-orange-500 text-white shadow-md cursor-grab active:cursor-grabbing border-orange-600' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>{name}{name !== currentUser.name && (<span className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity">⇅</span>)}</div>)) : <span className="text-gray-300 text-xs italic">Empty</span>}</div></div><div><div className="text-[10px] font-bold text-indigo-500 uppercase mb-1 flex justify-between"><span>{t.evening_shift}</span>{day.hours?.evening && <span className="text-gray-400 font-mono">{day.hours.evening.start}-{day.hours.evening.end}</span>}</div><div className="flex flex-wrap gap-2">{day.evening.length > 0 ? day.evening.map((name, i) => (<div key={i} draggable={name === currentUser.name} onDragStart={(e) => { e.dataTransfer.setData("application/json", JSON.stringify({user: name, date: day.date, shift: 'evening'})); }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleSwapDrop(e, day.date, 'evening', name)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all relative ${name === currentUser?.name ? 'bg-indigo-600 text-white shadow-md cursor-grab active:cursor-grabbing border-indigo-700' : 'bg-indigo-50 text-indigo-700 border-indigo-100'}`}>{name}</div>)) : <span className="text-gray-300 text-xs italic">Empty</span>}</div></div></div>); })}</div>
+                </div>
+            );
+        }
+        if (view === 'contact') return <ContactView t={t} lang={lang} />;
+        if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} />;
+        if (view === 'recipes') return <div className="h-full overflow-y-auto"><div className="bg-white p-4 border-b"><h2 className="text-xl font-bold">{t.recipe_title}</h2></div><div className="p-4">{data.recipes.map((d: DrinkRecipe) => <DrinkCard key={d.id} drink={d} lang={lang} t={t} />)}</div></div>;
+        if (view === 'training') return <TrainingView data={data} onComplete={() => {}} />;
+        if (view === 'sop') return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />;
+        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={data.directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} />;
+        if (view === 'checklist' && currentShift) { const tmpl = CHECKLIST_TEMPLATES[currentShift]; return (<div className="h-full flex flex-col bg-white"><div className={`${tmpl.color} p-6 text-white`}><button onClick={() => setView('sop')} className="mb-4"><Icon name="ArrowLeft" /></button><h2 className="text-3xl font-bold">{getLoc(tmpl.title)}</h2></div><div className="flex-1 overflow-y-auto p-4">{tmpl.items.map((i: any) => (<div key={i.id} className="p-4 border-b flex items-center gap-3"><div className="w-6 h-6 border-2 rounded"></div><div><p className="font-bold">{getLoc(i.text)}</p></div></div>))}</div><div className="p-4 border-t"><button onClick={submitChecklist} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold">{t.confirm_submit}</button></div></div>); }
+        if (view === 'home') { return (<div className="h-full overflow-y-auto p-6 pb-24 space-y-6 animate-fade-in bg-gray-50"><header className="flex justify-between items-center"><div><h1 className="text-2xl font-black text-gray-900 tracking-tight">ONESIP</h1><p className="text-sm text-gray-500 font-medium">{t.hello} {currentUser.name}</p></div><div className="flex gap-2"><button onClick={() => setShowAdminLogin(true)} className="bg-gray-900 text-white border px-3 py-1 rounded-full text-xs font-bold shadow-sm flex items-center gap-1"><Icon name="Shield" size={14}/> Admin</button><button onClick={() => setLang(l => l === 'zh' ? 'en' : 'zh')} className="bg-white border w-8 h-8 rounded-full flex items-center justify-center font-bold shadow-sm text-xs">{lang === 'zh' ? 'EN' : 'CN'}</button><button onClick={onLogout} className="bg-white border w-8 h-8 rounded-full flex items-center justify-center font-bold shadow-sm text-xs text-red-500"><Icon name="LogOut" size={14}/></button></div></header>{nextShift ? (<div className="bg-indigo-600 text-white p-5 rounded-2xl shadow-lg shadow-indigo-200"><div className="flex justify-between items-start mb-2"><span className="bg-indigo-500 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">Next Shift</span><Icon name="Calendar" className="text-indigo-200" /></div><h2 className="text-2xl font-black mb-1">{nextShift.day}</h2><p className="text-indigo-100 text-sm font-medium flex gap-2 items-center"><span>{nextShift.date}</span><span className="w-1 h-1 bg-white rounded-full"></span><span>{nextShift.type === 'Morning' ? '10:00 - 15:00' : '14:30 - 19:00'}</span></p></div>) : (<div className="bg-white p-5 rounded-2xl border border-gray-100 text-gray-400 text-sm font-bold flex items-center gap-2"><Icon name="Calendar" /> No upcoming shifts this week</div>)}<div className="grid gap-4"><button onClick={() => setView('inventory')} className="bg-white p-5 rounded-2xl shadow-sm border border-red-100 flex items-center gap-4 active:scale-95 transition-all"><div className="bg-red-100 p-3 rounded-xl text-red-600"><Icon name="Package" size={24} /></div><div className="text-left flex-1"><h3 className="font-bold text-lg text-gray-800">{t.inventory_title}</h3></div><Icon name="ChevronRight" className="text-gray-300" /></button><div className="grid grid-cols-2 gap-3"><button onClick={() => handleClockLog('clock-in')} className="bg-gradient-to-br from-green-500 to-emerald-600 text-white p-4 rounded-2xl shadow-lg shadow-green-200 active:scale-95 transition-all flex flex-col items-center justify-center gap-2"><Icon name="Play" size={32} className="text-white" /><span className="font-black">{t.clock_in}</span></button><button onClick={() => handleClockLog('clock-out')} className="bg-gradient-to-br from-red-500 to-rose-600 text-white p-4 rounded-2xl shadow-lg shadow-red-200 active:scale-95 transition-all flex flex-col items-center justify-center gap-2"><Icon name="Square" size={32} className="text-white" /><span className="font-black">{t.clock_out}</span></button></div></div></div>); }
+        return <div>View: {view}</div>;
+    };
+    return (<div className="max-w-md mx-auto h-screen bg-gray-50 relative flex flex-col font-sans"><AdminLoginModal isOpen={showAdminLogin} onClose={() => setShowAdminLogin(false)} onLogin={(role) => { setAdminRole(role); setShowAdminLogin(false); }} /><NoticeModal notice={activeNotice} onClose={() => setActiveNotice(null)} /><div className="flex-1 overflow-hidden relative">{renderStaffView()}</div>{ !['checklist', 'chat'].includes(view) && (<nav className="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-200 p-2 pb-6 z-50 overflow-x-auto"><div className="flex justify-between items-center gap-1 min-w-max px-2"><button onClick={() => setView('home')} className={`flex flex-col items-center p-2 rounded-xl min-w-[60px] ${view === 'home' ? 'text-gray-900 bg-gray-100' : 'text-gray-400'}`}><Icon name="Grid" size={20} /><span className="text-[9px] font-bold mt-1">{t.home}</span></button><button onClick={() => setView('chat')} className={`relative flex flex-col items-center p-2 rounded-xl min-w-[60px] ${view === 'chat' ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400'}`}><Icon name="MessageSquare" size={20} /><span className="text-[9px] font-bold mt-1">{t.chat}</span>{unreadMessages > 0 && <span className="absolute top-1 right-3 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}</button><button onClick={() => setView('training')} className={`flex flex-col items-center p-2 rounded-xl min-w-[60px] ${view === 'training' ? 'text-green-600 bg-green-50' : 'text-gray-400'}`}><Icon name="GraduationCap" size={20} /><span className="text-[9px] font-bold mt-1">{t.training}</span></button><button onClick={() => setView('recipes')} className={`flex flex-col items-center p-2 rounded-xl min-w-[60px] ${view === 'recipes' ? 'text-orange-600 bg-orange-50' : 'text-gray-400'}`}><Icon name="Book" size={20} /><span className="text-[9px] font-bold mt-1">{t.recipes}</span></button><button onClick={() => setView('sop')} className={`flex flex-col items-center p-2 rounded-xl min-w-[60px] ${view === 'sop' ? 'text-blue-600 bg-blue-50' : 'text-gray-400'}`}><Icon name="BookOpen" size={20} /><span className="text-[9px] font-bold mt-1">{t.sop}</span></button><button onClick={() => setView('team')} className={`flex flex-col items-center p-2 rounded-xl min-w-[60px] ${view === 'team' ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400'}`}><Icon name="Calendar" size={20} /><span className="text-[9px] font-bold mt-1">{t.schedule}</span></button><button onClick={() => setView('inventory')} className={`flex flex-col items-center p-2 rounded-xl min-w-[60px] ${view === 'inventory' ? 'text-red-600 bg-red-50' : 'text-gray-400'}`}><Icon name="Package" size={20} /><span className="text-[9px] font-bold mt-1">{t.stock}</span></button></div></nav>)}</div>);
 };
 
-export default App;
+export default function App() {
+    const [mode, setMode] = useState<'staff' | 'customer'>('staff');
+    const [lang, setLang] = useState<Lang>('zh');
+    const [currentUser, setCurrentUser] = useState<User | null>(() => {
+        const saved = localStorage.getItem('onesip_current_user');
+        return saved ? JSON.parse(saved) : null;
+    });
+    const [showCloudSetup, setShowCloudSetup] = useState(!Cloud.isCloudEnabled());
+    const [menuItems, setMenuItems] = useState(INITIAL_MENU_DATA);
+    const [wikiItems, setWikiItems] = useState(INITIAL_WIKI_DATA);
+    const [promoData, setPromoData] = useState(INITIAL_ANNOUNCEMENT_DATA);
+    const [inventoryList, setInventoryList] = useState<InventoryItem[]>(INVENTORY_ITEMS);
+    const [schedule, setSchedule] = useState(MOCK_SCHEDULE_WEEK02);
+    const [notices, setNotices] = useState<Notice[]>([]);
+    const [sopList, setSopList] = useState<SopItem[]>(SOP_DATABASE);
+    const [trainingLevels, setTrainingLevels] = useState<TrainingLevel[]>(TRAINING_LEVELS);
+    const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
+    const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
+    const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
+    const [salesRecords, setSalesRecords] = useState<SalesRecord[]>([]);
+    const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
+
+    useEffect(() => {
+        if (!Cloud.isCloudEnabled()) return;
+        Cloud.seedInitialData();
+        const unsubInv = Cloud.subscribeToInventory(setInventoryList);
+        const unsubSched = Cloud.subscribeToSchedule(data => { if (data && data.days && Array.isArray(data.days)) { setSchedule(data); } else if (Array.isArray(data)) { setSchedule(prev => ({ ...prev, days: data })); }});
+        const unsubContent = Cloud.subscribeToContent(data => { if(data.sops) setSopList(data.sops); if(data.training) setTrainingLevels(data.training); if(data.recipes) setRecipes(data.recipes); });
+        const unsubLogs = Cloud.subscribeToLogs(setLogs);
+        const unsubChat = Cloud.subscribeToChat((msgs, notes) => { setDirectMessages(msgs); setNotices(notes); });
+        const unsubSwaps = Cloud.subscribeToSwaps(setSwapRequests);
+        const unsubSales = Cloud.subscribeToSales(setSalesRecords);
+        const unsubHistory = Cloud.subscribeToInventoryHistory(setInventoryHistory);
+        return () => { unsubInv(); unsubSched(); unsubContent(); unsubLogs(); unsubChat(); unsubSwaps(); unsubSales(); unsubHistory(); };
+    }, []);
+
+    useEffect(() => { if (currentUser) { localStorage.setItem('onesip_current_user', JSON.stringify(currentUser)); } else { localStorage.removeItem('onesip_current_user'); } }, [currentUser]);
+    const t = TRANSLATIONS[lang]; 
+    const handleLogin = (user: User) => { setCurrentUser(user); };
+    const handleLogout = () => { setCurrentUser(null); };
+    const sharedData = { menuItems, setMenuItems, wikiItems, setWikiItems, promoData, setPromoData, lang, setLang, inventoryList, setInventoryList, schedule, setSchedule, notices, setNotices, sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, logs, setLogs, directMessages, setDirectMessages, swapRequests, setSwapRequests, salesRecords, setSalesRecords, inventoryHistory, setInventoryHistory, t };
+
+    if (!currentUser && mode === 'staff') { return (<> <LoginScreen t={t} onLogin={handleLogin} /> <CloudSetupModal isOpen={showCloudSetup} onClose={() => setShowCloudSetup(false)} /> </>); }
+    return mode === 'staff' ? <StaffApp onSwitchMode={() => setMode('customer')} data={sharedData} onLogout={handleLogout} currentUser={currentUser!} /> : <CustomerApp onSwitchMode={() => setMode('staff')} data={sharedData} />;
+}
