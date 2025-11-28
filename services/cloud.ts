@@ -240,3 +240,36 @@ export const saveInventoryLogs = async (logs: any[]) => {
         entries: arrayUnion(...logs)
     }, { merge: true });
 };
+
+// --- STAFF AVAILABILITY (NEW) ---
+import { collection, query, where, serverTimestamp, setDoc as setFirestoreDoc, onSnapshot as firestoreOnSnapshot, collection as firestoreCollection, query as firestoreQuery, where as firestoreWhere, getDocs as firestoreGetDocs, doc as firestoreDoc, getDoc as firestoreGetDoc } from 'firebase/firestore';
+
+export const getStaffAvailability = async (userId: string, weekStart: string) => {
+    if (!db) return null;
+    const docRef = firestoreDoc(db, 'staff_availability', `${userId}_${weekStart}`);
+    const docSnap = await firestoreGetDoc(docRef);
+    return docSnap.exists() ? docSnap.data() : null;
+};
+
+export const saveStaffAvailability = async (userId: string, weekStart: string, slots: any) => {
+    if (!db) return;
+    const docRef = firestoreDoc(db, 'staff_availability', `${userId}_${weekStart}`);
+    await setFirestoreDoc(docRef, {
+        userId,
+        weekStart,
+        slots,
+        updatedAt: serverTimestamp()
+    }, { merge: true });
+};
+
+export const subscribeToAvailabilitiesForWeek = (weekStart: string, callback: (data: any[]) => void) => {
+    if (!db) return () => {};
+    const q = firestoreQuery(firestoreCollection(db, "staff_availability"), firestoreWhere("weekStart", "==", weekStart));
+    return firestoreOnSnapshot(q, (querySnapshot) => {
+        const availabilities: any[] = [];
+        querySnapshot.forEach((doc) => {
+            availabilities.push(doc.data());
+        });
+        callback(availabilities);
+    });
+};

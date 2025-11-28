@@ -69,7 +69,13 @@ export const TRANSLATIONS: Record<string, any> = {
         my_shift: "我的班次",
         next_shift: "下一次值班",
         no_shift: "暂无排班",
-        
+        next_week_availability: "下周可上班时间",
+        availability_reminder_title: "填写下周可上班时间",
+        availability_reminder_body: "店长正在安排下周的排班，请尽快填写你的可上班时间以方便安排。",
+        fill_now: "现在填写",
+        later: "稍后",
+        availability_saved: "可上班时间已保存！",
+
         // Chat
         team_board: "团队公告板",
         type_message: "输入消息...",
@@ -166,6 +172,12 @@ export const TRANSLATIONS: Record<string, any> = {
         my_shift: "My Shifts",
         next_shift: "Next Shift",
         no_shift: "No upcoming shifts",
+        next_week_availability: "Next Week Availability",
+        availability_reminder_title: "Set Next Week's Availability",
+        availability_reminder_body: "The manager is creating the schedule for next week. Please submit your availability to help with planning.",
+        fill_now: "Fill Now",
+        later: "Later",
+        availability_saved: "Availability saved!",
         
         // Chat
         team_board: "Team Board",

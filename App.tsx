@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { Icon } from './components/Icons';
 import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, TEAM_MEMBERS, USERS } from './constants';
-import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog } from './types';
+import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability } from './types';
 import * as Cloud from './services/cloud';
 import { getChatResponse } from './services/geminiService';
 import { useNotification } from './components/GlobalNotification';
@@ -30,6 +30,16 @@ function getYouTubeId(url: string | undefined) {
     const match = url.match(regExp);
     return (match && match[2].length === 11) ? match[2] : null;
 }
+
+const getStartOfWeek = (date: Date, weekOffset = 0) => {
+    const d = new Date(date);
+    d.setDate(d.getDate() - d.getDay() + 1 + (weekOffset * 7)); // +1 for Monday start
+    if (d.getDay() === 0) d.setDate(d.getDate() - 7); // Adjust if getDay() is Sunday
+    d.setHours(0,0,0,0);
+    return d;
+}
+
+const formatDateISO = (date: Date) => date.toISOString().split('T')[0];
 
 // --- MODALS ---
 
@@ -167,6 +177,88 @@ const ScheduleEditorModal = ({ isOpen, day, shiftType, currentStaff, currentHour
                 >
                     Save Schedule
                 </button>
+            </div>
+        </div>
+    );
+};
+
+const AvailabilityReminderModal = ({ isOpen, onConfirm, onCancel, t }: { isOpen: boolean, onConfirm: () => void, onCancel: () => void, t: any }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl border">
+                <h3 className="text-lg font-black text-text mb-2">{t.availability_reminder_title}</h3>
+                <p className="text-sm text-text-light mb-6">{t.availability_reminder_body}</p>
+                <div className="flex gap-3">
+                    <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200">{t.later}</button>
+                    <button onClick={onConfirm} className="flex-1 py-3 rounded-xl bg-primary text-white font-bold hover:bg-primary-dark">{t.fill_now}</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolean, onClose: () => void, t: any, currentUser: User }) => {
+    const [slots, setSlots] = useState<StaffAvailability['slots']>({});
+    const [isLoading, setIsLoading] = useState(true);
+    const nextWeekStart = getStartOfWeek(new Date(), 1);
+    const nextWeekStartISO = formatDateISO(nextWeekStart);
+    const days = Array.from({ length: 7 }).map((_, i) => { const d = new Date(nextWeekStart); d.setDate(d.getDate() + i); return d; });
+
+    useEffect(() => {
+        if (isOpen) {
+            setIsLoading(true);
+            Cloud.getStaffAvailability(currentUser.id, nextWeekStartISO).then(data => {
+                if (data) setSlots(data.slots || {});
+                else setSlots({});
+                setIsLoading(false);
+            });
+        }
+    }, [isOpen, currentUser.id, nextWeekStartISO]);
+
+    const handleToggle = (dateISO: string, shift: 'morning' | 'evening') => {
+        setSlots(prev => ({
+            ...prev,
+            [dateISO]: {
+                ...prev[dateISO],
+                [shift]: !(prev[dateISO]?.[shift])
+            }
+        }));
+    };
+
+    const handleSave = async () => {
+        await Cloud.saveStaffAvailability(currentUser.id, nextWeekStartISO, slots);
+        alert(t.availability_saved);
+        onClose();
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-[1000] flex flex-col bg-surface animate-fade-in-up">
+            <div className="p-4 border-b flex justify-between items-center sticky top-0 bg-surface z-10">
+                <h2 className="text-xl font-black">{t.next_week_availability}</h2>
+                <button onClick={onClose}><Icon name="X" /></button>
+            </div>
+            {isLoading ? <div className="text-center p-10">Loading...</div> : (
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    {days.map(day => {
+                        const dateISO = formatDateISO(day);
+                        const dayName = day.toLocaleDateString('en-US', { weekday: 'short' });
+                        return (
+                            <div key={dateISO} className="bg-secondary p-4 rounded-xl">
+                                <h3 className="font-bold mb-2">{dayName} <span className="text-text-light font-normal text-sm">{dateISO}</span></h3>
+                                <div className="flex gap-4">
+                                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!slots[dateISO]?.morning} onChange={() => handleToggle(dateISO, 'morning')} className="w-5 h-5 rounded text-primary focus:ring-primary" /> Morning</label>
+                                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!slots[dateISO]?.evening} onChange={() => handleToggle(dateISO, 'evening')} className="w-5 h-5 rounded text-primary focus:ring-primary" /> Evening</label>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+            <div className="p-4 border-t sticky bottom-0 bg-surface">
+                <button onClick={handleSave} className="w-full bg-primary text-white py-3 rounded-xl font-bold">{t.save}</button>
             </div>
         </div>
     );
@@ -768,25 +860,21 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     );
 };
 
-// FIX: Added missing OwnerDashboard component.
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { lang, t, inventoryList, setInventoryList } = data;
     const ownerUser = USERS.find(u => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'inventory' | 'manager'>('inventory');
 
     if (view === 'manager') {
-        // Here, ManagerDashboard's exit button will return to the owner's inventory view.
         return <ManagerDashboard data={data} onExit={() => setView('inventory')} />;
     }
 
-    // Owner's main view is inventory management.
     return (
         <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
              <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
                 <div><h1 className="text-xl font-black tracking-tight text-white">{t.owner_dashboard || 'Owner Dashboard'}</h1><p className="text-xs text-dark-text-light">User: {ownerUser.name}</p></div>
                 <div className="flex gap-2">
                     <button onClick={() => setView('manager')} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all text-xs font-bold px-3">Manager Dashboard</button>
-                    {/* This onExit is the one passed from App to fully exit admin mode */}
                     <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
                 </div>
             </div>
@@ -805,11 +893,89 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
     );
 };
 
+const StaffAvailabilityView = ({ t }: { t: any }) => {
+    const [weekStart, setWeekStart] = useState(getStartOfWeek(new Date(), 1));
+    const [availabilities, setAvailabilities] = useState<StaffAvailability[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const weekStartISO = formatDateISO(weekStart);
+    const days = Array.from({ length: 7 }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
+
+    useEffect(() => {
+        setLoading(true);
+        const unsub = Cloud.subscribeToAvailabilitiesForWeek(weekStartISO, (data) => {
+            setAvailabilities(data);
+            setLoading(false);
+        });
+        return () => unsub();
+    }, [weekStartISO]);
+
+    const availabilityMap = new Map(availabilities.map(a => [a.userId, a.slots]));
+
+    const changeWeek = (offset: number) => {
+        setWeekStart(prev => {
+            const newDate = new Date(prev);
+            newDate.setDate(newDate.getDate() + offset * 7);
+            return newDate;
+        });
+    };
+
+    return (
+        <div className="space-y-4">
+            <div className="bg-dark-surface p-3 rounded-xl border border-white/10 flex justify-between items-center">
+                <h3 className="font-bold text-dark-text">Staff Availability</h3>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => changeWeek(-1)} className="p-2 bg-white/10 rounded-lg"><Icon name="ChevronLeft" size={16} /></button>
+                    <span className="text-sm font-bold text-center w-28">{weekStartISO}</span>
+                    <button onClick={() => changeWeek(1)} className="p-2 bg-white/10 rounded-lg"><Icon name="ChevronRight" size={16} /></button>
+                </div>
+            </div>
+            {loading ? <div className="text-center p-8 text-dark-text-light">Loading...</div> : (
+            <div className="overflow-x-auto bg-dark-surface p-2 rounded-xl border border-white/10">
+                <table className="w-full text-xs text-center">
+                    <thead>
+                        <tr className="text-dark-text-light">
+                            <th className="p-2 text-left sticky left-0 bg-dark-surface">Staff</th>
+                            {days.map(d => <th key={d.toISOString()} className="p-2 font-normal">{d.toLocaleDateString('en-US', { weekday: 'short' })}<br/>{`${d.getMonth()+1}-${d.getDate()}`}</th>)}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/10">
+                        {TEAM_MEMBERS.map(name => {
+                            const user = USERS.find(u => u.name === name);
+                            if (!user) return null;
+                            const userSlots = availabilityMap.get(user.id);
+                            return (
+                                <tr key={user.id}>
+                                    <td className="p-2 font-bold text-left sticky left-0 bg-dark-surface">{name}</td>
+                                    {days.map(d => {
+                                        const dateISO = formatDateISO(d);
+                                        const slot = userSlots?.[dateISO];
+                                        return (
+                                            <td key={dateISO} className="p-2">
+                                                <div className="flex flex-col gap-1 items-center">
+                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] w-10 ${slot?.morning ? 'bg-green-500/20 text-green-300' : 'bg-white/5 text-dark-text-light opacity-50'}`}>AM</span>
+                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] w-10 ${slot?.evening ? 'bg-blue-500/20 text-blue-300' : 'bg-white/5 text-dark-text-light opacity-50'}`}>PM</span>
+                                                </div>
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+            )}
+        </div>
+    );
+};
+
+
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     // ... (Existing code)
     const managerUser = USERS.find(u => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests } = data;
-    const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning'>('requests');
+    const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
     const [wages, setWages] = useState<Record<string, number>>(() => { const saved = localStorage.getItem('onesip_wages'); const def: any = {}; TEAM_MEMBERS.forEach(m => def[m] = 12); return saved ? { ...def, ...JSON.parse(saved) } : def; });
@@ -901,7 +1067,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     
     const pendingReqs = swapRequests?.filter((r: SwapRequest) => r.status === 'accepted_by_peer') || [];
 
-    // --- ADDED: Planning Helpers ---
     const getShiftCost = (staff: string[], start: string, end: string) => {
         const s = parseInt(start.split(':')[0]) + (parseInt(start.split(':')[1]||'0')/60);
         const e = parseInt(end.split(':')[0]) + (parseInt(end.split(':')[1]||'0')/60);
@@ -913,7 +1078,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const e = getShiftCost(day.evening, day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
         return acc + m + e;
     }, 0) || 0;
-    // -----------------------------
 
     return (
         <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
@@ -922,7 +1086,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
             </div>
             <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
-                {['requests', 'schedule', 'planning', 'chat', 'logs', 'financial'].map(v => (
+                {['requests', 'schedule', 'planning', 'availability', 'chat', 'logs', 'financial'].map(v => (
                     <button key={v} onClick={() => setView(v as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === v ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
                         {v} {v==='requests' && pendingReqs.length > 0 && `(${pendingReqs.length})`}
                     </button>
@@ -956,6 +1120,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         ))}
                     </div>
                 )}
+                 {view === 'availability' && <StaffAvailabilityView t={t} />}
                 {view === 'chat' && <ChatView t={t} currentUser={managerUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} onExit={() => setView('requests')} sopList={data.sopList} trainingLevels={data.trainingLevels} />}
                 {view === 'schedule' && (
                     <div className="space-y-3 pb-10">
@@ -994,7 +1159,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         })}
                     </div>
                 )}
-                {/* FIX: Add Planning & Cost View */}
                 {view === 'planning' && (
                     <div className="space-y-4 pb-10">
                         <div className="bg-dark-surface p-5 rounded-xl border border-white/10 mb-4 shadow-lg">
@@ -1031,11 +1195,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                         </div>
                                     </div>
                                     
-                                    {/* Morning */}
-                                    <div 
-                                        onClick={() => setEditingShift({ dayIdx: idx, shift: 'morning' })} 
-                                        className="mb-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-orange-500/30 cursor-pointer transition-all"
-                                    >
+                                    <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'morning' })} className="mb-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-orange-500/30 cursor-pointer transition-all" >
                                         <div className="flex justify-between items-center mb-2">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded font-bold">AM</span>
@@ -1053,11 +1213,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                         </div>
                                     </div>
 
-                                    {/* Evening */}
-                                    <div 
-                                        onClick={() => setEditingShift({ dayIdx: idx, shift: 'evening' })} 
-                                        className="p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-blue-500/30 cursor-pointer transition-all"
-                                    >
+                                    <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'evening' })} className="p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-blue-500/30 cursor-pointer transition-all" >
                                         <div className="flex justify-between items-center mb-2">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-bold">PM</span>
@@ -1139,19 +1295,32 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [onInventorySuccess, setOnInventorySuccess] = useState<(() => void) | null>(null);
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
     const { showNotification } = useNotification();
+    const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
+    const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
 
-    // Effect to check for new messages when chat is NOT active
     useEffect(() => {
-        if (view === 'chat' || !directMessages || directMessages.length === 0) {
-            return;
-        }
+        const checkAvailability = async () => {
+            const nextMonday = getStartOfWeek(new Date(), 1);
+            const nextWeekKey = formatDateISO(nextMonday);
+            const reminderShownKey = `availabilityReminderShown_${nextWeekKey}`;
 
+            if (sessionStorage.getItem(reminderShownKey)) return;
+
+            const existing = await Cloud.getStaffAvailability(currentUser.id, nextWeekKey);
+            if (!existing) {
+                setShowAvailabilityReminder(true);
+                sessionStorage.setItem(reminderShownKey, 'true');
+            }
+        };
+        const timer = setTimeout(checkAvailability, 3000);
+        return () => clearTimeout(timer);
+    }, [currentUser.id]);
+
+    useEffect(() => {
+        if (view === 'chat' || !directMessages || directMessages.length === 0) return;
         const lastSeenTimestamp = localStorage.getItem('onesip_lastSeenChatTimestamp');
         const latestMessage = directMessages[directMessages.length - 1];
-        
-        // Do not notify for your own messages
         if (latestMessage.fromId === currentUser.id) return;
-
         if (!lastSeenTimestamp || new Date(latestMessage.timestamp) > new Date(lastSeenTimestamp)) {
             setHasUnreadChat(true);
             const sender = USERS.find(u => u.id === latestMessage.fromId);
@@ -1163,7 +1332,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
     }, [directMessages, view, currentUser.id, showNotification]);
 
-    // Effect to clear unread status when chat IS active
     useEffect(() => {
         if (view === 'chat') {
             setHasUnreadChat(false);
@@ -1174,45 +1342,26 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
     }, [view, directMessages]);
     
-    // Announcement Logic
     const [announcement, setAnnouncement] = useState<Notice | null>(null);
 
     useEffect(() => {
         if (!notices) return;
         if (announcement) {
             const currentFresh = notices.find((n: Notice) => n.id === announcement.id);
-            if (!currentFresh || currentFresh.status === 'cancelled') {
-                setAnnouncement(null);
-            }
+            if (!currentFresh || currentFresh.status === 'cancelled') setAnnouncement(null);
         }
         const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
-        if (activeNotices.length === 0) {
-             setAnnouncement(null);
-             return;
-        }
+        if (activeNotices.length === 0) { setAnnouncement(null); return; }
         const latest = activeNotices[activeNotices.length - 1]; 
         if (announcement && announcement.id === latest.id) return;
         const seenKey = `notice_seen_${latest.id}`;
         const lastSeen = localStorage.getItem(seenKey);
         let shouldShow = false;
-        if (!latest.frequency || latest.frequency === 'always') {
-            shouldShow = true;
-        } else if (latest.frequency === 'once') {
-            if (!lastSeen) shouldShow = true;
-        } else if (latest.frequency === 'daily') {
-            if (!lastSeen) { shouldShow = true; }
-            else {
-                if (new Date(parseInt(lastSeen)).toDateString() !== new Date().toDateString()) shouldShow = true;
-            }
-        } else if (latest.frequency === '3days') {
-            if (!lastSeen) { shouldShow = true; }
-            else {
-                if (Date.now() - parseInt(lastSeen) > 3 * 24 * 60 * 60 * 1000) shouldShow = true;
-            }
-        }
-        if (shouldShow) {
-            setAnnouncement(latest);
-        }
+        if (!latest.frequency || latest.frequency === 'always') shouldShow = true;
+        else if (latest.frequency === 'once') { if (!lastSeen) shouldShow = true; }
+        else if (latest.frequency === 'daily') { if (!lastSeen || new Date(parseInt(lastSeen)).toDateString() !== new Date().toDateString()) shouldShow = true; }
+        else if (latest.frequency === '3days') { if (!lastSeen || Date.now() - parseInt(lastSeen) > 3 * 24 * 60 * 60 * 1000) shouldShow = true; }
+        if (shouldShow) setAnnouncement(latest);
     }, [notices, announcement]);
 
     const closeAnnouncement = () => {
@@ -1237,9 +1386,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         for (const day of schedule.days) {
             const [month, dayOfMonth] = day.date.split('-').map(Number);
             let scheduleYear = currentYear;
-            if (now.getMonth() === 11 && month === 1) { 
-                scheduleYear++;
-            }
+            if (now.getMonth() === 11 && month === 1) scheduleYear++;
             const scheduleDate = new Date(scheduleYear, month - 1, dayOfMonth);
             const today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -1251,23 +1398,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 const eEnd = day.hours?.evening?.end || '19:00';
                 if (day.morning.includes(currentUser.name)) {
                     if (isToday) {
-                        const mEndTime = parseInt(mEnd.split(':')[0]);
-                        if (now.getHours() < mEndTime) {
-                             return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
-                        }
-                    } else {
-                        return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
-                    }
+                        if (now.getHours() < parseInt(mEnd.split(':')[0])) return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
+                    } else return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
                 }
                 if (day.evening.includes(currentUser.name)) {
                     if (isToday) {
-                        const eEndTime = parseInt(eEnd.split(':')[0]);
-                        if (now.getHours() < eEndTime) {
-                             return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
-                        }
-                    } else {
-                        return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
-                    }
+                        if (now.getHours() < parseInt(eEnd.split(':')[0])) return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
+                    } else return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
                 }
             }
         }
@@ -1279,10 +1416,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (!scheduleData?.days) return false;
         const now = new Date();
         const todayDateStr = `${now.getMonth() + 1}-${now.getDate()}`;
-        
         const todaySchedule = scheduleData.days.find((day: ScheduleDay) => day.date === todayDateStr);
         if (!todaySchedule) return false;
-
         return todaySchedule.morning.includes(user.name) || todaySchedule.evening.includes(user.name);
     };
 
@@ -1292,9 +1427,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 const dist = getDistanceFromLatLonInKm(pos.coords.latitude, pos.coords.longitude, STORE_COORDS.lat, STORE_COORDS.lng);
-                const locTag = dist <= 500 
-                    ? `In Range (<500m)`
-                    : `Out Range (${Math.round(dist)}m)`;
+                const locTag = dist <= 500 ? `In Range (<500m)` : `Out Range (${Math.round(dist)}m)`;
                 alert(`✅ Success!\n${locTag}`);
                 recordLog(type, locTag);
             },
@@ -1308,7 +1441,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             alert(t.no_shift_today_alert);
             return;
         }
-
         if (type === 'clock-out') {
             alert(t.inventory_before_clock_out);
             setOnInventorySuccess(() => () => performClockLog('clock-out'));
@@ -1448,6 +1580,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             <div className="flex items-center gap-4"><div className="w-14 h-14 bg-primary-light text-primary rounded-2xl flex items-center justify-center"><Icon name="Package" size={28} /></div><span className="font-bold text-lg text-text">{t.inventory_title}</span></div>
                             <Icon name="ChevronRight" className="text-gray-300" />
                         </div>
+                         <div onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-95 transition-transform cursor-pointer">
+                            <div className="flex items-center gap-4"><div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center"><Icon name="Calendar" size={28} /></div><span className="font-bold text-lg text-text">{t.next_week_availability}</span></div>
+                            <Icon name="ChevronRight" className="text-gray-300" />
+                        </div>
                         <div className="grid grid-cols-2 gap-4">
                             <button onClick={() => handleClockLog('clock-in')} className="bg-primary hover:bg-primary-dark text-white p-6 rounded-3xl shadow-lg shadow-primary-light flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"><Icon name="Play" size={32} /><span className="font-bold">{clockBtnText.in}</span></button>
                             <button onClick={() => handleClockLog('clock-out')} className="bg-text-light hover:bg-text text-white p-6 rounded-3xl shadow-lg shadow-gray-200 flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"><Icon name="Square" size={32} /><span className="font-bold">{clockBtnText.out}</span></button>
@@ -1463,6 +1599,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (view === 'training') return <TrainingView data={data} onComplete={() => {}} />;
         if (view === 'sop') return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />;
         if (view === 'checklist') { const tmpl = CHECKLIST_TEMPLATES[currentShift] || CHECKLIST_TEMPLATES['opening']; return (<div className="h-full flex flex-col bg-surface text-text"><div className={`${tmpl.color} p-6 text-white`}><button onClick={() => setView('sop')} className="mb-4"><Icon name="ArrowLeft" /></button><h2 className="text-3xl font-bold">{getLoc(tmpl.title)}</h2></div><div className="flex-1 overflow-y-auto p-4">{tmpl.items.map((i: any) => (<div key={i.id} className="p-4 border-b flex items-center gap-3"><div className="w-6 h-6 border-2 rounded"></div><div><p className="font-bold">{getLoc(i.text)}</p></div></div>))}</div><div className="p-4 border-t"><button onClick={()=>{alert('OK'); setView('home');}} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold transition-all active:scale-95">Confirm</button></div></div>); }
+        if (view === 'availability') { setShowAvailabilityModal(true); setView('home'); return null; }
         
         return <div className="p-10 text-center text-text-light">Section {view} under maintenance <button onClick={()=>setView('home')} className="text-primary underline block mt-4">Back</button></div>;
     };
@@ -1471,6 +1608,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         <div className="max-w-md mx-auto min-h-screen max-h-[100dvh] overflow-y-auto bg-secondary relative flex flex-col font-sans pt-8 md:pt-0">
             <CustomConfirmModal isOpen={confirmModal.isOpen} title="Confirm Action" message={confirmModal.msg} onConfirm={confirmModal.action} onCancel={() => setConfirmModal(prev => ({...prev, isOpen:false}))} />
             <AnnouncementModal notice={announcement} onClose={closeAnnouncement} />
+            <AvailabilityReminderModal isOpen={showAvailabilityReminder} t={t} onCancel={() => setShowAvailabilityReminder(false)} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} />
+            <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />
+
             <div className="flex-1 overflow-y-auto relative">{renderView()}</div>
             {view !== 'checklist' && (
                 <nav className="fixed bottom-0 w-full max-w-md bg-surface border-t p-2 pb-4 z-50 flex overflow-x-auto shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] no-scrollbar gap-1">

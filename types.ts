@@ -247,4 +247,16 @@ export interface ContactItem {
     note?: string;
 }
 
-export type StaffViewMode = 'home' | 'team' | 'contact' | 'inventory' | 'recipes' | 'training' | 'sop' | 'chat' | 'checklist';
+export interface StaffAvailability {
+  userId: string;
+  weekStart: string; // YYYY-MM-DD format for Monday
+  slots: {
+    [date: string]: { // YYYY-MM-DD
+      morning?: boolean;
+      evening?: boolean;
+    }
+  };
+  updatedAt: any; // Firestore Timestamp
+}
+
+export type StaffViewMode = 'home' | 'team' | 'contact' | 'inventory' | 'recipes' | 'training' | 'sop' | 'chat' | 'checklist' | 'availability';
