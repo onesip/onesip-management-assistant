@@ -562,7 +562,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
     const prediction = getPrediction();
 
     return (
-        <div className="h-full flex flex-col bg-dark-bg text-dark-text font-sans">
+        <div className="min-h-screen max-h-[100dvh] overflow-y-auto flex flex-col bg-dark-bg text-dark-text font-sans">
             <div className="p-4 bg-dark-surface shadow-lg shrink-0 border-b border-white/10">
                 <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-black text-dark-accent tracking-wider">OWNER COMMAND</h2><button onClick={onExit} className="bg-white/10 p-2 rounded-lg hover:bg-white/20 transition-all"><Icon name="LogOut" size={20}/></button></div>
                 <div className="flex gap-2"><button onClick={() => setView('inventory')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'inventory' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>Inventory</button><button onClick={() => setView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'history' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>History</button><button onClick={() => setView('prediction')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'prediction' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>AI Forecast</button><button onClick={() => setView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'logs' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>Logs</button></div>
@@ -835,7 +835,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     };
 
     return (
-        <div className="h-full flex flex-col bg-dark-bg text-dark-text font-sans">
+        <div className="min-h-screen max-h-[100dvh] overflow-y-auto flex flex-col bg-dark-bg text-dark-text font-sans">
            <div className="p-4 bg-dark-surface border-b border-white/10 flex justify-between items-center shrink-0">
                <h2 className="text-xl font-bold tracking-wider text-dark-accent">{t.editor_title}</h2>
                <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="X" /></button>
@@ -963,7 +963,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     // -----------------------------
 
     return (
-        <div className="h-full flex flex-col bg-dark-bg text-dark-text font-sans">
+        <div className="min-h-screen max-h-[100dvh] overflow-y-auto flex flex-col bg-dark-bg text-dark-text font-sans">
             <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
                 <div><h1 className="text-xl font-black tracking-tight text-white">{t.manager_title}</h1><p className="text-xs text-dark-text-light">User: {managerUser.name}</p></div>
                 <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
@@ -1492,7 +1492,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     // ... (Existing return)
     return (
-        <div className="max-w-md mx-auto h-screen bg-secondary relative flex flex-col font-sans">
+        <div className="max-w-md mx-auto min-h-screen max-h-[100dvh] overflow-y-auto bg-secondary relative flex flex-col font-sans">
             <CustomConfirmModal isOpen={confirmModal.isOpen} title="Confirm Action" message={confirmModal.msg} onConfirm={confirmModal.action} onCancel={() => setConfirmModal(prev => ({...prev, isOpen:false}))} />
             <AnnouncementModal notice={announcement} onClose={closeAnnouncement} />
             <div className="flex-1 overflow-hidden relative">{renderView()}</div>
@@ -1547,7 +1547,7 @@ const LoginScreen = ({ t, onLogin }: { t: any, onLogin: (id: string, keepLogin: 
     };
 
     return (
-        <div className="h-screen bg-gradient-to-br from-gray-50 to-gray-200 flex flex-col items-center justify-center p-6 font-sans text-text animate-fade-in overflow-hidden">
+        <div className="min-h-screen max-h-[100dvh] overflow-y-auto bg-gradient-to-br from-gray-50 to-gray-200 flex flex-col items-center justify-center p-6 font-sans text-text animate-fade-in">
             <div className="text-center mb-10">
                 <h1 className="text-3xl font-black text-text mb-1 tracking-tight">ONESIP {t.login_title.split(' ')[1]}</h1>
                 <p className="text-text-light font-medium">Store Management System</p>
