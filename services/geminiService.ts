@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Chat } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { SopItem, TrainingLevel } from "../types";
 import { DRINK_RECIPES } from "../constants";
 
@@ -31,8 +31,6 @@ const getSystemContext = (sopList: SopItem[], trainingLevels: TrainingLevel[]) =
     `;
 };
 
-let chatSession: Chat | null = null;
-
 export const getChatResponse = async (userMessage: string, sopList: SopItem[], trainingLevels: TrainingLevel[]): Promise<string> => {
     try {
         if (!process.env.API_KEY) {
@@ -41,17 +39,18 @@ export const getChatResponse = async (userMessage: string, sopList: SopItem[], t
 
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-        // Re-create session if context might have changed (simple approach for now)
-        // or if it doesn't exist.
-        chatSession = ai.chats.create({
+        // FIX: Refactored to use `generateContent` for stateless, single-turn requests, which is more efficient
+        // than creating a new chat session for each call. Also handles potential undefined `response.text` and
+        // removes the unused `chatSession` variable.
+        const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
+            contents: userMessage,
             config: {
                 systemInstruction: getSystemContext(sopList, trainingLevels),
             },
         });
-
-        const response = await chatSession.sendMessage({ message: userMessage });
-        return response.text;
+        
+        return response.text ?? "Sorry, I'm having trouble understanding. Please try again.";
 
     } catch (error) {
         console.error("Gemini Error:", error);

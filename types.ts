@@ -3,7 +3,7 @@ import React from 'react';
 
 export type Lang = 'zh' | 'en';
 
-export type UserRole = 'boss' | 'manager' | 'staff' | 'maintenance';
+export type UserRole = 'boss' | 'manager' | 'staff' | 'maintenance' | 'editor';
 
 export interface User {
     id: string;
@@ -11,6 +11,7 @@ export interface User {
     phone: string;
     role: UserRole;
     avatar?: string;
+    password?: string;
 }
 
 export interface DirectMessage {

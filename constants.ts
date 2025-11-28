@@ -30,13 +30,14 @@ export const TRANSLATIONS: Record<string, any> = {
         
         // Login
         login_title: "ONESIP 员工登录",
-        enter_phone: "输入手机号",
-        enter_code: "输入验证码",
+        enter_phone: "选择员工",
+        enter_code: "输入密码",
         get_code: "获取验证码",
         login_btn: "登录",
-        invalid_phone: "手机号未注册",
-        invalid_code: "验证码错误",
+        invalid_phone: "无效的身份",
+        invalid_code: "密码错误",
         code_sent: "验证码已发送: 1234",
+        select_user: "请选择你的名字",
         
         // Inventory
         inventory_title: "库存管理",
@@ -122,13 +123,14 @@ export const TRANSLATIONS: Record<string, any> = {
 
         // Login
         login_title: "ONESIP Staff Login",
-        enter_phone: "Phone Number",
-        enter_code: "Verification Code",
+        enter_phone: "Select Staff",
+        enter_code: "Enter Password",
         get_code: "Get Code",
         login_btn: "Login",
-        invalid_phone: "Number not registered",
-        invalid_code: "Invalid code",
+        invalid_phone: "Invalid User",
+        invalid_code: "Incorrect Password",
         code_sent: "Code sent: 1234",
+        select_user: "Select your name",
 
         // Inventory
         inventory_title: "Inventory Mgmt",
@@ -188,22 +190,22 @@ export const TRANSLATIONS: Record<string, any> = {
     }
 };
 
-// Normalized Database: All phones stored as pure digits starting with 31
+// Updated Database with Passwords
 export const USERS: User[] = [
-    { id: 'u_ruru', name: 'RURU', role: 'staff', phone: '31684684907' },
-    { id: 'u_yang', name: 'Yang', role: 'boss', phone: '31625491808' },
-    { id: 'u_haohui', name: 'Haohui', role: 'maintenance', phone: '31681166148' },
-    { id: 'u_lambert', name: 'Lambert', role: 'manager', phone: '31626419957' },
-    { id: 'u_zhiyi', name: 'Zhiyi', role: 'staff', phone: '31630047391' },
-    { id: 'u_tingshan', name: 'Tingshan', role: 'staff', phone: '31659343108' },
-    { id: 'u_kloe', name: 'Kloe', role: 'staff', phone: '31645747056' },
-    { id: 'u_maidou', name: 'Maidou', role: 'staff', phone: '31684866535' },
-    { id: 'u_xinrui', name: 'Xinrui', role: 'staff', phone: '31628895082' },
-    { id: 'u_linda', name: 'Linda', role: 'staff', phone: '31638100725' },
-    { id: 'u_mengchu', name: 'Mengchu', role: 'staff', phone: '31616928771' },
-    { id: 'u_najata', name: 'Najata', role: 'staff', phone: '31684244371' },
-    // Julia has no phone in record, so she cannot login via phone.
-    // { id: 'u_julia', name: 'Julia', role: 'staff', phone: '' }, 
+    { id: 'u_ruru', name: 'RURU', role: 'staff', phone: '31684684907', password: '490701' },
+    { id: 'u_yang', name: 'Yang', role: 'boss', phone: '31625491808', password: '180802' },
+    { id: 'u_haohui', name: 'Haohui', role: 'maintenance', phone: '31681166148', password: '614803' },
+    { id: 'u_lambert', name: 'Lambert', role: 'manager', phone: '31626419957', password: '995704' },
+    { id: 'u_zhiyi', name: 'Zhiyi', role: 'staff', phone: '31630047391', password: '739105' },
+    { id: 'u_tingshan', name: 'Tingshan', role: 'staff', phone: '31659343108', password: '310806' },
+    { id: 'u_kloe', name: 'Kloe', role: 'staff', phone: '31645747056', password: '705607' },
+    { id: 'u_maidou', name: 'Maidou', role: 'staff', phone: '31684866535', password: '653508' },
+    { id: 'u_xinrui', name: 'Xinrui', role: 'staff', phone: '31628895082', password: '508209' },
+    { id: 'u_linda', name: 'Linda', role: 'staff', phone: '31638100725', password: '072510' },
+    { id: 'u_mengchu', name: 'Mengchu', role: 'staff', phone: '31616928771', password: '877111' },
+    { id: 'u_najata', name: 'Najata', role: 'staff', phone: '31684244371', password: '437112' },
+    { id: 'u_editor', name: 'Editor', role: 'editor', phone: '0413', password: '0413' }, // Explicit editor user
+    { id: 'u_julia', name: 'Julia', role: 'staff', phone: '', password: '' }, // No password for Julia yet
 ];
 
 export const TEAM_MEMBERS: string[] = [
@@ -211,6 +213,7 @@ export const TEAM_MEMBERS: string[] = [
     "Kloe", "Maidou", "Xinrui", "Linda", "Mengchu", "Julia", "Najata"
 ];
 
+// ... (rest of the file remains unchanged)
 export const CONTACTS_DATA: ContactItem[] = [
     { id: 'c_yang', name: 'Yang', role: { zh: '店主', en: 'Boss' }, phone: '+31 6 25491808' },
     { id: 'c_lambert', name: 'Lambert', role: { zh: '店长', en: 'Manager' }, phone: '+31 6 26419957' },
