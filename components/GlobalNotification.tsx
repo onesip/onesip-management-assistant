@@ -1,5 +1,5 @@
 
-import React, { createContext, useState, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useCallback } from 'react';
 import { Icon } from './Icons';
 
 export type NotificationType = 'message' | 'announcement' | 'clock_in_reminder';
@@ -10,6 +10,8 @@ interface NotificationItem {
     title: string;
     message: string;
     onClose?: () => void;
+    sticky?: boolean;
+    dedupeKey?: string;
 }
 
 interface NotificationContextType {
@@ -22,15 +24,43 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export const NotificationProvider = ({ children }: { children?: ReactNode }) => {
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+    const shownKeys = useRef(new Set<string>());
+    const timers = useRef<Record<string, number>>({});
 
-    const showNotification = (params: Omit<NotificationItem, 'id'>) => {
-        const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-        setNotifications(prev => [...prev, { ...params, id }]);
-    };
-
-    const removeNotification = (id: string) => {
+    const removeNotification = useCallback((id: string) => {
         setNotifications(prev => prev.filter(n => n.id !== id));
-    };
+        if (timers.current[id]) {
+            clearTimeout(timers.current[id]);
+            delete timers.current[id];
+        }
+    }, []);
+
+    const showNotification = useCallback((params: Omit<NotificationItem, 'id'>) => {
+        const dedupeKey = params.dedupeKey ?? `${params.type}::${params.title}::${params.message}`;
+        if (shownKeys.current.has(dedupeKey)) {
+            return;
+        }
+        shownKeys.current.add(dedupeKey);
+
+        const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+        const newNotification: NotificationItem = { ...params, id, dedupeKey };
+        
+        setNotifications(prev => [...prev, newNotification]);
+
+        if (!params.sticky) {
+            const timerId = setTimeout(() => {
+                removeNotification(id);
+            }, 4000); // Auto-dismiss after 4 seconds
+            timers.current[id] = timerId as any;
+        }
+    }, [removeNotification]);
+
+    useEffect(() => {
+        // Cleanup all timers on component unmount
+        return () => {
+            Object.values(timers.current).forEach(clearTimeout);
+        };
+    }, []);
 
     return (
         <NotificationContext.Provider value={{ showNotification, notifications, removeNotification }}>
