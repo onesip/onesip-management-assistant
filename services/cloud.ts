@@ -1,13 +1,9 @@
 
 import * as firebaseApp from 'firebase/app';
 import * as firebaseAnalytics from "firebase/analytics";
-import { getFirestore, doc, setDoc, onSnapshot, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, arrayUnion } from 'firebase/firestore';
 import { INVENTORY_ITEMS, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
 import { ScheduleDay, WeeklySchedule } from '../types';
-
-// Fix for TS error: Module 'firebase/app' has no exported member 'initializeApp'
-const initializeApp = (firebaseApp as any).initializeApp;
-const getAnalytics = (firebaseAnalytics as any).getAnalytics;
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
@@ -25,8 +21,11 @@ let isConfigured = false;
 
 // Initialize Firebase
 try {
-    const app = initializeApp(firebaseConfig);
-    getAnalytics(app);
+    const app = firebaseApp.initializeApp(firebaseConfig);
+    // Analytics is usually safe to init in browser, but good to check environment
+    if (typeof window !== 'undefined') {
+        firebaseAnalytics.getAnalytics(app);
+    }
     db = getFirestore(app);
     isConfigured = true;
     console.log("🔥 Cloud Connected Successfully to: onesip--management");
@@ -70,67 +69,70 @@ const generateInitialSchedule = (): WeeklySchedule => {
 export const seedInitialData = async () => {
     if (!db) return;
     
-    const checkRef = doc(db, 'config', 'inventory');
-    const checkSnap = await getDoc(checkRef);
+    try {
+        const checkRef = doc(db, 'config', 'inventory');
+        const checkSnap = await getDoc(checkRef);
 
-    if (!checkSnap.exists()) {
-        console.log("🌱 Database appears empty. Seeding all initial data...");
+        if (!checkSnap.exists()) {
+            console.log("🌱 Database appears empty. Seeding all initial data...");
 
-        const collections = [
-            { name: 'config', id: 'inventory', data: { list: INVENTORY_ITEMS } },
-            { name: 'config', id: 'schedule', data: { week: generateInitialSchedule() } },
-            { name: 'config', id: 'content', data: { sops: SOP_DATABASE, training: TRAINING_LEVELS, recipes: DRINK_RECIPES } },
-            { name: 'data', id: 'logs', data: { entries: [] } },
-            { name: 'data', id: 'chat', data: { messages: [], notices: [] } },
-            { name: 'data', id: 'swaps', data: { requests: [] } },
-            { name: 'data', id: 'sales', data: { records: [] } },
-            { name: 'data', id: 'inventory_history', data: { reports: [] } },
-            { name: 'data', id: 'inventory_logs', data: { entries: [] } }
-        ];
+            const collections = [
+                { name: 'config', id: 'inventory', data: { list: INVENTORY_ITEMS } },
+                { name: 'config', id: 'schedule', data: { week: generateInitialSchedule() } },
+                { name: 'config', id: 'content', data: { sops: SOP_DATABASE, training: TRAINING_LEVELS, recipes: DRINK_RECIPES } },
+                { name: 'data', id: 'logs', data: { entries: [] } },
+                { name: 'data', id: 'chat', data: { messages: [], notices: [] } },
+                { name: 'data', id: 'swaps', data: { requests: [] } },
+                { name: 'data', id: 'sales', data: { records: [] } },
+                { name: 'data', id: 'inventory_history', data: { reports: [] } },
+                { name: 'data', id: 'inventory_logs', data: { entries: [] } }
+            ];
 
-        for (const col of collections) {
-            try {
-                await setDoc(doc(db, col.name, col.id), col.data);
-                console.log(`✅ Seeded: ${col.name}/${col.id}`);
-            } catch (e) {
-                console.error(`Error seeding ${col.name}/${col.id}:`, e);
+            for (const col of collections) {
+                try {
+                    await setDoc(doc(db, col.name, col.id), col.data);
+                    console.log(`✅ Seeded: ${col.name}/${col.id}`);
+                } catch (e) {
+                    console.error(`Error seeding ${col.name}/${col.id}:`, e);
+                }
+            }
+            return;
+        }
+
+        const scheduleRef = doc(db, 'config', 'schedule');
+        const scheduleSnap = await getDoc(scheduleRef);
+        if (!scheduleSnap.exists() || !scheduleSnap.data()?.week?.days?.length) {
+            console.log("⚠️ Schedule data missing or invalid. Regenerating schedule to fix.");
+            await setDoc(scheduleRef, { week: generateInitialSchedule() });
+        } else {
+            // Check if the entire schedule is in the past and regenerate if so.
+            const scheduleData = scheduleSnap.data().week;
+            if (scheduleData.days && scheduleData.days.length > 0) {
+                const lastDayString = scheduleData.days[scheduleData.days.length - 1].date;
+                const [lastMonth, lastDayOfMonth] = lastDayString.split('-').map(Number);
+
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                
+                const currentYear = today.getFullYear();
+                const lastDayDate = new Date(currentYear, lastMonth - 1, lastDayOfMonth);
+                lastDayDate.setHours(23,59,59,999); // Compare end of day
+
+                // Handle year wrap-around (e.g., today is Jan 2025, schedule ends Dec 2024)
+                if (lastDayDate < today && lastMonth > today.getMonth()) {
+                    lastDayDate.setFullYear(currentYear - 1);
+                }
+
+                if (lastDayDate < today) {
+                     console.log("📅 Schedule is entirely in the past. Regenerating from today.");
+                     await setDoc(scheduleRef, { week: generateInitialSchedule() }, { merge: true });
+                }
             }
         }
-        return;
+        console.log("✅ Database integrity checks complete.");
+    } catch (e) {
+        console.error("Error during seed check:", e);
     }
-
-    const scheduleRef = doc(db, 'config', 'schedule');
-    const scheduleSnap = await getDoc(scheduleRef);
-    if (!scheduleSnap.exists() || !scheduleSnap.data()?.week?.days?.length) {
-        console.log("⚠️ Schedule data missing or invalid. Regenerating schedule to fix.");
-        await setDoc(scheduleRef, { week: generateInitialSchedule() });
-    } else {
-        // Check if the entire schedule is in the past and regenerate if so.
-        const scheduleData = scheduleSnap.data().week;
-        if (scheduleData.days && scheduleData.days.length > 0) {
-            const lastDayString = scheduleData.days[scheduleData.days.length - 1].date;
-            const [lastMonth, lastDayOfMonth] = lastDayString.split('-').map(Number);
-
-            const today = new Date();
-            today.setHours(0,0,0,0);
-            
-            const currentYear = today.getFullYear();
-            const lastDayDate = new Date(currentYear, lastMonth - 1, lastDayOfMonth);
-            lastDayDate.setHours(23,59,59,999); // Compare end of day
-
-            // Handle year wrap-around (e.g., today is Jan 2025, schedule ends Dec 2024)
-            if (lastDayDate < today && lastMonth > today.getMonth()) {
-                lastDayDate.setFullYear(currentYear - 1);
-            }
-
-            if (lastDayDate < today) {
-                 console.log("📅 Schedule is entirely in the past. Regenerating from today.");
-                 await setDoc(scheduleRef, { week: generateInitialSchedule() }, { merge: true });
-            }
-        }
-    }
-
-    console.log("✅ Database integrity checks complete.");
 };
 
 // --- SUBSCRIPTIONS (REAL-TIME SYNC) ---
@@ -147,7 +149,6 @@ export const subscribeToSchedule = (callback: (data: any) => void) => {
     return onSnapshot(doc(db, 'config', 'schedule'), (doc) => {
         if (doc.exists()) {
             const schedule = doc.data().week;
-            console.log('[DEBUG] schedule from cloud:', schedule);
             callback(schedule);
         }
     });
@@ -254,13 +255,10 @@ export const saveNotice = async (notice: any) => {
 
 export const updateNotices = async (notices: any[]) => {
     if (!db) {
-        console.error("❌ DB not initialized in updateNotices");
         return { success: false, error: "Database not initialized." };
     }
     try {
-        console.log("📤 Syncing Notices to Cloud:", notices.length, "items");
         await setDoc(doc(db, 'data', 'chat'), { notices }, { merge: true });
-        console.log("✅ Notices Synced Successfully");
         return { success: true };
     } catch (e) {
         console.error("❌ Error updating notices:", e);
@@ -270,12 +268,10 @@ export const updateNotices = async (notices: any[]) => {
 
 export const clearAllNotices = async () => {
     if (!db) {
-        console.error("❌ DB not initialized in clearAllNotices");
         return { success: false, error: "Database not initialized." };
     }
     try {
         await setDoc(doc(db, 'data', 'chat'), { notices: [] }, { merge: true });
-        console.log("✅ All notices cleared from Cloud.");
         return { success: true };
     } catch (e) {
         console.error("❌ Error clearing all notices:", e);
