@@ -12,6 +12,7 @@ export interface User {
     role: UserRole;
     avatar?: string;
     password?: string;
+    active?: boolean; // Is the user currently employed?
 }
 
 export interface DirectMessage {

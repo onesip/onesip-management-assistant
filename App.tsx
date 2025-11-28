@@ -2,8 +2,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { Icon } from './components/Icons';
-import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, TEAM_MEMBERS, USERS } from './constants';
-import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState } from './types';
+import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, USERS as STATIC_USERS } from './constants';
+import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState, UserRole } from './types';
 import * as Cloud from './services/cloud';
 import { getChatResponse } from './services/geminiService';
 import { useNotification } from './components/GlobalNotification';
@@ -100,7 +100,7 @@ const AdminLoginModal = ({ isOpen, onClose, onLogin }: { isOpen: boolean, onClos
     );
 };
 
-const ScheduleEditorModal = ({ isOpen, day, shiftType, currentStaff, currentHours, onClose, onSave }: any) => {
+const ScheduleEditorModal = ({ isOpen, day, shiftType, currentStaff, currentHours, onClose, onSave, teamMembers }: any) => {
     const [selectedStaff, setSelectedStaff] = useState<string[]>(currentStaff || []);
     const [startTime, setStartTime] = useState(currentHours?.start || (shiftType === 'morning' ? '10:00' : '14:30'));
     const [endTime, setEndTime] = useState(currentHours?.end || (shiftType === 'morning' ? '15:00' : '19:00'));
@@ -136,13 +136,13 @@ const ScheduleEditorModal = ({ isOpen, day, shiftType, currentStaff, currentHour
                 <div className="mb-6">
                     <label className="block text-xs font-bold text-text-light mb-2 uppercase">Select Staff</label>
                     <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
-                        {TEAM_MEMBERS.map(member => (
+                        {teamMembers.map((member: User) => (
                             <button 
-                                key={member} 
-                                onClick={() => toggleStaff(member)}
-                                className={`p-2 rounded-lg text-xs font-bold transition-all ${selectedStaff.includes(member) ? 'bg-primary text-white shadow-md' : 'bg-secondary text-text-light hover:bg-gray-200'}`}
+                                key={member.id} 
+                                onClick={() => toggleStaff(member.name)}
+                                className={`p-2 rounded-lg text-xs font-bold transition-all ${selectedStaff.includes(member.name) ? 'bg-primary text-white shadow-md' : 'bg-secondary text-text-light hover:bg-gray-200'}`}
                             >
-                                {member}
+                                {member.name}
                             </button>
                         ))}
                     </div>
@@ -340,7 +340,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     );
 };
 
-const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isManager, sopList, trainingLevels, lastReadAt }: any) => {
+const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isManager, sopList, trainingLevels, lastReadAt, allUsers }: any) => {
     const [activeChannel, setActiveChannel] = useState<string | null>(null);
     const [inputText, setInputText] = useState('');
     const [broadcastText, setBroadcastText] = useState('');
@@ -452,7 +452,7 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             .sort((a: DirectMessage, b: DirectMessage) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         
         const isAi = activeChannel === AI_BOT_ID;
-        const targetUser = isAi ? { name: "AI Assistant", id: AI_BOT_ID } : USERS.find(u => u.id === activeChannel);
+        const targetUser = isAi ? { name: "AI Assistant", id: AI_BOT_ID } : allUsers.find((u:User) => u.id === activeChannel);
 
         let readDividerPlaced = false;
 
@@ -628,7 +628,7 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
 
                 <div className="p-2">
                     <h3 className="text-sm font-bold text-text-light uppercase tracking-wider my-2 px-2">Team Chat</h3>
-                    {USERS.filter((u: User) => u.id !== currentUser.id).map((user: User) => (
+                    {allUsers.filter((u: User) => u.id !== currentUser.id && u.active !== false).map((user: User) => (
                     <div key={user.id} onClick={() => setActiveChannel(user.id)} className="flex items-center gap-4 p-3 hover:bg-secondary rounded-lg border-b cursor-pointer transition-colors">
                         <div className="w-11 h-11 rounded-full bg-secondary flex items-center justify-center font-bold text-text-light shrink-0 relative">
                             {user.name[0]}
@@ -858,10 +858,10 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
 };
 
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { lang, t, inventoryList, setInventoryList, inventoryHistory } = data;
-    const ownerUser = USERS.find(u => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
+    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users } = data;
+    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
-    const [ownerSubView, setOwnerSubView] = useState<'presets' | 'history'>('presets');
+    const [ownerSubView, setOwnerSubView] = useState<'presets' | 'history' | 'staff'>('presets');
     const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
@@ -889,7 +889,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         const url = URL.createObjectURL(blob);
-        link.setAttribute("href", url);
         const date = new Date().toISOString().split('T')[0];
         link.setAttribute("download", `inventory_records_${date}.csv`);
         link.style.visibility = 'hidden';
@@ -951,7 +950,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                     <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
                 </div>
             </div>
-            {/* --- NEW NAVIGATION --- */}
             <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
                 <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
                     Manage Presets
@@ -959,8 +957,10 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
                     Report History
                 </button>
+                 <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Staff Mgmt
+                </button>
             </div>
-            {/* --- END NEW NAVIGATION --- */}
             <div className="flex-1 overflow-y-auto">
                 {ownerSubView === 'presets' && (
                     <InventoryView 
@@ -974,10 +974,143 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                     />
                 )}
                 {ownerSubView === 'history' && <InventoryHistoryView />}
+                {ownerSubView === 'staff' && <StaffManagementView users={users} />}
             </div>
         </div>
     );
 };
+
+const StaffManagementView = ({ users }: { users: User[] }) => {
+    const [editingUser, setEditingUser] = useState<User | 'new' | null>(null);
+    const [showInactive, setShowInactive] = useState(false);
+    const [deactivatingUser, setDeactivatingUser] = useState<User | null>(null);
+
+    const handleSaveUser = async (user: User) => {
+        await Cloud.saveUser(user);
+        setEditingUser(null);
+        alert('Staff details saved!');
+    };
+    
+    const handleDeactivate = async () => {
+        if (!deactivatingUser) return;
+        await Cloud.saveUser({ ...deactivatingUser, active: false });
+        setDeactivatingUser(null);
+        alert(`${deactivatingUser.name} has been deactivated.`);
+    };
+
+    const sortedUsers = [...users].sort((a, b) => (a.active === b.active) ? 0 : a.active ? -1 : 1);
+    const filteredUsers = showInactive ? sortedUsers : sortedUsers.filter(u => u.active !== false);
+
+    return (
+        <div className="p-4 space-y-4 text-dark-text">
+            <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold">Staff Management</h3>
+                <div className="flex items-center gap-4">
+                     <label className="flex items-center gap-2 text-xs text-dark-text-light cursor-pointer">
+                        <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} className="rounded bg-dark-surface border-white/20 text-dark-accent focus:ring-dark-accent" />
+                        Show Inactive
+                    </label>
+                    <button onClick={() => setEditingUser('new')} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all">
+                        <Icon name="Plus" size={16} /> Add New Staff
+                    </button>
+                </div>
+            </div>
+
+            <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
+                <table className="w-full text-xs">
+                    <thead className="bg-dark-bg text-dark-text-light uppercase">
+                        <tr>
+                            <th className="p-3 text-left">Name</th>
+                            <th className="p-3 text-left">Role</th>
+                            <th className="p-3 text-left">Phone</th>
+                            <th className="p-3 text-left">Password</th>
+                            <th className="p-3 text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filteredUsers.map(user => (
+                            <tr key={user.id} className={`border-t border-white/10 ${!user.active ? 'opacity-50' : ''}`}>
+                                <td className="p-3 font-bold">{user.name}</td>
+                                <td className="p-3 capitalize">{user.role}</td>
+                                <td className="p-3 font-mono">{user.phone || 'N/A'}</td>
+                                <td className="p-3">{user.password ? <span className="text-green-400 font-bold">Set</span> : <span className="text-red-400">Not Set</span>}</td>
+                                <td className="p-3">
+                                    <div className="flex gap-2 justify-center">
+                                        <button onClick={() => setEditingUser(user)} className="p-2 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20"><Icon name="Edit" size={14}/></button>
+                                        {user.active !== false && (
+                                            <button onClick={() => setDeactivatingUser(user)} className="p-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Icon name="Trash" size={14}/></button>
+                                        )}
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            
+            {editingUser && <StaffEditModal user={editingUser} onSave={handleSaveUser} onClose={() => setEditingUser(null)} />}
+            {deactivatingUser && <CustomConfirmModal isOpen={!!deactivatingUser} title={`Deactivate ${deactivatingUser.name}?`} message="This will mark the employee as inactive. Their historical data will be preserved, but they won't appear in schedules. Are you sure?" onConfirm={handleDeactivate} onCancel={() => setDeactivatingUser(null)} />}
+        </div>
+    );
+};
+
+const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (user: User) => void, onClose: () => void }) => {
+    const isNew = user === 'new';
+    const [formData, setFormData] = useState<Partial<User>>(() => isNew ? { id: `u_${Date.now()}`, name: '', role: 'staff', phone: '', password: '', active: true } : user);
+    const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+
+    const handleChange = (field: keyof User, value: string) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleSave = () => {
+        if (!formData.name) return alert('Name is required.');
+        if (password !== confirmPassword) return alert('Passwords do not match.');
+        
+        const finalData = { ...formData };
+        if (password) {
+            finalData.password = password;
+        }
+
+        onSave(finalData as User);
+    };
+
+    const roles: UserRole[] = ['staff', 'manager', 'editor', 'maintenance', 'boss'];
+
+    return (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-dark-surface rounded-2xl p-6 w-full max-w-md shadow-2xl animate-pop-in border border-white/10 text-dark-text">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-black">{isNew ? 'Add New Staff' : `Edit ${formData.name}`}</h3>
+                    <button onClick={onClose} className="p-1 rounded-full hover:bg-white/10"><Icon name="X" /></button>
+                </div>
+                
+                <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Name</label><input type="text" value={formData.name} onChange={e => handleChange('name', e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
+                        <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Role</label><select value={formData.role} onChange={e => handleChange('role', e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded capitalize"><option disabled>Select Role</option>{roles.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                    </div>
+                    <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Phone Number</label><input type="text" value={formData.phone} onChange={e => handleChange('phone', e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
+                    
+                    <div className="border-t border-white/10 pt-4 mt-4">
+                         <p className="text-xs text-dark-text-light mb-2">{isNew ? 'Set Login Password:' : 'Reset Login Password (optional):'}</p>
+                         <div className="grid grid-cols-2 gap-4">
+                            <div><label className="text-xs font-bold text-dark-text-light mb-1 block">New Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
+                            <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Confirm Password</label><input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
+                         </div>
+                    </div>
+                </div>
+
+                <div className="flex gap-3 mt-8">
+                    <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-white/10 font-bold hover:bg-white/20">Cancel</button>
+                    <button onClick={handleSave} className="flex-1 py-3 rounded-xl bg-dark-accent text-dark-bg font-bold shadow-lg hover:opacity-90">Save</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const StaffAvailabilityView = ({ t }: { t: any }) => {
     const [weekStart, setWeekStart] = useState(getStartOfWeek(new Date(), 1));
@@ -1026,13 +1159,12 @@ const StaffAvailabilityView = ({ t }: { t: any }) => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-white/10">
-                        {TEAM_MEMBERS.map(name => {
-                            const user = USERS.find(u => u.name === name);
+                        {STATIC_USERS.filter(u=>u.active!==false).map(user => {
                             if (!user) return null;
                             const userSlots = availabilityMap.get(user.id);
                             return (
                                 <tr key={user.id}>
-                                    <td className="p-2 font-bold text-left sticky left-0 bg-dark-surface">{name}</td>
+                                    <td className="p-2 font-bold text-left sticky left-0 bg-dark-surface">{user.name}</td>
                                     {days.map(d => {
                                         const dateISO = formatDateISO(d);
                                         const slot = userSlots?.[dateISO];
@@ -1059,16 +1191,17 @@ const StaffAvailabilityView = ({ t }: { t: any }) => {
 
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     // ... (Existing code)
-    const managerUser = USERS.find(u => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
-    const { schedule, setSchedule, notices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests } = data;
+    const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
+    const { schedule, setSchedule, notices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users } = data;
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
-    const [wages, setWages] = useState<Record<string, number>>(() => { const saved = localStorage.getItem('onesip_wages'); const def: any = {}; TEAM_MEMBERS.forEach(m => def[m] = 12); return saved ? { ...def, ...JSON.parse(saved) } : def; });
+    const [wages, setWages] = useState<Record<string, number>>(() => { const saved = localStorage.getItem('onesip_wages'); const def: any = {}; users.forEach((m:User) => def[m.name] = 12); return saved ? { ...def, ...JSON.parse(saved) } : def; });
     
     // --- NEW: Schedule Navigation State ---
     const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
     const totalWeeks = schedule?.days ? Math.ceil(schedule.days.length / 7) : 0;
+    const activeStaff = users.filter((u: User) => u.active !== false);
     // ------------------------------------
 
     const handleWageChange = (name: string, val: string) => { const num = parseFloat(val); const newWages = { ...wages, [name]: isNaN(num) ? 0 : num }; setWages(newWages); localStorage.setItem('onesip_wages', JSON.stringify(newWages)); };
@@ -1076,7 +1209,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
     const calculateFinancials = () => {
         const stats: Record<string, any> = {};
-        TEAM_MEMBERS.forEach(m => { stats[m] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 }; });
+        activeStaff.forEach((m:User) => { stats[m.name] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 }; });
         if (schedule?.days) { schedule.days.forEach((day: any) => { day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ }); day.evening.forEach((p: string) => { if(stats[p]) stats[p].evening++ }); }); }
         const userLogs: Record<string, LogEntry[]> = {};
         if (logs) { logs.forEach((l: LogEntry) => { if (!l.name) return; if (!userLogs[l.name]) userLogs[l.name] = []; userLogs[l.name].push(l); }); }
@@ -1207,7 +1340,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     </div>
                 )}
                  {view === 'availability' && <StaffAvailabilityView t={t} />}
-                {view === 'chat' && <ChatView t={t} currentUser={managerUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} onExit={() => setView('requests')} sopList={data.sopList} trainingLevels={data.trainingLevels} />}
+                {view === 'chat' && <ChatView t={t} currentUser={managerUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} onExit={() => setView('requests')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />}
                 {view === 'schedule' && (
                     <div className="space-y-3 pb-10">
                         <div className="bg-dark-surface p-4 rounded-xl border border-white/10 shadow-sm mb-4 sticky top-0 z-20">
@@ -1366,7 +1499,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     </div>
                 )}
             </div>
-            {editingShift && <ScheduleEditorModal isOpen={!!editingShift} day={schedule.days[editingShift.dayIdx]} shiftType={editingShift.shift} currentStaff={schedule.days[editingShift.dayIdx][editingShift.shift]} currentHours={schedule.days[editingShift.dayIdx].hours?.[editingShift.shift]} onClose={() => setEditingShift(null)} onSave={handleSaveSchedule}/>}
+            {editingShift && <ScheduleEditorModal isOpen={!!editingShift} day={schedule.days[editingShift.dayIdx]} shiftType={editingShift.shift} currentStaff={schedule.days[editingShift.dayIdx][editingShift.shift]} currentHours={schedule.days[editingShift.dayIdx].hours?.[editingShift.shift]} onClose={() => setEditingShift(null)} onSave={handleSaveSchedule} teamMembers={activeStaff} />}
         </div>
     );
 };
@@ -1374,7 +1507,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 // --- STAFF APP ---
 
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests, directMessages } = data;
+    const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests, directMessages, users } = data;
     const [view, setView] = useState<StaffViewMode>('home');
     const [clockBtnText, setClockBtnText] = useState({ in: t.clock_in, out: t.clock_out });
     const [currentShift, setCurrentShift] = useState<string>('opening'); 
@@ -1425,7 +1558,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setHasUnreadChat(hasUnread);
 
         if (hasUnread && view !== 'chat') {
-            const sender = USERS.find(u => u.id === latestMessage.fromId);
+            const sender = users.find((u:User) => u.id === latestMessage.fromId);
             showNotification({
                 type: 'message',
                 title: `New Message from ${sender?.name || 'Team'}`,
@@ -1433,7 +1566,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 dedupeKey: `chat::${latestMessage.id}`,
             });
         }
-    }, [directMessages, view, currentUser.id, showNotification, lastReadAt]);
+    }, [directMessages, view, currentUser.id, showNotification, lastReadAt, users]);
 
     const markChatAsRead = () => {
         if (!directMessages || directMessages.length === 0) return;
@@ -1633,7 +1766,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 isOpen: true,
                 msg: (<div>Request swap with <strong>{name}</strong>?<br/><br/>You give: {swapSelection.myDate} ({swapSelection.myShift})<br/>You take: {day.date} ({shift})</div>),
                 action: () => {
-                    const targetUser = USERS.find(u => u.name === name);
+                    const targetUser = users.find((u:User) => u.name === name);
                     const req: SwapRequest = { id: Date.now().toString(), requesterName: currentUser.name, requesterId: currentUser.id, requesterDate: swapSelection.myDate!, requesterShift: swapSelection.myShift!, targetName: name, targetId: targetUser ? targetUser.id : 'unknown', targetDate: day.date, targetShift: shift, status: 'pending', timestamp: Date.now() };
                     Cloud.saveSwapRequest(req); alert("✅ Request Sent!"); setSwapMode(false); setSwapSelection({ step: 1 }); setConfirmModal(prev => ({...prev, isOpen: false}));
                 }
@@ -1757,7 +1890,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             );
         }
-        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} lastReadAt={lastReadAt} />;
+        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} lastReadAt={lastReadAt} allUsers={users} />;
         if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} isForced={!!onInventorySuccess} onCancel={cancelInventoryClockOut} />;
         if (view === 'contact') return <ContactView t={t} lang={lang} />;
         if (view === 'recipes') return <div className="h-full overflow-y-auto text-text animate-fade-in-up pb-24"><div className="bg-surface p-4 border-b"><h2 className="text-xl font-bold">{t.recipe_title}</h2></div><div className="p-4 bg-secondary">{data.recipes.map((d: DrinkRecipe) => <DrinkCard key={d.id} drink={d} lang={lang} t={t} />)}</div></div>;
@@ -1793,7 +1926,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     );
 };
 
-const LoginScreen = ({ t, onLogin }: { t: any, onLogin: (id: string, keepLogin: boolean) => void }) => {
+const LoginScreen = ({ t, onLogin, users }: { t: any, onLogin: (id: string, keepLogin: boolean) => void, users: User[] }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [rememberPwd, setRememberPwd] = useState(false);
@@ -1810,7 +1943,7 @@ const LoginScreen = ({ t, onLogin }: { t: any, onLogin: (id: string, keepLogin: 
     }, []);
 
     const handleLogin = () => {
-        const user = USERS.find(u => u.password === password && u.password);
+        const user = users.find(u => u.password === password && u.password && u.active !== false);
         if (user) {
             if (rememberPwd) {
                 localStorage.setItem('onesip_saved_password', btoa(password));
@@ -1897,7 +2030,8 @@ const App = () => {
     });
     const [lang, setLang] = useState<Lang>('zh');
     const t = TRANSLATIONS[lang];
-
+    
+    const [users, setUsers] = useState<User[]>(STATIC_USERS); // Start with static data as fallback
     const [inventoryList, setInventoryList] = useState<any[]>(INVENTORY_ITEMS);
     const [schedule, setSchedule] = useState<any>({ title: '', days: [] });
     const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -1922,11 +2056,12 @@ const App = () => {
         const unsubSwaps = Cloud.subscribeToSwaps(setSwapRequests);
         const unsubSales = Cloud.subscribeToSales(setSalesRecords);
         const unsubHistory = Cloud.subscribeToInventoryHistory(setInventoryHistory);
-        return () => { unsubInv(); unsubSched(); unsubContent(); unsubLogs(); unsubChat(); unsubSwaps(); unsubSales(); unsubHistory(); };
+        const unsubUsers = Cloud.subscribeToUsers(setUsers);
+        return () => { unsubInv(); unsubSched(); unsubContent(); unsubLogs(); unsubChat(); unsubSwaps(); unsubSales(); unsubHistory(); unsubUsers(); };
     }, []);
 
     const handleLogin = (userId: string, persist: boolean) => { 
-        const u = USERS.find(user => user.id === userId); 
+        const u = users.find(user => user.id === userId); 
         if (u) { 
             setUser(u); 
             if (persist) {
@@ -1944,10 +2079,10 @@ const App = () => {
         sessionStorage.removeItem('onesip_user');
     };
 
-    const appData = { lang, setLang, t, inventoryList, setInventoryList, schedule, setSchedule, logs, setLogs, sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, directMessages, setDirectMessages, notices, setNotices, swapRequests, setSwapRequests, salesRecords, setSalesRecords, inventoryHistory, setInventoryHistory };
+    const appData = { lang, setLang, t, users, inventoryList, setInventoryList, schedule, setSchedule, logs, setLogs, sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, directMessages, setDirectMessages, notices, setNotices, swapRequests, setSwapRequests, salesRecords, setSalesRecords, inventoryHistory, setInventoryHistory };
 
     if (!user) {
-        return <LoginScreen t={t} onLogin={handleLogin} />;
+        return <LoginScreen t={t} onLogin={handleLogin} users={users} />;
     }
 
     if (adminRole === 'manager') {

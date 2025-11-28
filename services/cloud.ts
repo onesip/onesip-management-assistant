@@ -1,8 +1,8 @@
 
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, getDoc, serverTimestamp } from 'firebase/firestore';
-import { INITIAL_MENU_DATA, INITIAL_ANNOUNCEMENT_DATA, INITIAL_WIKI_DATA, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
-import { ChatReadState } from '../types';
+import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, getDoc, serverTimestamp, collection, getDocs } from 'firebase/firestore';
+import { INITIAL_MENU_DATA, INITIAL_ANNOUNCEMENT_DATA, INITIAL_WIKI_DATA, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES, USERS } from '../constants';
+import { ChatReadState, User } from '../types';
 
 // --- CONFIG ---
 // Replace with your Firebase Project Config
@@ -78,11 +78,42 @@ export const seedInitialData = async () => {
              }
              await setDoc(schedRef, { week: { title: 'Weekly Schedule', days } });
         }
+
+        // Seed Users if empty (one-time migration)
+        const usersCollectionRef = collection(db, 'users');
+        const usersSnapshot = await getDocs(usersCollectionRef);
+        if (usersSnapshot.empty) {
+            console.log("Seeding users to Firestore...");
+            const userSeedPromises = USERS.map(user => {
+                const userDocRef = doc(db, 'users', user.id);
+                // Add the 'active: true' field to all existing users during migration
+                return setDoc(userDocRef, { ...user, active: true });
+            });
+            await Promise.all(userSeedPromises);
+        }
         
     } catch (e) {
         console.error("Seeding Error", e);
     }
 };
+
+// --- USERS / STAFF MANAGEMENT ---
+export const subscribeToUsers = (callback: (data: any) => void) => {
+    if (!db) return () => {};
+    // Real-time listener for the new 'users' collection
+    return onSnapshot(collection(db, 'users'), (snapshot) => {
+        const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        callback(users);
+    });
+};
+
+export const saveUser = async (user: User) => {
+    if (!db) return;
+    // Creates a new user or updates an existing one
+    const userRef = doc(db, 'users', user.id);
+    await setDoc(userRef, user, { merge: true });
+};
+
 
 // --- INVENTORY ---
 export const subscribeToInventory = (callback: (data: any) => void) => {
@@ -261,7 +292,7 @@ export const saveInventoryLogs = async (logs: any[]) => {
 };
 
 // --- STAFF AVAILABILITY (NEW) ---
-import { collection, query, where, setDoc as setFirestoreDoc, onSnapshot as firestoreOnSnapshot, collection as firestoreCollection, query as firestoreQuery, where as firestoreWhere, getDocs as firestoreGetDocs, doc as firestoreDoc, getDoc as firestoreGetDoc } from 'firebase/firestore';
+import { collection as firestoreCollection, query as firestoreQuery, where as firestoreWhere, getDocs as firestoreGetDocs, doc as firestoreDoc, getDoc as firestoreGetDoc } from 'firebase/firestore';
 
 export const getStaffAvailability = async (userId: string, weekStart: string) => {
     if (!db) return null;
@@ -273,7 +304,8 @@ export const getStaffAvailability = async (userId: string, weekStart: string) =>
 export const saveStaffAvailability = async (userId: string, weekStart: string, slots: any) => {
     if (!db) return;
     const docRef = firestoreDoc(db, 'staff_availability', `${userId}_${weekStart}`);
-    await setFirestoreDoc(docRef, {
+    // FIX: `setFirestoreDoc` is not a valid function. It should be `setDoc`.
+    await setDoc(docRef, {
         userId,
         weekStart,
         slots,
@@ -284,7 +316,8 @@ export const saveStaffAvailability = async (userId: string, weekStart: string, s
 export const subscribeToAvailabilitiesForWeek = (weekStart: string, callback: (data: any[]) => void) => {
     if (!db) return () => {};
     const q = firestoreQuery(firestoreCollection(db, "staff_availability"), firestoreWhere("weekStart", "==", weekStart));
-    return firestoreOnSnapshot(q, (querySnapshot) => {
+    // FIX: `firestoreOnSnapshot` is not a valid function. It should be `onSnapshot`.
+    return onSnapshot(q, (querySnapshot) => {
         const availabilities: any[] = [];
         querySnapshot.forEach((doc) => {
             availabilities.push(doc.data());
