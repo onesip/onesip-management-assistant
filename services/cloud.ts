@@ -1,7 +1,15 @@
 
 import * as firebaseApp from 'firebase/app';
 import * as firebaseAnalytics from "firebase/analytics";
-import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, arrayUnion } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  updateDoc, 
+  onSnapshot, 
+  arrayUnion 
+} from 'firebase/firestore';
 import { INVENTORY_ITEMS, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
 import { ScheduleDay, WeeklySchedule } from '../types';
 
@@ -21,11 +29,18 @@ let isConfigured = false;
 
 // Initialize Firebase
 try {
+    // FIX: Using namespace import to avoid named export resolution issues
     const app = firebaseApp.initializeApp(firebaseConfig);
-    // Analytics is usually safe to init in browser, but good to check environment
+    // Analytics is optional and environment dependent
     if (typeof window !== 'undefined') {
-        firebaseAnalytics.getAnalytics(app);
+        try {
+            // FIX: Using namespace import for analytics
+            firebaseAnalytics.getAnalytics(app);
+        } catch (analyticsError) {
+            console.warn("Analytics failed to initialize (likely blocked):", analyticsError);
+        }
     }
+    
     db = getFirestore(app);
     isConfigured = true;
     console.log("🔥 Cloud Connected Successfully to: onesip--management");
@@ -139,16 +154,16 @@ export const seedInitialData = async () => {
 
 export const subscribeToInventory = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'config', 'inventory'), (doc) => {
-        if (doc.exists()) callback(doc.data().list);
+    return onSnapshot(doc(db, 'config', 'inventory'), (docSnap) => {
+        if (docSnap.exists()) callback(docSnap.data().list);
     });
 };
 
 export const subscribeToSchedule = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'config', 'schedule'), (doc) => {
-        if (doc.exists()) {
-            const schedule = doc.data().week;
+    return onSnapshot(doc(db, 'config', 'schedule'), (docSnap) => {
+        if (docSnap.exists()) {
+            const schedule = docSnap.data().week;
             callback(schedule);
         }
     });
@@ -156,23 +171,23 @@ export const subscribeToSchedule = (callback: (data: any) => void) => {
 
 export const subscribeToContent = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'config', 'content'), (doc) => {
-        if (doc.exists()) callback(doc.data());
+    return onSnapshot(doc(db, 'config', 'content'), (docSnap) => {
+        if (docSnap.exists()) callback(docSnap.data());
     });
 };
 
 export const subscribeToLogs = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'logs'), (doc) => {
-        if (doc.exists()) callback(doc.data().entries || []);
+    return onSnapshot(doc(db, 'data', 'logs'), (docSnap) => {
+        if (docSnap.exists()) callback(docSnap.data().entries || []);
     });
 };
 
 export const subscribeToChat = (callback: (msgs: any[], notices: any[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'chat'), (doc) => {
-        if (doc.exists()) {
-            const data = doc.data();
+    return onSnapshot(doc(db, 'data', 'chat'), (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
             callback(data.messages || [], data.notices || []);
         }
     });
@@ -180,29 +195,29 @@ export const subscribeToChat = (callback: (msgs: any[], notices: any[]) => void)
 
 export const subscribeToSwaps = (callback: (requests: any[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'swaps'), (doc) => {
-        if (doc.exists()) callback(doc.data().requests || []);
+    return onSnapshot(doc(db, 'data', 'swaps'), (docSnap) => {
+        if (docSnap.exists()) callback(docSnap.data().requests || []);
     });
 };
 
 export const subscribeToSales = (callback: (records: any[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'sales'), (doc) => {
-        if (doc.exists()) callback(doc.data().records || []);
+    return onSnapshot(doc(db, 'data', 'sales'), (docSnap) => {
+        if (docSnap.exists()) callback(docSnap.data().records || []);
     });
 };
 
 export const subscribeToInventoryHistory = (callback: (reports: any[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'inventory_history'), (doc) => {
-        if (doc.exists()) callback(doc.data().reports || []);
+    return onSnapshot(doc(db, 'data', 'inventory_history'), (docSnap) => {
+        if (docSnap.exists()) callback(docSnap.data().reports || []);
     });
 };
 
 export const subscribeToInventoryLogs = (callback: (entries: any[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'inventory_logs'), (doc) => {
-        if (doc.exists()) callback(doc.data().entries || []);
+    return onSnapshot(doc(db, 'data', 'inventory_logs'), (docSnap) => {
+        if (docSnap.exists()) callback(docSnap.data().entries || []);
     });
 };
 

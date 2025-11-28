@@ -34,14 +34,12 @@ const getSystemContext = (sopList: SopItem[], trainingLevels: TrainingLevel[]) =
 export const getChatResponse = async (userMessage: string, sopList: SopItem[], trainingLevels: TrainingLevel[]): Promise<string> => {
     try {
         if (!process.env.API_KEY) {
-            return "Error: API Key is missing. Please contact IT.";
+            console.warn("AI API Key is missing. Check environment variables.");
+            return "AI Service Unavailable (Missing Key). Please contact manager.";
         }
 
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-        // FIX: Refactored to use `generateContent` for stateless, single-turn requests, which is more efficient
-        // than creating a new chat session for each call. Also handles potential undefined `response.text` and
-        // removes the unused `chatSession` variable.
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: userMessage,

@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -106,5 +105,14 @@
     <div id="root"></div>
     <!-- VITAL: This tells the browser/Vite to start running your React code -->
     <script type="module" src="/index.tsx"></script>
+    <!-- Fallback error handler -->
+    <script>
+      window.onerror = function(message, source, lineno, colno, error) {
+        console.error("Global Error:", message, error);
+        if(document.body.innerHTML === "" || document.getElementById('root').innerHTML === "") {
+             document.body.innerHTML = '<div style="padding:20px;color:red;font-family:sans-serif;"><h1>Application Error</h1><p>' + message + '</p><p>Please check console for details.</p></div>';
+        }
+      };
+    </script>
 </body>
 </html>
