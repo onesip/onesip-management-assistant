@@ -174,22 +174,80 @@ const ScheduleEditorModal = ({ isOpen, day, shiftType, currentStaff, currentHour
 // --- SCREENS & VIEWS ---
 
 const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser }: any) => {
+    // Staff state
     const [employee, setEmployee] = useState(currentUser?.name || ''); 
     const [inputData, setInputData] = useState<Record<string, { end: string, waste: string }>>({});
+    
+    // Owner state for editing
+    const [localInventory, setLocalInventory] = useState<InventoryItem[]>([]);
     const [newItemName, setNewItemName] = useState({ zh: '', en: '' });
+
+    useEffect(() => {
+        if (isOwner) setLocalInventory(JSON.parse(JSON.stringify(inventoryList)));
+    }, [inventoryList, isOwner]);
+
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+
+    // Staff handler
     const handleInputChange = (id: string, field: 'end' | 'waste', value: string) => { setInputData(prev => ({ ...prev, [id]: { ...(prev[id] || {end:'', waste:''}), [field]: value } })); };
-    const addItem = () => {
+
+    // Owner handlers
+    const handleAddItem = () => {
         if(!newItemName.zh || !newItemName.en) return;
-        const newItem: InventoryItem = { id: `inv_${Date.now()}`, name: newItemName, unit: 'unit' };
-        setInventoryList([...inventoryList, newItem]); Cloud.saveInventoryList([...inventoryList, newItem]);
+        const newItem: InventoryItem = { id: `inv_${Date.now()}`, name: newItemName, unit: 'unit', defaultVal: '' };
+        const updatedList = [...localInventory, newItem];
+        setLocalInventory(updatedList);
+        Cloud.saveInventoryList(updatedList);
         setNewItemName({ zh: '', en: '' });
     };
+    
+    const handleOwnerPresetChange = (id: string, value: string) => {
+        setLocalInventory(prev => prev.map(item => item.id === id ? { ...item, defaultVal: value } : item));
+    };
+
+    const handleSavePresets = async () => {
+        await Cloud.saveInventoryList(localInventory);
+        alert('Preset values saved!');
+    };
+
+    if (isOwner) {
+        return (
+            <div className="flex flex-col h-full bg-dark-surface text-dark-text">
+                <div className="p-4 bg-dark-bg shadow-md sticky top-0 z-10 space-y-3">
+                    <h2 className="text-xl font-black text-dark-accent">{t.manage_presets}</h2>
+                     <div className="flex gap-2">
+                        <input placeholder="New Item Name (ZH)" className="flex-1 p-2 bg-dark-surface border border-white/10 rounded text-xs" value={newItemName.zh} onChange={e=>setNewItemName({...newItemName, zh: e.target.value})} />
+                        <input placeholder="New Item Name (EN)" className="flex-1 p-2 bg-dark-surface border border-white/10 rounded text-xs" value={newItemName.en} onChange={e=>setNewItemName({...newItemName, en: e.target.value})} />
+                        <button onClick={handleAddItem} className="bg-dark-accent text-dark-bg p-2 rounded font-bold"><Icon name="Plus" size={16}/></button>
+                    </div>
+                </div>
+                <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                    {localInventory.map((item: InventoryItem) => (
+                        <div key={item.id} className="bg-dark-bg p-3 rounded-xl border border-white/10 flex items-center justify-between">
+                            <div className="flex-1">
+                                <div className="font-bold text-sm text-dark-text">{item.name.en}</div>
+                                <div className="text-[10px] text-dark-text-light">{item.unit}</div>
+                            </div>
+                            <div className="flex gap-2 w-2/5">
+                                <input type="text" placeholder="Preset Value" value={item.defaultVal || ''} onChange={(e) => handleOwnerPresetChange(item.id, e.target.value)} className="w-full p-2 rounded-lg border border-white/20 bg-dark-surface text-center text-sm" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <div className="p-4 bg-dark-bg border-t border-white/10 sticky bottom-0 z-10">
+                    <button onClick={handleSavePresets} className="w-full bg-dark-accent text-dark-bg py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2">
+                        <Icon name="Save" size={20} /> Save Presets
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // Staff view remains unchanged
     return (
         <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
             <div className="bg-surface p-4 border-b sticky top-0 z-10 space-y-3 shadow-sm">
-                <div className="flex justify-between items-center"><h2 className="text-xl font-black">{t.inventory_title}</h2>{isOwner && <span className="bg-dark-accent text-dark-bg font-bold text-[10px] px-2 py-1 rounded">OWNER MODE</span>}</div>
-                {isOwner && <div className="flex gap-2"><input placeholder="Name (ZH)" className="flex-1 p-2 border rounded text-xs" value={newItemName.zh} onChange={e=>setNewItemName({...newItemName, zh: e.target.value})} /><input placeholder="Name (EN)" className="flex-1 p-2 border rounded text-xs" value={newItemName.en} onChange={e=>setNewItemName({...newItemName, en: e.target.value})} /><button onClick={addItem} className="bg-primary text-white p-2 rounded"><Icon name="Plus" size={16}/></button></div>}
+                <div className="flex justify-between items-center"><h2 className="text-xl font-black">{t.inventory_title}</h2></div>
             </div>
             <div className="p-4 space-y-3 overflow-y-auto flex-1">
                 {inventoryList.map((item: any) => (
@@ -199,7 +257,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                     </div>
                 ))}
             </div>
-            {!isOwner && <div className="p-4 bg-surface border-t sticky bottom-20 z-10"><button onClick={() => { if(!employee) return alert(t.select_employee); onSubmit({ submittedBy: employee, userId: currentUser?.id, data: inputData }); alert(t.save_success); }} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark"><Icon name="Save" size={20} />{t.save_report}</button></div>}
+            <div className="p-4 bg-surface border-t sticky bottom-20 z-10"><button onClick={() => { if(!employee) return alert(t.select_employee); onSubmit({ submittedBy: employee, userId: currentUser?.id, data: inputData }); alert(t.save_success); }} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark"><Icon name="Save" size={20} />{t.save_report}</button></div>
         </div>
     );
 };
@@ -556,13 +614,13 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
     const prediction = getPrediction();
 
     return (
-        <div className="min-h-screen max-h-[100dvh] overflow-y-auto flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
+        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
             <div className="p-4 bg-dark-surface shadow-lg shrink-0 border-b border-white/10">
                 <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-black text-dark-accent tracking-wider">OWNER COMMAND</h2><button onClick={onExit} className="bg-white/10 p-2 rounded-lg hover:bg-white/20 transition-all"><Icon name="LogOut" size={20}/></button></div>
                 <div className="flex gap-2"><button onClick={() => setView('inventory')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'inventory' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>Inventory</button><button onClick={() => setView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'history' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>History</button><button onClick={() => setView('prediction')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'prediction' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>AI Forecast</button><button onClick={() => setView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'logs' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>Logs</button></div>
             </div>
-            <div className="flex-1 overflow-hidden bg-dark-bg">
-                 {view === 'inventory' && (<div className="h-full bg-secondary text-text"><InventoryView lang={lang} t={t} inventoryList={inventoryList} setInventoryList={setInventoryList} isOwner={true} /></div>)}
+            <div className="flex-1 overflow-y-auto bg-dark-bg">
+                 {view === 'inventory' && (<div className="h-full"><InventoryView lang={lang} t={t} inventoryList={inventoryList} setInventoryList={setInventoryList} isOwner={true} /></div>)}
                  {view === 'history' && (<div className="p-4 h-full overflow-y-auto"><button onClick={exportCSV} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold mb-4 flex justify-center gap-2 shadow-lg transition-all"><Icon name="List" /> Download CSV Report</button><div className="space-y-3">{inventoryHistory?.slice().reverse().map((report: InventoryReport) => (<div key={report.id} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10"><div className="flex justify-between mb-2"><span className="font-bold text-dark-accent">{report.date}</span><span className="text-sm text-dark-text-light">{report.submittedBy}</span></div><div className="text-xs text-dark-text-light">Recorded {Object.keys(report.data).length} items</div></div>))}</div></div>)}
                  {view === 'logs' && (
                      <div className="p-4 h-full overflow-y-auto">
