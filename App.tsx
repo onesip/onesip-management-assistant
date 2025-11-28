@@ -426,10 +426,8 @@ const CustomerApp = ({ onSwitchMode, data }: { onSwitchMode: () => void, data: a
     return (<div className="h-screen bg-white flex flex-col items-center justify-center p-6 text-center"><div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-6"><Icon name="Coffee" size={32} /></div><h1 className="text-3xl font-black mb-2 text-gray-900">Customer Kiosk</h1><p className="text-gray-500 mb-8 max-w-xs">Self-service ordering system is currently under maintenance.</p><button onClick={onSwitchMode} className="bg-gray-100 text-gray-900 px-6 py-3 rounded-xl font-bold hover:bg-gray-200 transition">Switch to Staff Mode</button></div>);
 };
 
-// ... ManagerDashboard updates ...
-
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const currentUser = { id: 'u_lambert', name: 'Lambert', role: 'manager', phone: '31626419957' } as User;
+    const currentUser: User = { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, setNotices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests } = data;
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests'>('schedule');
     const [draggedEmployee, setDraggedEmployee] = useState<string | null>(null);
@@ -471,13 +469,10 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const removeShift = (dayIdx: number, shiftType: 'morning' | 'evening', nameIndex: number) => { const realIdx = dayIdx + (weekOffset * 7); const newSchedule = { ...schedule }; newSchedule.days[realIdx][shiftType].splice(nameIndex, 1); setSchedule(newSchedule); Cloud.saveSchedule(newSchedule); };
     const updateHours = (dayIdx: number, type: 'morning'|'evening', field: 'start'|'end', value: string) => { const realIdx = dayIdx + (weekOffset * 7); const newSchedule = { ...schedule }; if (!newSchedule.days[realIdx].hours) { newSchedule.days[realIdx].hours = { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end:'19:00'} }; } newSchedule.days[realIdx].hours![type][field] = value; setSchedule(newSchedule); Cloud.saveSchedule(newSchedule); };
 
-    // --- REVISED MANAGER CONFIRM SWAP LOGIC (FIXED) ---
     const confirmSwap = (req: SwapRequest) => {
         // Deep clone to ensure React state updates and no reference issues
         const newSchedule = JSON.parse(JSON.stringify(schedule));
-        let reqFound = false;
-        let targetFound = false;
-
+        
         // Helpers acting on the cloned object
         const removeFromShift = (day: any, shift: 'morning' | 'evening', name: string) => {
             const idx = day[shift].indexOf(name);
@@ -497,14 +492,17 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const reqDay = newSchedule.days.find((d: any) => d.date === req.requesterDate);
         const targetDay = newSchedule.days.find((d: any) => d.date === req.targetDate);
 
-        if (!reqDay || !targetDay) return alert("Error: Schedule dates not found.");
+        if (!reqDay || !targetDay) return alert(`Error: Schedule dates not found in loaded view.\nReq: ${req.requesterDate}, Target: ${req.targetDate}\n\nTry navigating to the correct week first.`);
 
         // 1. Remove Requester
-        if (removeFromShift(reqDay, req.requesterShift, req.requesterName)) reqFound = true;
-        else return alert(`Error: ${req.requesterName} not found in ${req.requesterDate} ${req.requesterShift}`);
+        if (!removeFromShift(reqDay, req.requesterShift, req.requesterName)) {
+             console.warn(`Warning: ${req.requesterName} not found in ${req.requesterDate} ${req.requesterShift}. Proceeding anyway.`);
+        }
 
         // 2. Remove Target (if present - strict swap)
-        if (removeFromShift(targetDay, req.targetShift, req.targetName)) targetFound = true;
+        if (!removeFromShift(targetDay, req.targetShift, req.targetName)) {
+             console.warn(`Warning: ${req.targetName} not found in ${req.targetDate} ${req.targetShift}. Proceeding anyway.`);
+        }
         
         // 3. Swap
         addToShift(targetDay, req.targetShift, req.requesterName);
@@ -548,11 +546,66 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser }: { onSwitchMode:
     const [showAdminLogin, setShowAdminLogin] = useState(false);
     const [adminRole, setAdminRole] = useState<'none' | 'manager' | 'owner' | 'editor'>('none');
     const [activeNotice, setActiveNotice] = useState<Notice | null>(null);
+    const [clockBtnText, setClockBtnText] = useState({ in: t.clock_in, out: t.clock_out });
+    
+    // Swap Mode States
+    const [swapMode, setSwapMode] = useState(false);
+    const [swapSelection, setSwapSelection] = useState<{ step: 1|2, myDate?: string, myShift?: 'morning'|'evening', targetName?: string, targetDate?: string, targetShift?: 'morning'|'evening' }>({ step: 1 });
+
     const getLoc = (obj: any) => obj[lang] || obj['zh'];
     const unreadMessages = data.directMessages.filter((m: DirectMessage) => m.toId === currentUser.id && !m.read).length;
     const getNextShift = () => { if (!schedule || !schedule.days || !Array.isArray(schedule.days)) return null; const today = new Date(); for (const day of schedule.days) { if (day.morning.includes(currentUser.name)) return { day: day.name, date: day.date, type: 'Morning', zh: day.zh }; if (day.evening.includes(currentUser.name)) return { day: day.name, date: day.date, type: 'Evening', zh: day.zh }; } return null; };
     const nextShift = getNextShift();
     useEffect(() => { if (notices && notices.length > 0) { const latest = notices[notices.length - 1]; const lastSeen = localStorage.getItem(`notice_seen_${latest.id}`); const todayStr = new Date().toLocaleDateString(); if (latest.frequency === 'always') { setActiveNotice(latest); } else if (latest.frequency === 'daily') { if (lastSeen !== todayStr) { setActiveNotice(latest); localStorage.setItem(`notice_seen_${latest.id}`, todayStr); } } else if (latest.frequency === 'once') { if (!lastSeen) { setActiveNotice(latest); localStorage.setItem(`notice_seen_${latest.id}`, 'seen'); } } } }, [notices]);
+
+    // --- CLICK-TO-SWAP LOGIC ---
+    const handleShiftClick = (day: any, shift: 'morning' | 'evening', name: string) => {
+        if (!swapMode) return; // Do nothing if not in swap mode
+
+        // Step 1: Select My Shift
+        if (swapSelection.step === 1) {
+            if (name !== currentUser.name) {
+                alert("⚠️ 请先选择【你自己】的班次！(绿色高亮)");
+                return;
+            }
+            setSwapSelection({ step: 2, myDate: day.date, myShift: shift });
+            return;
+        }
+
+        // Step 2: Select Target Shift
+        if (swapSelection.step === 2) {
+            if (name === currentUser.name) {
+                alert("⚠️ 不能选择自己的班次作为目标，请选择同事的班次 (蓝色高亮)。");
+                return;
+            }
+            
+            // Confirm Dialog wrapped in timeout to allow UI update
+            setTimeout(() => {
+                const confirmMsg = `确认发起换班？\n\n我的班次: ${swapSelection.myDate} (${swapSelection.myShift === 'morning' ? '早' : '晚'})\n交换对象: ${name} 在 ${day.date} (${shift === 'morning' ? '早' : '晚'})`;
+                if (window.confirm(confirmMsg)) {
+                    // Create Request
+                    const targetUser = USERS.find(u => u.name === name);
+                    const req: SwapRequest = {
+                        id: Date.now().toString(),
+                        requesterName: currentUser.name,
+                        requesterId: currentUser.id,
+                        requesterDate: swapSelection.myDate!,
+                        requesterShift: swapSelection.myShift!,
+                        targetName: name,
+                        targetId: targetUser ? targetUser.id : 'unknown',
+                        targetDate: day.date,
+                        targetShift: shift,
+                        status: 'pending',
+                        timestamp: Date.now()
+                    };
+                    Cloud.saveSwapRequest(req);
+                    alert("✅ 请求已发送！等待对方确认。");
+                    setSwapMode(false); // Exit mode
+                    setSwapSelection({ step: 1 }); // Reset
+                }
+            }, 50);
+        }
+    };
 
     // --- SMART CLOCK-IN SYSTEM (GPS + SCHEDULE + TASK RULES) ---
     const handleClockLog = (type: 'clock-in' | 'clock-out') => {
@@ -560,79 +613,79 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser }: { onSwitchMode:
         const todayStr = getTodayMMDD();
         const fullTodayStr = now.toLocaleDateString();
 
-        // 1. SCHEDULE VALIDATION (Strict)
-        const daySchedule = schedule?.days?.find((d: any) => d.date === todayStr);
-        const isScheduledMorning = daySchedule?.morning?.includes(currentUser.name);
-        const isScheduledEvening = daySchedule?.evening?.includes(currentUser.name);
+        // 1. VISUAL FEEDBACK FIRST
+        setClockBtnText(p => ({ ...p, [type === 'clock-in' ? 'in' : 'out']: '📡 定位中...' }));
 
-        if (!daySchedule || (!isScheduledMorning && !isScheduledEvening)) {
-            alert(`⛔️ Clock-in Blocked\nYou are not scheduled for today (${todayStr}).`);
-            return;
-        }
+        setTimeout(() => {
+            // 2. SCHEDULE VALIDATION (Warn but allow)
+            const daySchedule = schedule?.days?.find((d: any) => d.date === todayStr);
+            const isScheduledMorning = daySchedule?.morning?.includes(currentUser.name);
+            const isScheduledEvening = daySchedule?.evening?.includes(currentUser.name);
 
-        // 2. TASK COMPLETION RULES (For Clock-Out only)
-        if (type === 'clock-out') {
-            const isMorningShiftTime = now.getHours() < 16; 
-            // Check logs for today
-            const todayLogs = logs.filter(l => new Date(l.time).toLocaleDateString() === fullTodayStr);
-            const hasInventory = todayLogs.some(l => l.type === 'inventory');
-            const hasClosing = todayLogs.some(l => l.type === 'checklist' && (l.shift.includes('Closing') || l.shift.includes('晚班')));
-
-            if (isMorningShiftTime) {
-                // Morning Requirement: Inventory
-                if (!hasInventory) return alert("⚠️ Cannot Clock Out\nYou must complete 'Inventory Management' first.");
-            } else {
-                // Evening Requirement: Inventory + Closing SOP
-                let missing = [];
-                if (!hasInventory) missing.push("Inventory Management");
-                if (!hasClosing) missing.push("Closing SOP Checklist");
-                
-                if (missing.length > 0) {
-                    return alert(`⚠️ Cannot Clock Out\nPlease complete: \n- ${missing.join('\n- ')}`);
+            if (!daySchedule || (!isScheduledMorning && !isScheduledEvening)) {
+                 if (!window.confirm(`⚠️ 系统检测到您今天 (${todayStr}) 没有排班。\n\n是否仍要强制打卡？`)) {
+                    setClockBtnText({ in: t.clock_in, out: t.clock_out }); // Reset text on cancel
+                    return;
                 }
             }
-        }
-        
-        // 3. GPS CHECK
-        if (!navigator.geolocation) {
-            alert("Geolocation is not supported. Proceeding with 'GPS Unknown'.");
-            performClockIn(type, "GPS Unknown");
-            return;
-        }
 
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const dist = getDistanceFromLatLonInKm(
-                    position.coords.latitude, 
-                    position.coords.longitude, 
-                    STORE_COORDS.lat, 
-                    STORE_COORDS.lng
-                );
-                
-                // 500m threshold as per requirement
-                // If < 500m, mark as "300m内" (Within 300m)
-                // If > 500m, mark as "300m外" (Outside 300m)
-                let locTag = "";
-                let alertMsg = "";
+            // 3. TASK COMPLETION RULES (For Clock-Out only)
+            if (type === 'clock-out') {
+                const isMorningShiftTime = now.getHours() < 16; 
+                // Check logs for today
+                const todayLogs = logs.filter(l => new Date(l.time).toLocaleDateString() === fullTodayStr);
+                const hasInventory = todayLogs.some(l => l.type === 'inventory');
+                const hasClosing = todayLogs.some(l => l.type === 'checklist' && (l.shift.includes('Closing') || l.shift.includes('晚班')));
 
-                if (dist <= 500) {
-                    locTag = "300m内"; // Label requested
-                    alertMsg = `✅ Success! Location: Within 300m`;
-                } else {
-                    locTag = "300m外"; // Label requested
-                    alertMsg = `⚠️ Warning: You are far from the store (${Math.round(dist)}m). Marked as Outside 300m.`;
+                if (!isMorningShiftTime) {
+                    let missing = [];
+                    if (!hasInventory) missing.push("Inventory Management");
+                    if (!hasClosing) missing.push("Closing SOP Checklist");
+                    
+                    if (missing.length > 0) {
+                       alert(`⚠️ 注意：您尚未完成以下任务:\n- ${missing.join('\n- ')}\n\n请确保完成工作再离开。`);
+                    }
                 }
+            }
+            
+            // 4. GPS CHECK
+            if (!navigator.geolocation) {
+                alert("Geolocation is not supported. Proceeding with 'GPS Unknown'.");
+                performClockIn(type, "GPS Unknown");
+                return;
+            }
 
-                alert(alertMsg);
-                performClockIn(type, locTag);
-            },
-            (error) => {
-                console.error("GPS Error", error);
-                alert("⚠️ GPS Error. Please allow location access.");
-                performClockIn(type, "GPS Error");
-            },
-            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-        );
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const dist = getDistanceFromLatLonInKm(
+                        position.coords.latitude, 
+                        position.coords.longitude, 
+                        STORE_COORDS.lat, 
+                        STORE_COORDS.lng
+                    );
+                    
+                    let locTag = "";
+                    let alertMsg = "";
+
+                    if (dist <= 500) {
+                        locTag = "300m内"; 
+                        alertMsg = `✅ 打卡成功！\n位置: 300m内`;
+                    } else {
+                        locTag = "300m外"; 
+                        alertMsg = `⚠️ 警告: 您似乎不在店内 (${Math.round(dist)}m)。记录为: 300m外`;
+                    }
+
+                    alert(alertMsg);
+                    performClockIn(type, locTag);
+                },
+                (error) => {
+                    console.error("GPS Error", error);
+                    alert("⚠️ 定位失败，记录为 'GPS Error'");
+                    performClockIn(type, "GPS Error");
+                },
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+            );
+        }, 50); // Small timeout to let React render the button text change
     };
 
     const performClockIn = (type: 'clock-in' | 'clock-out', locationTag: string) => {
@@ -647,6 +700,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser }: { onSwitchMode:
         };
         setLogs([newLog, ...logs]);
         Cloud.saveLog(newLog);
+        setClockBtnText({ in: t.clock_in, out: t.clock_out });
     };
 
     const requestSwap = (reqData: any) => {
@@ -702,9 +756,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser }: { onSwitchMode:
         const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? {...r, status: action} : r);
         setSwapRequests(updatedReqs);
         Cloud.updateSwapRequests(updatedReqs);
+        alert(action === 'accepted_by_peer' ? "已同意！等待店长批准。" : "已拒绝。");
     };
 
-    // ... (submitChecklist, handleInventorySubmit, renderStaffView same as before with updated calls)
     const submitChecklist = () => { if (!currentShift) return; const tmpl = CHECKLIST_TEMPLATES[currentShift]; const newLog: LogEntry = { id: Date.now(), shift: getLoc(tmpl.title), name: currentUser.name, userId: currentUser.id, time: new Date().toLocaleString(), status: 'Completed', type: 'checklist' }; setLogs([newLog, ...logs]); Cloud.saveLog(newLog); setCurrentShift(null); setView('sop'); alert(t.submit_success); };
     const handleInventorySubmit = (reportData: any) => { const newLog: LogEntry = { id: Date.now(), shift: "Inventory", name: reportData.submittedBy, userId: reportData.userId, time: new Date().toLocaleString(), type: 'inventory', reason: "Submitted Report" }; setLogs([newLog, ...logs]); Cloud.saveLog(newLog); const report: InventoryReport = { id: Date.now(), date: new Date().toLocaleDateString(), submittedBy: reportData.submittedBy, userId: reportData.userId, data: reportData.data }; Cloud.saveInventoryReport(report); };
 
@@ -718,10 +772,93 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser }: { onSwitchMode:
     const renderStaffView = () => {
         if (view === 'team') {
             return (
-                <div className="h-full overflow-y-auto p-4 bg-gray-50 animate-fade-in">
-                    <h2 className="text-2xl font-black text-gray-900 mb-4">{t.team_title} (2 Weeks)</h2>
-                    {myPendingSwaps.length > 0 && (<div className="bg-yellow-50 border border-yellow-200 p-4 rounded-xl mb-4 shadow-sm"><h3 className="font-bold text-yellow-800 mb-2 flex items-center gap-2"><Icon name="Bell" size={16}/> Swap Requests (Action Required)</h3>{myPendingSwaps.map((req: SwapRequest) => (<div key={req.id} className="bg-white p-3 rounded-lg shadow-sm mb-2 border border-gray-100"><p className="text-sm text-gray-700"><strong>{req.requesterName}</strong> wants your shift on <strong>{req.targetDate}</strong>.<br/>They offer: <strong>{req.requesterDate} ({req.requesterShift})</strong>.</p><div className="flex gap-2 mt-2"><button onClick={()=>handleSwapAction(req.id, 'accepted_by_peer')} className="flex-1 bg-green-100 text-green-700 py-2 rounded-lg text-xs font-bold hover:bg-green-200 transition">Agree</button><button onClick={()=>handleSwapAction(req.id, 'rejected')} className="flex-1 bg-red-100 text-red-700 py-2 rounded-lg text-xs font-bold hover:bg-red-200 transition">Decline</button></div></div>))}</div>)}
-                    <div className="space-y-4"><div className="text-xs text-gray-400 bg-gray-100 p-2 rounded text-center">💡 Tip: Drag YOUR name onto another person to request a swap.</div>{clientSchedule?.days?.map((day, idx) => { const isMyMorning = currentUser && day.morning.includes(currentUser.name); const isMyEvening = currentUser && day.evening.includes(currentUser.name); const isMyDay = isMyMorning || isMyEvening; return (<div key={idx} className={`p-4 rounded-xl shadow-sm border transition-all ${isMyDay ? 'bg-indigo-50 border-indigo-200 ring-2 ring-indigo-100' : 'bg-white border-gray-100'}`}><div className="flex justify-between items-center mb-3"><h3 className={`font-bold ${isMyDay ? 'text-indigo-900' : 'text-gray-800'}`}>{day.name} <span className="text-gray-400 font-normal text-xs ml-1">{day.zh} ({day.date})</span></h3>{isMyDay && <span className="text-[10px] bg-indigo-600 text-white px-2 py-1 rounded-full font-bold">{t.my_shift}</span>}</div><div className="mb-3"><div className="text-[10px] font-bold text-orange-500 uppercase mb-1 flex justify-between"><span>{t.morning_shift}</span>{day.hours?.morning && <span className="text-gray-400 font-mono">{day.hours.morning.start}-{day.hours.morning.end}</span>}</div><div className="flex flex-wrap gap-2">{day.morning.length > 0 ? day.morning.map((name, i) => (<div key={i} draggable={name === currentUser.name} onDragStart={(e) => { e.dataTransfer.setData("application/json", JSON.stringify({user: name, date: day.date, shift: 'morning'})); }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleSwapDrop(e, day.date, 'morning', name)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all relative ${name === currentUser?.name ? 'bg-orange-500 text-white shadow-md cursor-grab active:cursor-grabbing border-orange-600' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>{name}{name !== currentUser.name && (<span className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity">⇅</span>)}</div>)) : <span className="text-gray-300 text-xs italic">Empty</span>}</div></div><div><div className="text-[10px] font-bold text-indigo-500 uppercase mb-1 flex justify-between"><span>{t.evening_shift}</span>{day.hours?.evening && <span className="text-gray-400 font-mono">{day.hours.evening.start}-{day.hours.evening.end}</span>}</div><div className="flex flex-wrap gap-2">{day.evening.length > 0 ? day.evening.map((name, i) => (<div key={i} draggable={name === currentUser.name} onDragStart={(e) => { e.dataTransfer.setData("application/json", JSON.stringify({user: name, date: day.date, shift: 'evening'})); }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleSwapDrop(e, day.date, 'evening', name)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all relative ${name === currentUser?.name ? 'bg-indigo-600 text-white shadow-md cursor-grab active:cursor-grabbing border-indigo-700' : 'bg-indigo-50 text-indigo-700 border-indigo-100'}`}>{name}</div>)) : <span className="text-gray-300 text-xs italic">Empty</span>}</div></div></div>); })}</div>
+                <div className="h-full overflow-y-auto p-4 bg-gray-50">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-2xl font-black text-gray-900">{t.team_title}</h2>
+                        <button onClick={() => { setSwapMode(!swapMode); setSwapSelection({step:1}); }} className={`px-4 py-2 rounded-xl font-bold text-xs shadow-sm transition-all ${swapMode ? 'bg-red-500 text-white animate-pulse' : 'bg-indigo-600 text-white'}`}>
+                            {swapMode ? '❌ 退出换班模式' : '🔄 发起换班'}
+                        </button>
+                    </div>
+
+                    {swapMode && (
+                        <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-xl mb-4 text-sm text-yellow-800 shadow-sm sticky top-0 z-10">
+                            <strong>换班向导:</strong> {swapSelection.step === 1 ? '👉 第一步：请点击【您自己的班次】(绿色)' : '👉 第二步：请点击【同事的班次】(蓝色)'}
+                        </div>
+                    )}
+
+                    {myPendingSwaps.length > 0 && !swapMode && (
+                        <div className="bg-white border border-red-100 p-4 rounded-xl mb-4 shadow-sm animate-pop-in">
+                            <h3 className="font-bold text-red-500 mb-2">🔔 收到换班请求</h3>
+                            {myPendingSwaps.map((req: SwapRequest) => (
+                                <div key={req.id} className="bg-gray-50 p-3 rounded-lg mb-2 text-sm">
+                                    <p><strong>{req.requesterName}</strong> 想用 <strong>{req.requesterDate}</strong> 换你的 <strong>{req.targetDate}</strong></p>
+                                    <div className="flex gap-2 mt-2">
+                                        <button onClick={()=>handleSwapAction(req.id, 'accepted_by_peer')} className="flex-1 bg-green-500 text-white py-2 rounded font-bold">同意</button>
+                                        <button onClick={()=>handleSwapAction(req.id, 'rejected')} className="flex-1 bg-gray-300 text-gray-700 py-2 rounded font-bold">拒绝</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="space-y-4 pb-20">
+                        {clientSchedule?.days?.map((day: any, idx: number) => {
+                            const isMyMorning = day.morning.includes(currentUser.name);
+                            const isMyEvening = day.evening.includes(currentUser.name);
+                            return (
+                                <div key={idx} className={`p-4 rounded-xl shadow-sm border ${isMyMorning||isMyEvening ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-gray-100'}`}>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h3 className="font-bold text-gray-800">{day.name} <span className="text-gray-400 font-normal ml-1">{day.date}</span></h3>
+                                        {(isMyMorning || isMyEvening) && <span className="text-[10px] bg-indigo-200 text-indigo-800 px-2 py-1 rounded-full font-bold">我的班</span>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-bold w-8 text-orange-500">早班</span>
+                                            <div className="flex flex-wrap gap-2">
+                                                {day.morning.map((name: string, i: number) => {
+                                                    const isMe = name === currentUser.name;
+                                                    let bgClass = "bg-orange-50 text-orange-700";
+                                                    if (swapMode) {
+                                                        if (swapSelection.step === 1 && isMe) bgClass = "bg-green-500 text-white ring-4 ring-green-200 cursor-pointer animate-pulse";
+                                                        else if (swapSelection.step === 2 && !isMe) bgClass = "bg-blue-500 text-white ring-4 ring-blue-200 cursor-pointer animate-pulse";
+                                                        else bgClass = "bg-gray-100 text-gray-300 opacity-50";
+                                                    } else if (isMe) {
+                                                        bgClass = "bg-orange-500 text-white";
+                                                    }
+                                                    return (
+                                                        <div key={i} onClick={() => handleShiftClick(day, 'morning', name)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${bgClass}`}>
+                                                            {name}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-bold w-8 text-indigo-500">晚班</span>
+                                            <div className="flex flex-wrap gap-2">
+                                                {day.evening.map((name: string, i: number) => {
+                                                    const isMe = name === currentUser.name;
+                                                    let bgClass = "bg-indigo-50 text-indigo-700";
+                                                    if (swapMode) {
+                                                        if (swapSelection.step === 1 && isMe) bgClass = "bg-green-500 text-white ring-4 ring-green-200 cursor-pointer animate-pulse";
+                                                        else if (swapSelection.step === 2 && !isMe) bgClass = "bg-blue-500 text-white ring-4 ring-blue-200 cursor-pointer animate-pulse";
+                                                        else bgClass = "bg-gray-100 text-gray-300 opacity-50";
+                                                    } else if (isMe) {
+                                                        bgClass = "bg-indigo-600 text-white";
+                                                    }
+                                                    return (
+                                                        <div key={i} onClick={() => handleShiftClick(day, 'evening', name)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${bgClass}`}>
+                                                            {name}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             );
         }
