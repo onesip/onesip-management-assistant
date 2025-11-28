@@ -220,7 +220,7 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
         setInputText('');
     };
 
-    const handleBroadcast = () => {
+    const handleBroadcast = async () => {
         if (!broadcastText.trim()) return;
         const notice: Notice = { 
             id: Date.now().toString(), 
@@ -228,12 +228,19 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             content: broadcastText, 
             date: new Date().toISOString(), 
             isUrgent: false,
-            frequency: broadcastFreq, // Save frequency
+            frequency: broadcastFreq,
             status: 'active'
         };
-        Cloud.saveNotice(notice);
-        setBroadcastText('');
-        alert("Announcement posted with frequency: " + broadcastFreq);
+        // By calling updateNotices with an array containing only the new notice,
+        // we effectively replace all old announcements with the latest one.
+        const res = await Cloud.updateNotices([notice]); 
+        if (res.success) {
+            setBroadcastText('');
+            alert("New announcement posted. This is now the only active announcement.");
+        } else {
+            console.error("Failed to post announcement:", res.error);
+            alert("Error: Could not post announcement. Please try again.");
+        }
     };
 
     const cancelNotice = async (id: string) => {
@@ -254,7 +261,7 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
         if (!window.confirm("Are you sure you want to delete ALL announcements? This cannot be undone.")) return;
         
         console.log(`[Manager] Clearing all notices.`);
-        const res = await Cloud.updateNotices([]);
+        const res = await Cloud.clearAllNotices();
         if (!res?.success) {
             console.error("[Manager] Failed to clear all notices:", res?.error);
             alert("Error: Failed to clear announcements. Please check your connection and try again.");
@@ -1177,11 +1184,62 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const findNextShift = () => {
         if (!schedule?.days) return null;
+    
+        const now = new Date();
+        const currentYear = now.getFullYear();
+
         for (const day of schedule.days) {
-            if (day.morning.includes(currentUser.name)) return { date: day.date, shift: '10:00 - 15:00', name: day.name };
-            if (day.evening.includes(currentUser.name)) return { date: day.date, shift: '14:30 - 19:00', name: day.name };
+            const [month, dayOfMonth] = day.date.split('-').map(Number);
+            // JS months are 0-indexed.
+            let scheduleYear = currentYear;
+            // Handle year wrap-around for schedules starting in Dec and ending in Jan
+            if (now.getMonth() === 11 && month === 1) { 
+                scheduleYear++;
+            }
+            const scheduleDate = new Date(scheduleYear, month - 1, dayOfMonth);
+            
+            // Create a date for today with time set to 0 to compare dates only
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            // Check if this day is today or in the future
+            if (scheduleDate >= today) {
+                const isToday = scheduleDate.toDateString() === today.toDateString();
+                const mStart = day.hours?.morning?.start || '10:00';
+                const mEnd = day.hours?.morning?.end || '15:00';
+                const eStart = day.hours?.evening?.start || '14:30';
+                const eEnd = day.hours?.evening?.end || '19:00';
+
+                // Check morning shift
+                if (day.morning.includes(currentUser.name)) {
+                    if (isToday) {
+                        const mEndTime = parseInt(mEnd.split(':')[0]);
+                        if (now.getHours() < mEndTime) { // If current hour is before morning shift ends
+                             return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
+                        }
+                        // Morning shift is over for today, continue to check evening
+                    } else {
+                        // It's a future day, this is the next shift
+                        return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
+                    }
+                }
+                
+                // Check evening shift
+                if (day.evening.includes(currentUser.name)) {
+                    if (isToday) {
+                        const eEndTime = parseInt(eEnd.split(':')[0]);
+                        if (now.getHours() < eEndTime) { // If current hour is before evening shift ends
+                             return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
+                        }
+                        // Evening shift also over for today, continue to next day in the loop
+                    } else {
+                        // It's a future day
+                        return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
+                    }
+                }
+            }
         }
-        return null;
+        return null; // No upcoming shifts found
     };
     const nextShift = findNextShift();
 

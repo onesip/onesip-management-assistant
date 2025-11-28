@@ -1,15 +1,16 @@
 
-import * as firebaseApp from 'firebase/app';
-import { getFirestore, collection, doc, setDoc, onSnapshot, getDoc, updateDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
+import { initializeApp } from 'firebase/app';
+import { getAnalytics } from "firebase/analytics";
+import { getFirestore, doc, setDoc, onSnapshot, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { INVENTORY_ITEMS, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
 import { ScheduleDay, WeeklySchedule } from '../types';
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "AIzaSyC2_c8-g9H5v3Bq_cI7aF6dE4eK0jZ_AgU",
-  authDomain: "onesip-management.firebaseapp.com",
-  projectId: "onesip-management",
-  storageBucket: "onesip-management.appspot.com",
+  apiKey: "AIzaSyBDfYlwxPV9pASCLu4U5ffGvv6lK5qGC4A",
+  authDomain: "onesip--management.firebaseapp.com",
+  projectId: "onesip--management",
+  storageBucket: "onesip--management.firebasestorage.app",
   messagingSenderId: "6590856722",
   appId: "1:6590856722:web:bf4abcc0a51de16fae62cb",
   measurementId: "G-GXZYD1GB8E"
@@ -20,12 +21,11 @@ let isConfigured = false;
 
 // Initialize Firebase
 try {
-    // Cast to any to bypass "Module has no exported member" TS error if types are mismatched
-    const initializeApp = (firebaseApp as any).initializeApp;
     const app = initializeApp(firebaseConfig);
+    getAnalytics(app);
     db = getFirestore(app);
     isConfigured = true;
-    console.log("🔥 Cloud Connected Successfully to: onesip-management");
+    console.log("🔥 Cloud Connected Successfully to: onesip--management");
 } catch (e) {
     console.error("Firebase Init Error:", e);
 }
@@ -63,11 +63,9 @@ const generateInitialSchedule = (): WeeklySchedule => {
 };
 
 // --- INITIAL DATA SEEDING ---
-// Checks if critical collections exist. If not, uploads local defaults.
 export const seedInitialData = async () => {
     if (!db) return;
     
-    // Check if the database has been seeded at all using one item as a flag
     const checkRef = doc(db, 'config', 'inventory');
     const checkSnap = await getDoc(checkRef);
 
@@ -94,16 +92,38 @@ export const seedInitialData = async () => {
                 console.error(`Error seeding ${col.name}/${col.id}:`, e);
             }
         }
-        return; // Exit after full seed.
+        return;
     }
 
-    // --- SELF-HEALING FOR SCHEDULE (FIX) ---
-    // If the DB is already initialized, still perform this specific check for schedule integrity.
     const scheduleRef = doc(db, 'config', 'schedule');
     const scheduleSnap = await getDoc(scheduleRef);
     if (!scheduleSnap.exists() || !scheduleSnap.data()?.week?.days?.length) {
         console.log("⚠️ Schedule data missing or invalid. Regenerating schedule to fix.");
         await setDoc(scheduleRef, { week: generateInitialSchedule() });
+    } else {
+        // Check if the entire schedule is in the past and regenerate if so.
+        const scheduleData = scheduleSnap.data().week;
+        if (scheduleData.days && scheduleData.days.length > 0) {
+            const lastDayString = scheduleData.days[scheduleData.days.length - 1].date;
+            const [lastMonth, lastDayOfMonth] = lastDayString.split('-').map(Number);
+
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            
+            const currentYear = today.getFullYear();
+            const lastDayDate = new Date(currentYear, lastMonth - 1, lastDayOfMonth);
+            lastDayDate.setHours(23,59,59,999); // Compare end of day
+
+            // Handle year wrap-around (e.g., today is Jan 2025, schedule ends Dec 2024)
+            if (lastDayDate < today && lastMonth > today.getMonth()) {
+                lastDayDate.setFullYear(currentYear - 1);
+            }
+
+            if (lastDayDate < today) {
+                 console.log("📅 Schedule is entirely in the past. Regenerating from today.");
+                 await setDoc(scheduleRef, { week: generateInitialSchedule() }, { merge: true });
+            }
+        }
     }
 
     console.log("✅ Database integrity checks complete.");
@@ -121,7 +141,11 @@ export const subscribeToInventory = (callback: (data: any) => void) => {
 export const subscribeToSchedule = (callback: (data: any) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'config', 'schedule'), (doc) => {
-        if (doc.exists()) callback(doc.data().week);
+        if (doc.exists()) {
+            const schedule = doc.data().week;
+            console.log('[DEBUG] schedule from cloud:', schedule);
+            callback(schedule);
+        }
     });
 };
 
@@ -186,7 +210,6 @@ export const saveInventoryList = async (list: any[]) => {
 
 export const saveInventoryReport = async (report: any) => {
     if (!db) return;
-    // Save report to the dedicated array for history listing
     await setDoc(doc(db, 'data', 'inventory_history'), {
         reports: arrayUnion(report)
     }, { merge: true });
@@ -194,7 +217,6 @@ export const saveInventoryReport = async (report: any) => {
 
 export const saveInventoryLogs = async (logs: any[]) => {
     if (!db || logs.length === 0) return;
-    // Use setDoc with merge: true to ensure the document exists
     await setDoc(doc(db, 'data', 'inventory_logs'), {
         entries: arrayUnion(...logs)
     }, { merge: true });
@@ -207,7 +229,6 @@ export const saveSchedule = async (week: any) => {
 
 export const saveLog = async (logEntry: any) => {
     if (!db) return;
-    // Use arrayUnion to add to the list atomically
     await updateDoc(doc(db, 'data', 'logs'), {
         entries: arrayUnion(logEntry)
     });
@@ -215,7 +236,6 @@ export const saveLog = async (logEntry: any) => {
 
 export const saveMessage = async (message: any) => {
     if (!db) return;
-    // Use setDoc with merge to ensure document exists, solving "sync issues" if doc is missing
     await setDoc(doc(db, 'data', 'chat'), {
         messages: arrayUnion(message)
     }, { merge: true });
@@ -235,11 +255,26 @@ export const updateNotices = async (notices: any[]) => {
     }
     try {
         console.log("📤 Syncing Notices to Cloud:", notices.length, "items");
-        await updateDoc(doc(db, 'data', 'chat'), { notices });
+        await setDoc(doc(db, 'data', 'chat'), { notices }, { merge: true });
         console.log("✅ Notices Synced Successfully");
         return { success: true };
     } catch (e) {
         console.error("❌ Error updating notices:", e);
+        return { success: false, error: e };
+    }
+};
+
+export const clearAllNotices = async () => {
+    if (!db) {
+        console.error("❌ DB not initialized in clearAllNotices");
+        return { success: false, error: "Database not initialized." };
+    }
+    try {
+        await setDoc(doc(db, 'data', 'chat'), { notices: [] }, { merge: true });
+        console.log("✅ All notices cleared from Cloud.");
+        return { success: true };
+    } catch (e) {
+        console.error("❌ Error clearing all notices:", e);
         return { success: false, error: e };
     }
 };
