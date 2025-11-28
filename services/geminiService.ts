@@ -1,4 +1,5 @@
 
+// @ts-ignore
 import { GoogleGenAI } from "@google/genai";
 import { SopItem, TrainingLevel } from "../types";
 import { DRINK_RECIPES } from "../constants";

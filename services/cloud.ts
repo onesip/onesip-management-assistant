@@ -1,6 +1,7 @@
-
-import { initializeApp as _initializeApp } from 'firebase/app'; // Workaround for TS
-import { getAnalytics as _getAnalytics } from "firebase/analytics"; // Workaround for TS
+// @ts-ignore
+import { initializeApp } from 'firebase/app';
+// @ts-ignore
+import { getAnalytics } from "firebase/analytics";
 import { 
   getFirestore, 
   doc, 
@@ -12,10 +13,6 @@ import {
 } from 'firebase/firestore';
 import { INVENTORY_ITEMS, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
 import { ScheduleDay, WeeklySchedule } from '../types';
-
-// Use any to bypass the "no exported member" error if types are missing/mismatched in environment
-const initializeApp = _initializeApp as any;
-const getAnalytics = _getAnalytics as any;
 
 // --- FIREBASE CONFIGURATION ---
 // Prioritize Environment Variables for "Double Guarantee", fallback to hardcoded defaults.

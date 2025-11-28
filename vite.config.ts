@@ -54,6 +54,11 @@ export default defineConfig({
       }
     })
   ],
+  build: {
+    rollupOptions: {
+      external: ['@google/genai'],
+    }
+  },
   define: {
     // Safely polyfill process.env for browser environments
     'process.env': JSON.stringify(process.env)
