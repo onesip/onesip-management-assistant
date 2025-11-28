@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { Icon } from './components/Icons';
 import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, TEAM_MEMBERS, USERS } from './constants';
-import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability } from './types';
+import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState } from './types';
 import * as Cloud from './services/cloud';
 import { getChatResponse } from './services/geminiService';
 import { useNotification } from './components/GlobalNotification';
@@ -339,7 +340,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     );
 };
 
-const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isManager, sopList, trainingLevels }: any) => {
+const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isManager, sopList, trainingLevels, lastReadAt }: any) => {
     const [activeChannel, setActiveChannel] = useState<string | null>(null);
     const [inputText, setInputText] = useState('');
     const [broadcastText, setBroadcastText] = useState('');
@@ -453,6 +454,8 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
         const isAi = activeChannel === AI_BOT_ID;
         const targetUser = isAi ? { name: "AI Assistant", id: AI_BOT_ID } : USERS.find(u => u.id === activeChannel);
 
+        let readDividerPlaced = false;
+
         return (
             <div className="h-full flex flex-col bg-secondary text-text absolute inset-0 z-[100] animate-fade-in"> 
                 <div className="p-4 bg-surface border-b flex items-center gap-3 sticky top-0 z-10 shadow-sm">
@@ -478,14 +481,32 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                             </div>
                         </div>
                     )}
-                    {threadMessages.map((m: DirectMessage) => (
-                        <div key={m.id} className={`flex flex-col items-start ${m.fromId === currentUser.id ? 'items-end' : 'items-start'}`}>
-                            <div className={`max-w-[85%] p-3 rounded-2xl text-sm shadow-sm whitespace-pre-line leading-relaxed ${m.fromId === currentUser.id ? 'bg-primary text-white rounded-br-none' : 'bg-white border rounded-bl-none text-gray-800'}`}>
-                                {m.content}
-                            </div>
-                            <span className="text-[10px] text-gray-400 mt-1 px-1">{formatDate(m.timestamp)}</span>
-                        </div>
-                    ))}
+                    {threadMessages.map((m: DirectMessage, index: number) => {
+                        const messageTime = new Date(m.timestamp);
+                        const prevMessage = threadMessages[index - 1];
+                        let showReadDivider = false;
+
+                        if (lastReadAt && !readDividerPlaced && messageTime > lastReadAt) {
+                            if (!prevMessage || new Date(prevMessage.timestamp) <= lastReadAt) {
+                                showReadDivider = true;
+                                readDividerPlaced = true;
+                            }
+                        }
+
+                        return (
+                            <React.Fragment key={m.id}>
+                                {showReadDivider && (
+                                    <div className="text-center text-xs text-gray-400 my-2">-- Unread messages --</div>
+                                )}
+                                <div className={`flex flex-col items-start ${m.fromId === currentUser.id ? 'items-end' : 'items-start'}`}>
+                                    <div className={`max-w-[85%] p-3 rounded-2xl text-sm shadow-sm whitespace-pre-line leading-relaxed ${m.fromId === currentUser.id ? 'bg-primary text-white rounded-br-none' : 'bg-white border rounded-bl-none text-gray-800'}`}>
+                                        {m.content}
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 mt-1 px-1">{formatDate(m.timestamp)}</span>
+                                </div>
+                            </React.Fragment>
+                        );
+                    })}
                     {isAiTyping && (
                         <div className="flex items-start">
                             <div className="bg-white border rounded-2xl rounded-bl-none p-3 shadow-sm flex gap-1">
@@ -837,33 +858,122 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
 };
 
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { lang, t, inventoryList, setInventoryList } = data;
+    const { lang, t, inventoryList, setInventoryList, inventoryHistory } = data;
     const ownerUser = USERS.find(u => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
-    const [view, setView] = useState<'inventory' | 'manager'>('inventory');
+    const [view, setView] = useState<'main' | 'manager'>('main');
+    const [ownerSubView, setOwnerSubView] = useState<'presets' | 'history'>('presets');
+    const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
+
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+
+    const handleExportCsv = () => {
+        const headers = "Date,Submitted By,Item Name,End Count,Waste Count\n";
+        const csvRows = inventoryHistory.flatMap((report: InventoryReport) => 
+            Object.entries(report.data).map(([itemId, values]) => {
+                const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
+                const itemName = itemDef ? getLoc(itemDef.name) : itemId;
+                const cleanItemName = `"${itemName.replace(/"/g, '""')}"`; // Escape double quotes
+                
+                const reportDate = report.date ? new Date(report.date).toISOString().split('T')[0] : '';
+                return [
+                    `"${reportDate}"`,
+                    `"${report.submittedBy}"`,
+                    cleanItemName,
+                    values.end || '0',
+                    values.waste || '0'
+                ].join(',');
+            })
+        );
+
+        const csvString = headers + csvRows.join('\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        const date = new Date().toISOString().split('T')[0];
+        link.setAttribute("download", `inventory_records_${date}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     if (view === 'manager') {
-        return <ManagerDashboard data={data} onExit={() => setView('inventory')} />;
+        return <ManagerDashboard data={data} onExit={() => setView('main')} />;
     }
+    
+    const InventoryHistoryView = () => (
+        <div className="p-4 space-y-3">
+            <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-dark-text">{t.report_history || 'Report History'}</h3>
+                <button onClick={handleExportCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-green-700 transition-all">
+                    <Icon name="List" size={16} /> Export CSV
+                </button>
+            </div>
+            {inventoryHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found.</p>}
+            {inventoryHistory.slice().reverse().map((report: InventoryReport) => (
+                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10">
+                    <div onClick={() => setExpandedReportId(expandedReportId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
+                        <div>
+                            <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'}</p>
+                            <p className="text-xs text-dark-text-light">by {report.submittedBy} • {Object.keys(report.data).length} items</p>
+                        </div>
+                        <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
+                    </div>
+                    {expandedReportId === report.id && (
+                        <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2">
+                            <div className="grid grid-cols-3 font-bold text-dark-text-light">
+                                <span>Item</span><span className="text-center">End</span><span className="text-center">Waste</span>
+                            </div>
+                            {Object.entries(report.data).map(([itemId, values]) => {
+                                const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
+                                return (
+                                    <div key={itemId} className="grid grid-cols-3 items-center">
+                                        <span>{itemDef ? getLoc(itemDef.name) : itemId}</span>
+                                        <span className="text-center font-mono">{values.end || '0'}</span>
+                                        <span className="text-center font-mono text-red-400">{values.waste || '0'}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
 
     return (
         <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
-             <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
+            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
                 <div><h1 className="text-xl font-black tracking-tight text-white">{t.owner_dashboard || 'Owner Dashboard'}</h1><p className="text-xs text-dark-text-light">User: {ownerUser.name}</p></div>
                 <div className="flex gap-2">
                     <button onClick={() => setView('manager')} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all text-xs font-bold px-3">Manager Dashboard</button>
                     <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
                 </div>
             </div>
+            {/* --- NEW NAVIGATION --- */}
+            <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
+                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Manage Presets
+                </button>
+                <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Report History
+                </button>
+            </div>
+            {/* --- END NEW NAVIGATION --- */}
             <div className="flex-1 overflow-y-auto">
-                <InventoryView 
-                    lang={lang} 
-                    t={t} 
-                    inventoryList={inventoryList} 
-                    setInventoryList={setInventoryList} 
-                    isOwner={true} 
-                    onSubmit={() => {}}
-                    currentUser={ownerUser} 
-                />
+                {ownerSubView === 'presets' && (
+                    <InventoryView 
+                        lang={lang} 
+                        t={t} 
+                        inventoryList={inventoryList} 
+                        setInventoryList={setInventoryList} 
+                        isOwner={true} 
+                        onSubmit={() => {}}
+                        currentUser={ownerUser} 
+                    />
+                )}
+                {ownerSubView === 'history' && <InventoryHistoryView />}
             </div>
         </div>
     );
@@ -1273,6 +1383,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const { showNotification } = useNotification();
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
+    const [lastReadAt, setLastReadAt] = useState<Date | null>(null);
 
     useEffect(() => {
         const checkAvailability = async () => {
@@ -1289,32 +1400,56 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             }
         };
         const timer = setTimeout(checkAvailability, 3000);
-        return () => clearTimeout(timer);
+
+        const unsubReadState = Cloud.subscribeToChatReadState(currentUser.id, (readState) => {
+            if (readState && readState.lastReadAt) {
+                setLastReadAt(readState.lastReadAt.toDate());
+            }
+        });
+
+        return () => {
+            clearTimeout(timer);
+            unsubReadState();
+        };
     }, [currentUser.id]);
 
     useEffect(() => {
-        if (view === 'chat' || !directMessages || directMessages.length === 0) return;
-        const lastSeenTimestamp = localStorage.getItem('onesip_lastSeenChatTimestamp');
+        if (!directMessages || directMessages.length === 0) return;
+
         const latestMessage = directMessages[directMessages.length - 1];
         if (latestMessage.fromId === currentUser.id) return;
-        if (!lastSeenTimestamp || new Date(latestMessage.timestamp) > new Date(lastSeenTimestamp)) {
-            setHasUnreadChat(true);
+        
+        const latestMessageTime = new Date(latestMessage.timestamp);
+        const hasUnread = !lastReadAt || latestMessageTime > lastReadAt;
+
+        setHasUnreadChat(hasUnread);
+
+        if (hasUnread && view !== 'chat') {
             const sender = USERS.find(u => u.id === latestMessage.fromId);
             showNotification({
                 type: 'message',
                 title: `New Message from ${sender?.name || 'Team'}`,
                 message: latestMessage.content.length > 40 ? latestMessage.content.substring(0, 40) + '...' : latestMessage.content,
+                dedupeKey: `chat::${latestMessage.id}`,
             });
         }
-    }, [directMessages, view, currentUser.id, showNotification]);
+    }, [directMessages, view, currentUser.id, showNotification, lastReadAt]);
+
+    const markChatAsRead = () => {
+        if (!directMessages || directMessages.length === 0) return;
+        const latestMessage = directMessages[directMessages.length - 1];
+        const latestMessageTime = new Date(latestMessage.timestamp);
+
+        if (!lastReadAt || latestMessageTime > lastReadAt) {
+            Cloud.saveChatReadState(currentUser.id, latestMessageTime);
+            setLastReadAt(latestMessageTime); // Optimistic update
+            setHasUnreadChat(false);
+        }
+    };
 
     useEffect(() => {
         if (view === 'chat') {
-            setHasUnreadChat(false);
-            if (directMessages && directMessages.length > 0) {
-                const latestTimestamp = directMessages[directMessages.length - 1].timestamp;
-                localStorage.setItem('onesip_lastSeenChatTimestamp', latestTimestamp);
-            }
+           markChatAsRead();
         }
     }, [view, directMessages]);
     
@@ -1544,7 +1679,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
 
     const handleInventorySubmit = (report: any) => {
-        Cloud.saveInventoryReport(report);
+        const completeReport = {
+            ...report,
+            id: Date.now(),
+            date: new Date().toISOString(),
+        };
+        Cloud.saveInventoryReport(completeReport);
         const logs: InventoryLog[] = [];
         const timestamp = new Date().toLocaleString();
         Object.keys(report.data).forEach(itemId => {
@@ -1617,7 +1757,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             );
         }
-        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} />;
+        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} lastReadAt={lastReadAt} />;
         if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} isForced={!!onInventorySuccess} onCancel={cancelInventoryClockOut} />;
         if (view === 'contact') return <ContactView t={t} lang={lang} />;
         if (view === 'recipes') return <div className="h-full overflow-y-auto text-text animate-fade-in-up pb-24"><div className="bg-surface p-4 border-b"><h2 className="text-xl font-bold">{t.recipe_title}</h2></div><div className="p-4 bg-secondary">{data.recipes.map((d: DrinkRecipe) => <DrinkCard key={d.id} drink={d} lang={lang} t={t} />)}</div></div>;

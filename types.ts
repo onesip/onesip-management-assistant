@@ -259,4 +259,10 @@ export interface StaffAvailability {
   updatedAt: any; // Firestore Timestamp
 }
 
+export interface ChatReadState {
+  userId: string;
+  lastReadAt: any; // Firestore Timestamp
+  updatedAt: any; // Firestore Timestamp
+}
+
 export type StaffViewMode = 'home' | 'team' | 'contact' | 'inventory' | 'recipes' | 'training' | 'sop' | 'chat' | 'checklist' | 'availability';

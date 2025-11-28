@@ -1,7 +1,8 @@
 
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, getDoc, serverTimestamp } from 'firebase/firestore';
 import { INITIAL_MENU_DATA, INITIAL_ANNOUNCEMENT_DATA, INITIAL_WIKI_DATA, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
+import { ChatReadState } from '../types';
 
 // --- CONFIG ---
 // Replace with your Firebase Project Config
@@ -164,6 +165,24 @@ export const clearAllNotices = async () => {
     await updateDoc(doc(db, 'data', 'chat'), { notices: [] });
 };
 
+// --- CHAT READ STATE (NEW) ---
+export const subscribeToChatReadState = (userId: string, callback: (data: ChatReadState | null) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'chat_read_state', userId), (doc) => {
+        callback(doc.exists() ? doc.data() as ChatReadState : null);
+    });
+};
+
+export const saveChatReadState = async (userId: string, lastReadAt: Date) => {
+    if (!db) return;
+    const docRef = doc(db, 'chat_read_state', userId);
+    await setDoc(docRef, {
+        userId,
+        lastReadAt,
+        updatedAt: serverTimestamp()
+    }, { merge: true });
+};
+
 
 // --- SWAPS ---
 export const subscribeToSwaps = (callback: (reqs: any[]) => void) => {
@@ -242,7 +261,7 @@ export const saveInventoryLogs = async (logs: any[]) => {
 };
 
 // --- STAFF AVAILABILITY (NEW) ---
-import { collection, query, where, serverTimestamp, setDoc as setFirestoreDoc, onSnapshot as firestoreOnSnapshot, collection as firestoreCollection, query as firestoreQuery, where as firestoreWhere, getDocs as firestoreGetDocs, doc as firestoreDoc, getDoc as firestoreGetDoc } from 'firebase/firestore';
+import { collection, query, where, setDoc as setFirestoreDoc, onSnapshot as firestoreOnSnapshot, collection as firestoreCollection, query as firestoreQuery, where as firestoreWhere, getDocs as firestoreGetDocs, doc as firestoreDoc, getDoc as firestoreGetDoc } from 'firebase/firestore';
 
 export const getStaffAvailability = async (userId: string, weekStart: string) => {
     if (!db) return null;
