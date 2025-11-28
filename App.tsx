@@ -940,15 +940,12 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
     const clearRequests = () => { if(window.confirm("Delete ALL requests?")) { setSwapRequests([]); Cloud.updateSwapRequests([]); } };
 
-    // FIX: Use deep copy for schedule to ensure safe mutation and persistence
     const handleSaveSchedule = (newStaff: string[], newHours: {start:string, end:string}) => { 
         if (!editingShift) return; 
         const { dayIdx, shift } = editingShift; 
         
-        // Deep copy the schedule object
         const newSched = JSON.parse(JSON.stringify(schedule));
         
-        // Guard clause in case schedule structure is invalid
         if (!newSched.days || !newSched.days[dayIdx]) return;
 
         newSched.days[dayIdx][shift] = newStaff; 

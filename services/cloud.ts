@@ -106,7 +106,6 @@ export const subscribeToSchedule = (callback: (data: any) => void) => {
 
 export const saveSchedule = async (week: any) => {
     if (!db) return;
-    // FIX: Use setDoc with merge: true to ensure the document is upserted/updated reliably
     await setDoc(doc(db, 'config', 'schedule'), { week }, { merge: true });
 };
 
