@@ -6,6 +6,7 @@ import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_
 import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog } from './types';
 import * as Cloud from './services/cloud';
 import { getChatResponse } from './services/geminiService';
+import { useNotification } from './components/GlobalNotification';
 
 // --- CONSTANTS ---
 const STORE_COORDS = { lat: 51.9207886, lng: 4.4863897 };
@@ -1131,75 +1132,88 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 // --- STAFF APP ---
 
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    // ... (Existing hook calls)
-    const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests } = data;
+    const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests, directMessages } = data;
     const [view, setView] = useState<StaffViewMode>('home');
     const [clockBtnText, setClockBtnText] = useState({ in: t.clock_in, out: t.clock_out });
     const [currentShift, setCurrentShift] = useState<string>('opening'); 
     const [onInventorySuccess, setOnInventorySuccess] = useState<(() => void) | null>(null);
+    const [hasUnreadChat, setHasUnreadChat] = useState(false);
+    const { showNotification } = useNotification();
 
+    // Effect to check for new messages when chat is NOT active
+    useEffect(() => {
+        if (view === 'chat' || !directMessages || directMessages.length === 0) {
+            return;
+        }
+
+        const lastSeenTimestamp = localStorage.getItem('onesip_lastSeenChatTimestamp');
+        const latestMessage = directMessages[directMessages.length - 1];
+        
+        // Do not notify for your own messages
+        if (latestMessage.fromId === currentUser.id) return;
+
+        if (!lastSeenTimestamp || new Date(latestMessage.timestamp) > new Date(lastSeenTimestamp)) {
+            setHasUnreadChat(true);
+            const sender = USERS.find(u => u.id === latestMessage.fromId);
+            showNotification({
+                type: 'message',
+                title: `New Message from ${sender?.name || 'Team'}`,
+                message: latestMessage.content.length > 40 ? latestMessage.content.substring(0, 40) + '...' : latestMessage.content,
+            });
+        }
+    }, [directMessages, view, currentUser.id, showNotification]);
+
+    // Effect to clear unread status when chat IS active
+    useEffect(() => {
+        if (view === 'chat') {
+            setHasUnreadChat(false);
+            if (directMessages && directMessages.length > 0) {
+                const latestTimestamp = directMessages[directMessages.length - 1].timestamp;
+                localStorage.setItem('onesip_lastSeenChatTimestamp', latestTimestamp);
+            }
+        }
+    }, [view, directMessages]);
     
     // Announcement Logic
     const [announcement, setAnnouncement] = useState<Notice | null>(null);
 
     useEffect(() => {
         if (!notices) return;
-
-        // 1. SAFETY: Get the currently displayed announcement's fresh state
         if (announcement) {
             const currentFresh = notices.find((n: Notice) => n.id === announcement.id);
-            // If it's gone or cancelled, close immediately
             if (!currentFresh || currentFresh.status === 'cancelled') {
                 setAnnouncement(null);
-                // Continue to check if there is a valid notice to replace it, or stop.
-                // If we don't stop, the code below will find the next valid one.
             }
         }
-
-        // 2. Find the candidate for display (Newest active notice)
         const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
-        
         if (activeNotices.length === 0) {
              setAnnouncement(null);
              return;
         }
-        
-        // notices array is usually appending new ones at the end, so last one is latest.
-        // But let's be safe and use logic similar to ChatView if needed, assuming array order is chronological.
         const latest = activeNotices[activeNotices.length - 1]; 
-
-        // If we are already showing the latest, do nothing
         if (announcement && announcement.id === latest.id) return;
-
-        // 3. Frequency Check for the candidate
         const seenKey = `notice_seen_${latest.id}`;
         const lastSeen = localStorage.getItem(seenKey);
-        const now = Date.now();
         let shouldShow = false;
-
         if (!latest.frequency || latest.frequency === 'always') {
-            shouldShow = true; // Default
+            shouldShow = true;
         } else if (latest.frequency === 'once') {
             if (!lastSeen) shouldShow = true;
         } else if (latest.frequency === 'daily') {
-            if (!lastSeen) shouldShow = true;
+            if (!lastSeen) { shouldShow = true; }
             else {
-                const lastDate = new Date(parseInt(lastSeen)).toDateString();
-                const today = new Date().toDateString();
-                if (lastDate !== today) shouldShow = true;
+                if (new Date(parseInt(lastSeen)).toDateString() !== new Date().toDateString()) shouldShow = true;
             }
         } else if (latest.frequency === '3days') {
-            if (!lastSeen) shouldShow = true;
+            if (!lastSeen) { shouldShow = true; }
             else {
-                const diff = now - parseInt(lastSeen);
-                if (diff > 3 * 24 * 60 * 60 * 1000) shouldShow = true;
+                if (Date.now() - parseInt(lastSeen) > 3 * 24 * 60 * 60 * 1000) shouldShow = true;
             }
         }
-
         if (shouldShow) {
             setAnnouncement(latest);
         }
-    }, [notices]); // Only depend on notices updating
+    }, [notices, announcement]);
 
     const closeAnnouncement = () => {
         if (announcement) {
@@ -1208,74 +1222,56 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
     };
 
-    // ... (Existing swap logic)
     const [swapMode, setSwapMode] = useState(false);
     const [swapSelection, setSwapSelection] = useState<{ step: 1|2, myDate?: string, myShift?: 'morning'|'evening', targetName?: string, targetDate?: string, targetShift?: 'morning'|'evening' }>({ step: 1 });
     const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, msg: React.ReactNode, action: () => void}>({isOpen:false, msg:'', action:()=>{}});
 
-    // ... (Existing helper functions like findNextShift, handleClockLog)
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     const clientSchedule = { ...schedule, days: schedule?.days?.slice(0, 14) || [] };
     const myPendingSwaps = swapRequests?.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending') || [];
 
     const findNextShift = () => {
         if (!schedule?.days) return null;
-    
         const now = new Date();
         const currentYear = now.getFullYear();
-
         for (const day of schedule.days) {
             const [month, dayOfMonth] = day.date.split('-').map(Number);
-            // JS months are 0-indexed.
             let scheduleYear = currentYear;
-            // Handle year wrap-around for schedules starting in Dec and ending in Jan
             if (now.getMonth() === 11 && month === 1) { 
                 scheduleYear++;
             }
             const scheduleDate = new Date(scheduleYear, month - 1, dayOfMonth);
-            
-            // Create a date for today with time set to 0 to compare dates only
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-
-            // Check if this day is today or in the future
             if (scheduleDate >= today) {
                 const isToday = scheduleDate.toDateString() === today.toDateString();
                 const mStart = day.hours?.morning?.start || '10:00';
                 const mEnd = day.hours?.morning?.end || '15:00';
                 const eStart = day.hours?.evening?.start || '14:30';
                 const eEnd = day.hours?.evening?.end || '19:00';
-
-                // Check morning shift
                 if (day.morning.includes(currentUser.name)) {
                     if (isToday) {
                         const mEndTime = parseInt(mEnd.split(':')[0]);
-                        if (now.getHours() < mEndTime) { // If current hour is before morning shift ends
+                        if (now.getHours() < mEndTime) {
                              return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
                         }
-                        // Morning shift is over for today, continue to check evening
                     } else {
-                        // It's a future day, this is the next shift
                         return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
                     }
                 }
-                
-                // Check evening shift
                 if (day.evening.includes(currentUser.name)) {
                     if (isToday) {
                         const eEndTime = parseInt(eEnd.split(':')[0]);
-                        if (now.getHours() < eEndTime) { // If current hour is before evening shift ends
+                        if (now.getHours() < eEndTime) {
                              return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
                         }
-                        // Evening shift also over for today, continue to next day in the loop
                     } else {
-                        // It's a future day
                         return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
                     }
                 }
             }
         }
-        return null; // No upcoming shifts found
+        return null;
     };
     const nextShift = findNextShift();
 
@@ -1334,7 +1330,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setLogs([newLog, ...logs]); Cloud.saveLog(newLog); setClockBtnText({ in: t.clock_in, out: t.clock_out });
     };
 
-    // ... (Existing handleShiftClick, handleSwapAction, LibraryView, ContactView, DrinkCard, TrainingView)
     const handleShiftClick = (day: any, shift: 'morning' | 'evening', name: string) => {
         if (!swapMode) return;
         if (swapSelection.step === 1) {
@@ -1374,9 +1369,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         );
     };
 
-    // FIX: Refactored DrinkCard to use React.FC and a props interface. This helps TypeScript
-    // correctly identify it as a React component and handle special props like `key` without errors,
-    // resolving the type assignment issue when used in a list.
     interface DrinkCardProps {
         drink: DrinkRecipe;
         lang: Lang;
@@ -1395,13 +1387,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
 
     const handleInventorySubmit = (report: any) => {
-        // 1. Save general report (Existing logic)
         Cloud.saveInventoryReport(report);
-        
-        // 2. Generate and save individual logs
         const logs: InventoryLog[] = [];
         const timestamp = new Date().toLocaleString();
-        
         Object.keys(report.data).forEach(itemId => {
             const itemData = report.data[itemId];
             const itemDef = data.inventoryList.find((i:any) => i.id === itemId);
@@ -1418,11 +1406,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 });
             }
         });
-        
         if (logs.length > 0) {
             Cloud.saveInventoryLogs(logs);
         }
-
         if (onInventorySuccess) {
             onInventorySuccess();
             setOnInventorySuccess(null);
@@ -1431,7 +1417,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
 
     const renderView = () => {
-        // ... (Existing cases for team, home, chat)
         if (view === 'team') {
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
@@ -1471,7 +1456,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             );
         }
-        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={data.directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} />;
+        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} />;
         if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} isForced={!!onInventorySuccess} onCancel={cancelInventoryClockOut} />;
         if (view === 'contact') return <ContactView t={t} lang={lang} />;
         if (view === 'recipes') return <div className="h-full overflow-y-auto text-text animate-fade-in-up pb-24"><div className="bg-surface p-4 border-b"><h2 className="text-xl font-bold">{t.recipe_title}</h2></div><div className="p-4 bg-secondary">{data.recipes.map((d: DrinkRecipe) => <DrinkCard key={d.id} drink={d} lang={lang} t={t} />)}</div></div>;
@@ -1482,7 +1467,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return <div className="p-10 text-center text-text-light">Section {view} under maintenance <button onClick={()=>setView('home')} className="text-primary underline block mt-4">Back</button></div>;
     };
 
-    // ... (Existing return)
     return (
         <div className="max-w-md mx-auto min-h-screen max-h-[100dvh] overflow-y-auto bg-secondary relative flex flex-col font-sans pt-8 md:pt-0">
             <CustomConfirmModal isOpen={confirmModal.isOpen} title="Confirm Action" message={confirmModal.msg} onConfirm={confirmModal.action} onCancel={() => setConfirmModal(prev => ({...prev, isOpen:false}))} />
@@ -1491,7 +1475,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             {view !== 'checklist' && (
                 <nav className="fixed bottom-0 w-full max-w-md bg-surface border-t p-2 pb-4 z-50 flex overflow-x-auto shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] no-scrollbar gap-1">
                     {[{id: 'home', icon: 'Grid', label: 'Workbench'}, {id: 'team', icon: 'Calendar', label: 'Schedule'}, {id: 'chat', icon: 'MessageSquare', label: 'Chat'}, {id: 'training', icon: 'GraduationCap', label: 'Training'}, {id: 'sop', icon: 'Book', label: 'SOP'}, {id: 'recipes', icon: 'BookOpen', label: 'Recipes'}, {id: 'contact', icon: 'Users', label: 'Contacts'}].map(item => (
-                        <button key={item.id} onClick={() => setView(item.id as StaffViewMode)} className={`min-w-[60px] flex flex-col items-center p-2 rounded-lg transition-colors ${view === item.id ? 'text-primary bg-primary-light' : 'text-text-light hover:text-primary'}`}><Icon name={item.icon} size={20} /><span className="text-[10px] font-bold mt-1">{item.label}</span></button>
+                        <button key={item.id} onClick={() => setView(item.id as StaffViewMode)} className={`relative min-w-[60px] flex flex-col items-center p-2 rounded-lg transition-colors ${view === item.id ? 'text-primary bg-primary-light' : 'text-text-light hover:text-primary'}`}>
+                            <Icon name={item.icon} size={20} />
+                            <span className="text-[10px] font-bold mt-1">{item.label}</span>
+                            {item.id === 'chat' && hasUnreadChat && (
+                                <span className="absolute top-1.5 right-3 h-2.5 w-2.5 rounded-full bg-red-500 border-2 border-surface"></span>
+                            )}
+                        </button>
                     ))}
                 </nav>
             )}
@@ -1499,19 +1489,17 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     );
 };
 
-// ... (Existing LoginScreen and App export)
 const LoginScreen = ({ t, onLogin }: { t: any, onLogin: (id: string, keepLogin: boolean) => void }) => {
-    // ... (same as before)
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [rememberPwd, setRememberPwd] = useState(false);
-    const [keepLogin, setKeepLogin] = useState(true); // Default to true as per modern standards, but user can uncheck
+    const [keepLogin, setKeepLogin] = useState(true);
 
     useEffect(() => {
         const savedPwd = localStorage.getItem('onesip_saved_password');
         if (savedPwd) {
             try {
-                setPassword(atob(savedPwd)); // Simple decode
+                setPassword(atob(savedPwd));
                 setRememberPwd(true);
             } catch (e) { console.error("Pwd load error", e); }
         }
