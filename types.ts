@@ -162,6 +162,19 @@ export interface InventoryReport {
     data: Record<string, { end: string, waste: string }>;
 }
 
+export interface InventoryLog {
+    id: string;
+    timestamp: string;
+    operator: string;
+    itemId: string;
+    itemName: string;
+    oldStock?: string; // Optional if not tracked
+    newStock: string;
+    waste: string;
+    diff?: string; // diff from old stock
+    actionType: 'report' | 'adjust';
+}
+
 export interface ScheduleDay {
     date: string; // MM-DD
     name: string;
@@ -185,7 +198,8 @@ export interface Notice {
     content: string;
     date: string;
     isUrgent: boolean;
-    frequency?: 'always' | 'daily' | 'once'; // New frequency setting
+    frequency?: 'always' | 'daily' | '3days' | 'once';
+    status?: 'active' | 'cancelled'; // Added status
 }
 
 export interface SwapRequest {

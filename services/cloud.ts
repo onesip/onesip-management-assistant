@@ -56,7 +56,8 @@ export const seedInitialData = async () => {
         { name: 'data', id: 'chat', data: { messages: [], notices: [] } },
         { name: 'data', id: 'swaps', data: { requests: [] } },
         { name: 'data', id: 'sales', data: { records: [] } },
-        { name: 'data', id: 'inventory_history', data: { reports: [] } }
+        { name: 'data', id: 'inventory_history', data: { reports: [] } },
+        { name: 'data', id: 'inventory_logs', data: { entries: [] } }
     ];
 
     for (const col of collections) {
@@ -130,6 +131,13 @@ export const subscribeToInventoryHistory = (callback: (reports: any[]) => void) 
     });
 };
 
+export const subscribeToInventoryLogs = (callback: (entries: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'inventory_logs'), (doc) => {
+        if (doc.exists()) callback(doc.data().entries || []);
+    });
+};
+
 // --- ACTIONS (WRITING TO CLOUD) ---
 
 export const saveInventoryList = async (list: any[]) => {
@@ -144,6 +152,16 @@ export const saveInventoryReport = async (report: any) => {
         reports: arrayUnion(report)
     }, { merge: true });
 };
+
+export const saveInventoryLogs = async (logs: any[]) => {
+    if (!db || logs.length === 0) return;
+    // Need to use arrayUnion spread or loop if many, but Firestore limits arrayUnion args.
+    // For safety, we can just fetch, concat, and save, OR use arrayUnion for small batches.
+    // Given usage, arrayUnion one by one or spread is okay for small sets.
+    await updateDoc(doc(db, 'data', 'inventory_logs'), {
+        entries: arrayUnion(...logs)
+    });
+}
 
 export const saveSchedule = async (week: any) => {
     if (!db) return;
@@ -171,6 +189,11 @@ export const saveNotice = async (notice: any) => {
     await setDoc(doc(db, 'data', 'chat'), {
         notices: arrayUnion(notice)
     }, { merge: true });
+};
+
+export const updateNotices = async (notices: any[]) => {
+    if (!db) return;
+    await updateDoc(doc(db, 'data', 'chat'), { notices });
 };
 
 export const saveContent = async (type: 'sops' | 'training' | 'recipes', data: any[]) => {

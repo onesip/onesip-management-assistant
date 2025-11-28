@@ -1,9 +1,10 @@
 
 // FIX: Imported useState and useEffect from React to resolve 'Cannot find name' errors.
 import React, { useState, useEffect } from 'react';
+import { GoogleGenAI } from "@google/genai";
 import { Icon } from './components/Icons';
 import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, TEAM_MEMBERS, MOCK_SCHEDULE_WEEK02, INITIAL_MENU_DATA, INITIAL_WIKI_DATA, INITIAL_ANNOUNCEMENT_DATA, USERS } from './constants';
-import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay } from './types';
+import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog } from './types';
 import * as Cloud from './services/cloud';
 
 // --- CONSTANTS ---
@@ -185,6 +186,7 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
     const [activeChannel, setActiveChannel] = useState<string | null>(null);
     const [inputText, setInputText] = useState('');
     const [broadcastText, setBroadcastText] = useState('');
+    const [broadcastFreq, setBroadcastFreq] = useState<'always' | 'daily' | '3days' | 'once'>('always');
 
     const handleSend = () => {
         if (!inputText.trim() || !activeChannel) return;
@@ -196,9 +198,24 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
 
     const handleBroadcast = () => {
         if (!broadcastText.trim()) return;
-        const notice: Notice = { id: Date.now().toString(), author: currentUser.name, content: broadcastText, date: new Date().toISOString(), isUrgent: false };
+        const notice: Notice = { 
+            id: Date.now().toString(), 
+            author: currentUser.name, 
+            content: broadcastText, 
+            date: new Date().toISOString(), 
+            isUrgent: false,
+            frequency: broadcastFreq, // Save frequency
+            status: 'active'
+        };
         Cloud.saveNotice(notice);
         setBroadcastText('');
+        alert("Announcement posted with frequency: " + broadcastFreq);
+    };
+
+    const cancelNotice = (id: string) => {
+        if (!window.confirm("Cancel/Withdraw this announcement? Staff will no longer see it.")) return;
+        const updatedNotices = notices.map((n: Notice) => n.id === id ? { ...n, status: 'cancelled' } : n);
+        Cloud.updateNotices(updatedNotices);
     };
     
     const formatDate = (isoString: string) => {
@@ -244,6 +261,11 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
         );
     }
     
+    // Filter notices for display: If Manager, show all (cancelled ones maybe with style), if Staff, hide cancelled.
+    const displayNotices = isManager 
+        ? notices.slice().reverse()
+        : notices.filter((n: Notice) => n.status !== 'cancelled').slice().reverse();
+
     return (
         <div className="h-full bg-surface flex flex-col pb-20 text-text absolute inset-0 z-[100]">
             <div className="p-4 border-b flex justify-between items-center bg-surface sticky top-0 z-10">
@@ -259,20 +281,53 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                 <div className="p-4 bg-accent/10">
                     <h3 className="text-sm font-bold text-accent uppercase tracking-wider mb-3 flex items-center gap-2"><Icon name="Megaphone" size={16}/> Announcements</h3>
                     {isManager && (
-                        <div className="flex gap-2 mb-4">
-                            <textarea value={broadcastText} onChange={e => setBroadcastText(e.target.value)} rows={2} className="flex-1 text-sm p-3 border rounded-lg bg-surface focus:ring-2 ring-accent/50 outline-none transition-all" placeholder="Type announcement..." />
-                            <button onClick={handleBroadcast} className="bg-accent text-white px-4 rounded-lg font-bold self-end py-3">Post</button>
+                        <div className="flex flex-col gap-2 mb-4 bg-surface p-3 rounded-xl border border-accent/20">
+                            <textarea 
+                                value={broadcastText} 
+                                onChange={e => setBroadcastText(e.target.value)} 
+                                rows={2} 
+                                className="w-full text-sm p-3 border rounded-lg bg-secondary focus:ring-2 ring-accent/50 outline-none transition-all" 
+                                placeholder="Type announcement..." 
+                            />
+                            <div className="flex justify-between items-center mt-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold text-text-light uppercase">Popup Freq:</span>
+                                    <select 
+                                        value={broadcastFreq} 
+                                        onChange={(e) => setBroadcastFreq(e.target.value as any)} 
+                                        className="text-xs bg-secondary border rounded-md p-1 font-bold text-text cursor-pointer focus:ring-1 focus:ring-accent"
+                                    >
+                                        <option value="always">Every Login</option>
+                                        <option value="daily">Once Daily</option>
+                                        <option value="3days">Every 3 Days</option>
+                                        <option value="once">Once Only</option>
+                                    </select>
+                                </div>
+                                <button onClick={handleBroadcast} className="bg-accent text-white px-4 py-2 rounded-lg font-bold text-xs shadow-md hover:bg-yellow-600 transition-all">Post</button>
+                            </div>
                         </div>
                     )}
-                    {notices && notices.length > 0 ? (
+                    {displayNotices.length > 0 ? (
                         <div className="space-y-3">
-                            {notices.slice().reverse().map((n: Notice) => (
-                                <div key={n.id} className="bg-surface p-3 rounded-xl border border-accent/30 text-sm shadow-sm">
+                            {displayNotices.map((n: Notice) => (
+                                <div key={n.id} className={`bg-surface p-3 rounded-xl border text-sm shadow-sm relative ${n.status === 'cancelled' ? 'border-gray-200 opacity-60' : 'border-accent/30'}`}>
                                     <div className="flex justify-between items-center mb-1">
                                       <span className="font-bold text-text">{n.author}</span>
-                                      <span className="text-[10px] text-text-light">{formatDate(n.date)}</span>
+                                      <div className="flex items-center gap-2">
+                                          {n.status === 'cancelled' && <span className="text-[9px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded uppercase font-bold">CANCELLED</span>}
+                                          {n.frequency && <span className="text-[9px] bg-accent/10 text-accent px-1.5 py-0.5 rounded uppercase font-bold">{n.frequency}</span>}
+                                          <span className="text-[10px] text-text-light">{formatDate(n.date)}</span>
+                                      </div>
                                     </div>
-                                    <p className="text-text-light">{n.content}</p>
+                                    <p className={`text-text-light ${n.status === 'cancelled' ? 'line-through' : ''}`}>{n.content}</p>
+                                    {isManager && n.status !== 'cancelled' && (
+                                        <button 
+                                            onClick={() => cancelNotice(n.id)}
+                                            className="absolute bottom-2 right-2 text-[10px] text-red-400 font-bold hover:text-red-600 bg-red-50 px-2 py-1 rounded"
+                                        >
+                                            Cancel
+                                        </button>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -303,21 +358,41 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
 
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { inventoryList, setInventoryList, t, lang, inventoryHistory, salesRecords, setSalesRecords } = data;
-    const [view, setView] = useState<'inventory' | 'history' | 'prediction'>('inventory');
+    const [view, setView] = useState<'inventory' | 'history' | 'prediction' | 'logs'>('inventory');
     const [weather, setWeather] = useState<any>(null);
     const [newSales, setNewSales] = useState({ time: '15:00', amount: '' });
+    const [inventoryLogs, setInventoryLogs] = useState<InventoryLog[]>([]);
     
     useEffect(() => { 
         if (view === 'prediction') { 
             fetch('https://api.open-meteo.com/v1/forecast?latitude=51.92&longitude=4.48&current_weather=true')
             .then(res => res.json()).then(data => setWeather(data.current_weather))
             .catch(err => console.error("Weather fetch failed", err)); 
-        } 
+        }
+        if (view === 'logs') {
+            const unsub = Cloud.subscribeToInventoryLogs(setInventoryLogs);
+            return () => unsub();
+        }
     }, [view]);
 
     const exportCSV = () => { if (!inventoryHistory || inventoryHistory.length === 0) return alert("No history to export"); let csv = "Date,User,Item,Count,Waste\n"; inventoryHistory.forEach((report: InventoryReport) => { Object.keys(report.data).forEach(itemId => { const itemName = inventoryList.find((i:any) => i.id === itemId)?.name?.en || itemId; csv += `${report.date},${report.submittedBy},${itemName},${report.data[itemId].end},${report.data[itemId].waste}\n`; }); }); const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "inventory_history.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
     const handleSalesSubmit = () => { if (!newSales.amount) return; const record: SalesRecord = { id: Date.now().toString(), date: new Date().toLocaleDateString(), timeSlot: newSales.time as any, amount: parseFloat(newSales.amount), weatherTemp: weather?.temperature || 0, weatherCode: weather?.weathercode || 0 }; Cloud.saveSalesRecord(record); setNewSales({ ...newSales, amount: '' }); alert("Sales recorded for Prediction Model!"); };
     
+    const exportLogsCSV = () => {
+        if (!inventoryLogs || inventoryLogs.length === 0) return alert("No logs to export");
+        let csv = "Timestamp,Operator,ItemName,NewStock,Waste\n";
+        inventoryLogs.slice().reverse().forEach(log => {
+            csv += `${log.timestamp},${log.operator},${log.itemName},${log.newStock},${log.waste}\n`;
+        });
+        const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", "inventory_logs.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     const getPrediction = () => { 
         if (salesRecords.length < 1) return null; 
         const recentSales = salesRecords.slice(-14); 
@@ -348,11 +423,33 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         <div className="h-full flex flex-col bg-dark-bg text-dark-text font-sans">
             <div className="p-4 bg-dark-surface shadow-lg shrink-0 border-b border-white/10">
                 <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-black text-dark-accent tracking-wider">OWNER COMMAND</h2><button onClick={onExit} className="bg-white/10 p-2 rounded-lg hover:bg-white/20 transition-all"><Icon name="LogOut" size={20}/></button></div>
-                <div className="flex gap-2"><button onClick={() => setView('inventory')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'inventory' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>Inventory</button><button onClick={() => setView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'history' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>History</button><button onClick={() => setView('prediction')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'prediction' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>AI Forecast</button></div>
+                <div className="flex gap-2"><button onClick={() => setView('inventory')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'inventory' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>Inventory</button><button onClick={() => setView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'history' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>History</button><button onClick={() => setView('prediction')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'prediction' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>AI Forecast</button><button onClick={() => setView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'logs' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>Logs</button></div>
             </div>
             <div className="flex-1 overflow-hidden bg-dark-bg">
                  {view === 'inventory' && (<div className="h-full bg-secondary text-text"><InventoryView lang={lang} t={t} inventoryList={inventoryList} setInventoryList={setInventoryList} isOwner={true} /></div>)}
                  {view === 'history' && (<div className="p-4 h-full overflow-y-auto"><button onClick={exportCSV} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold mb-4 flex justify-center gap-2 shadow-lg transition-all"><Icon name="List" /> Download CSV Report</button><div className="space-y-3">{inventoryHistory?.slice().reverse().map((report: InventoryReport) => (<div key={report.id} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10"><div className="flex justify-between mb-2"><span className="font-bold text-dark-accent">{report.date}</span><span className="text-sm text-dark-text-light">{report.submittedBy}</span></div><div className="text-xs text-dark-text-light">Recorded {Object.keys(report.data).length} items</div></div>))}</div></div>)}
+                 {view === 'logs' && (
+                     <div className="p-4 h-full overflow-y-auto">
+                         <div className="flex justify-between items-center mb-4">
+                             <h3 className="text-dark-text font-bold uppercase">Real-time Logs</h3>
+                             <button onClick={exportLogsCSV} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16}/> Export CSV</button>
+                         </div>
+                         <div className="space-y-2">
+                             {inventoryLogs?.slice().reverse().map((log: InventoryLog, idx: number) => (
+                                 <div key={idx} className="bg-dark-surface p-3 rounded-lg border border-white/10 flex justify-between items-center">
+                                     <div>
+                                         <div className="text-xs text-dark-text-light mb-1">{log.timestamp} • {log.operator}</div>
+                                         <div className="font-bold text-dark-text">{log.itemName}</div>
+                                     </div>
+                                     <div className="text-right">
+                                         <div className="text-sm font-bold text-dark-accent">Count: {log.newStock}</div>
+                                         {log.waste && <div className="text-xs text-red-400">Waste: {log.waste}</div>}
+                                     </div>
+                                 </div>
+                             ))}
+                         </div>
+                     </div>
+                 )}
                  {view === 'prediction' && (
                      <div className="p-4 h-full overflow-y-auto">
                         <div className="bg-dark-surface p-6 rounded-2xl mb-6 border border-white/10">
@@ -429,11 +526,73 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     const { sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t } = data;
     const [view, setView] = useState<'training' | 'sop' | 'recipes'>('training');
     const [editingItem, setEditingItem] = useState<any>(null);
+    const [isProcessingPdf, setIsProcessingPdf] = useState(false);
     
     const createNewItem = () => { const id = Date.now().toString(); if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]} }; return {}; };
     const handleSave = () => { if (!editingItem) return; let updatedList; let setList; if (view === 'sop') { updatedList = sopList.some((i:any) => i.id === editingItem.id) ? sopList.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...sopList, editingItem]; setList = setSopList; Cloud.saveContent('sops', updatedList); } else if (view === 'training') { updatedList = trainingLevels.some((i:any) => i.id === editingItem.id) ? trainingLevels.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...trainingLevels, editingItem]; setList = setTrainingLevels; Cloud.saveContent('training', updatedList); } else { updatedList = recipes.some((i:any) => i.id === editingItem.id) ? recipes.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...recipes, editingItem]; setList = setRecipes; Cloud.saveContent('recipes', updatedList); } if (setList) { setList(updatedList); } setEditingItem(null); };
     const handleDelete = (id: string) => { if(!window.confirm("Delete this item?")) return; if (view === 'sop') { const list = sopList.filter((i:any) => i.id !== id); setSopList(list); Cloud.saveContent('sops', list); } else if (view === 'training') { const list = trainingLevels.filter((i:any) => i.id !== id); setTrainingLevels(list); Cloud.saveContent('training', list); } else { const list = recipes.filter((i:any) => i.id !== id); setRecipes(list); Cloud.saveContent('recipes', list); } };
     
+    const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !process.env.API_KEY) return;
+
+        setIsProcessingPdf(true);
+        try {
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const base64Data = (event.target?.result as string).split(',')[1];
+                
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                const prompt = `Extract recipe data from this PDF into JSON. 
+                Format: 
+                {
+                  "name": {"en": "...", "zh": "..."},
+                  "cat": "...",
+                  "size": "...",
+                  "ice": "...",
+                  "sugar": "...",
+                  "toppings": {"en": "...", "zh": "..."},
+                  "steps": {
+                    "cold": [{"en": "...", "zh": "..."}],
+                    "warm": [{"en": "...", "zh": "..."}]
+                  }
+                }
+                If warm steps are missing, leave array empty. Infer missing details reasonably.`;
+
+                const response = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash',
+                    contents: [
+                        {
+                            role: 'user',
+                            parts: [
+                                { text: prompt },
+                                { inlineData: { mimeType: 'application/pdf', data: base64Data } }
+                            ]
+                        }
+                    ]
+                });
+
+                const text = response.text;
+                if (text) {
+                    const jsonMatch = text.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        const extracted = JSON.parse(jsonMatch[0]);
+                        setEditingItem(prev => ({ ...prev, ...extracted }));
+                        alert("Auto-filled from PDF!");
+                    } else {
+                        alert("Could not parse PDF response.");
+                    }
+                }
+            };
+            reader.readAsDataURL(file);
+        } catch (err) {
+            console.error(err);
+            alert("Error processing PDF");
+        } finally {
+            setIsProcessingPdf(false);
+        }
+    };
+
     const renderEditorFields = () => {
         if (!editingItem) return null;
         if (view === 'training') { 
@@ -472,12 +631,62 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
         }
         if (view === 'recipes') { 
             return (<div className="space-y-4">
-                <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm font-bold" placeholder="Name (EN)" value={editingItem.name?.en || ''} onChange={e => setEditingItem({...editingItem, name: {...(editingItem.name || {zh:'', en:''}), en: e.target.value}})} /> 
-                <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm font-bold" placeholder="Name (ZH)" value={editingItem.name?.zh || ''} onChange={e => setEditingItem({...editingItem, name: {...(editingItem.name || {zh:'', en:''}), zh: e.target.value}})} />
-                <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Category" value={editingItem.cat || ''} onChange={e => setEditingItem({...editingItem, cat: e.target.value})} />
-                <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Size" value={editingItem.size || ''} onChange={e => setEditingItem({...editingItem, size: e.target.value})} />
-                <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Toppings (EN)" value={editingItem.toppings?.en || ''} onChange={e => setEditingItem({...editingItem, toppings: {...(editingItem.toppings || {zh:'', en:''}), en: e.target.value}})} />
-                <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Toppings (ZH)" value={editingItem.toppings?.zh || ''} onChange={e => setEditingItem({...editingItem, toppings: {...(editingItem.toppings || {zh:'', en:''}), zh: e.target.value}})} />
+                <div className="flex justify-end">
+                    <label className={`cursor-pointer bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${isProcessingPdf ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                        <Icon name="BookOpen" size={16}/> {isProcessingPdf ? 'Analyzing PDF...' : 'Upload PDF & Auto-fill'}
+                        <input type="file" accept="application/pdf" className="hidden" onChange={handlePdfUpload} disabled={isProcessingPdf} />
+                    </label>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                    <div>
+                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Name (EN)</label>
+                        <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm font-bold" placeholder="Name (EN)" value={editingItem.name?.en || ''} onChange={e => setEditingItem({...editingItem, name: {...(editingItem.name || {zh:'', en:''}), en: e.target.value}})} /> 
+                    </div>
+                    <div>
+                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Name (ZH)</label>
+                        <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm font-bold" placeholder="Name (ZH)" value={editingItem.name?.zh || ''} onChange={e => setEditingItem({...editingItem, name: {...(editingItem.name || {zh:'', en:''}), zh: e.target.value}})} />
+                    </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                    <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Category" value={editingItem.cat || ''} onChange={e => setEditingItem({...editingItem, cat: e.target.value})} />
+                    <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Size" value={editingItem.size || ''} onChange={e => setEditingItem({...editingItem, size: e.target.value})} />
+                    <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Ice" value={editingItem.ice || ''} onChange={e => setEditingItem({...editingItem, ice: e.target.value})} />
+                </div>
+                <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Sugar" value={editingItem.sugar || ''} onChange={e => setEditingItem({...editingItem, sugar: e.target.value})} />
+                
+                <div className="space-y-1">
+                    <label className="text-[10px] uppercase font-bold text-dark-text-light">Toppings</label>
+                    <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Toppings (EN)" value={editingItem.toppings?.en || ''} onChange={e => setEditingItem({...editingItem, toppings: {...(editingItem.toppings || {zh:'', en:''}), en: e.target.value}})} />
+                    <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Toppings (ZH)" value={editingItem.toppings?.zh || ''} onChange={e => setEditingItem({...editingItem, toppings: {...(editingItem.toppings || {zh:'', en:''}), zh: e.target.value}})} />
+                </div>
+
+                <div className="border-t border-white/10 pt-4 mt-2">
+                    <h4 className="text-xs font-bold text-blue-400 mb-2 uppercase">Cold Steps</h4>
+                    {editingItem.steps?.cold?.map((step: any, idx: number) => (
+                        <div key={idx} className="flex gap-2 mb-2">
+                            <div className="flex-1 space-y-1">
+                                <input className="w-full bg-dark-bg border border-white/10 p-1.5 rounded text-xs" placeholder="Step (EN)" value={step.en || ''} onChange={e => { const newSteps = [...(editingItem.steps?.cold || [])]; newSteps[idx] = { ...step, en: e.target.value }; setEditingItem({...editingItem, steps: {...editingItem.steps, cold: newSteps}}); }} />
+                                <input className="w-full bg-dark-bg border border-white/10 p-1.5 rounded text-xs" placeholder="Step (ZH)" value={step.zh || ''} onChange={e => { const newSteps = [...(editingItem.steps?.cold || [])]; newSteps[idx] = { ...step, zh: e.target.value }; setEditingItem({...editingItem, steps: {...editingItem.steps, cold: newSteps}}); }} />
+                            </div>
+                            <button onClick={() => { const newSteps = [...(editingItem.steps?.cold || [])]; newSteps.splice(idx, 1); setEditingItem({...editingItem, steps: {...editingItem.steps, cold: newSteps}}); }} className="px-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Icon name="Trash" size={14}/></button>
+                        </div>
+                    ))}
+                    <button onClick={() => { const newSteps = [...(editingItem.steps?.cold || [])]; newSteps.push({zh:'', en:''}); setEditingItem({...editingItem, steps: {...(editingItem.steps || {}), cold: newSteps}}); }} className="text-xs bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded font-bold hover:bg-blue-500/20">+ Add Cold Step</button>
+                </div>
+
+                <div className="border-t border-white/10 pt-4 mt-2">
+                    <h4 className="text-xs font-bold text-orange-400 mb-2 uppercase">Warm Steps</h4>
+                    {editingItem.steps?.warm?.map((step: any, idx: number) => (
+                        <div key={idx} className="flex gap-2 mb-2">
+                            <div className="flex-1 space-y-1">
+                                <input className="w-full bg-dark-bg border border-white/10 p-1.5 rounded text-xs" placeholder="Step (EN)" value={step.en || ''} onChange={e => { const newSteps = [...(editingItem.steps?.warm || [])]; newSteps[idx] = { ...step, en: e.target.value }; setEditingItem({...editingItem, steps: {...editingItem.steps, warm: newSteps}}); }} />
+                                <input className="w-full bg-dark-bg border border-white/10 p-1.5 rounded text-xs" placeholder="Step (ZH)" value={step.zh || ''} onChange={e => { const newSteps = [...(editingItem.steps?.warm || [])]; newSteps[idx] = { ...step, zh: e.target.value }; setEditingItem({...editingItem, steps: {...editingItem.steps, warm: newSteps}}); }} />
+                            </div>
+                            <button onClick={() => { const newSteps = [...(editingItem.steps?.warm || [])]; newSteps.splice(idx, 1); setEditingItem({...editingItem, steps: {...editingItem.steps, warm: newSteps}}); }} className="px-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Icon name="Trash" size={14}/></button>
+                        </div>
+                    ))}
+                    <button onClick={() => { const newSteps = [...(editingItem.steps?.warm || [])]; newSteps.push({zh:'', en:''}); setEditingItem({...editingItem, steps: {...(editingItem.steps || {}), warm: newSteps}}); }} className="text-xs bg-orange-500/10 text-orange-400 px-3 py-1.5 rounded font-bold hover:bg-orange-500/20">+ Add Warm Step</button>
+                </div>
             </div>); 
         }
         return null;
@@ -523,6 +732,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
 };
 
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
+    // ... (Existing code)
     const managerUser = USERS.find(u => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests } = data;
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests'>('requests');
@@ -709,18 +919,25 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     );
 };
 
+// ... (Existing StaffApp and LoginScreen code remains, just need to update InventoryView usage inside StaffApp if needed, 
+// but wait, InventoryView is used as <InventoryView ... onSubmit={...} /> in StaffApp. 
+// I need to ensure the onSubmit handler in StaffApp creates logs.
+
 // --- STAFF APP ---
 
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
+    // ... (Existing hook calls)
     const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests } = data;
     const [view, setView] = useState<StaffViewMode>('home');
     const [clockBtnText, setClockBtnText] = useState({ in: t.clock_in, out: t.clock_out });
     const [currentShift, setCurrentShift] = useState<string>('opening'); 
     
+    // ... (Existing swap logic)
     const [swapMode, setSwapMode] = useState(false);
     const [swapSelection, setSwapSelection] = useState<{ step: 1|2, myDate?: string, myShift?: 'morning'|'evening', targetName?: string, targetDate?: string, targetShift?: 'morning'|'evening' }>({ step: 1 });
     const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, msg: React.ReactNode, action: () => void}>({isOpen:false, msg:'', action:()=>{}});
 
+    // ... (Existing helper functions like findNextShift, handleClockLog)
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     const clientSchedule = { ...schedule, days: schedule?.days?.slice(0, 14) || [] };
     const myPendingSwaps = swapRequests?.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending') || [];
@@ -757,6 +974,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setLogs([newLog, ...logs]); Cloud.saveLog(newLog); setClockBtnText({ in: t.clock_in, out: t.clock_out });
     };
 
+    // ... (Existing handleShiftClick, handleSwapAction, LibraryView, ContactView, DrinkCard, TrainingView)
     const handleShiftClick = (day: any, shift: 'morning' | 'evening', name: string) => {
         if (!swapMode) return;
         if (swapSelection.step === 1) {
@@ -808,7 +1026,38 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return (<div className="h-full overflow-y-auto bg-secondary p-4 animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.training}</h2><div className="space-y-3">{trainingLevels.map((l: TrainingLevel) => (<div key={l.id} onClick={() => setActiveLevel(l)} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:shadow-md transition-all"><div className="w-12 h-12 bg-primary-light text-primary rounded-full flex items-center justify-center font-bold text-lg">{l.id}</div><div className="flex-1"><h3 className="font-bold text-text">{l.title?.[lang] || l.title?.['zh']}</h3><p className="text-xs text-text-light">{l.subtitle?.[lang] || l.subtitle?.['zh']}</p></div><Icon name="ChevronRight" className="text-gray-300"/></div>))}</div></div>);
     };
 
+    const handleInventorySubmit = (report: any) => {
+        // 1. Save general report (Existing logic)
+        Cloud.saveInventoryReport(report);
+        
+        // 2. Generate and save individual logs
+        const logs: InventoryLog[] = [];
+        const timestamp = new Date().toLocaleString();
+        
+        Object.keys(report.data).forEach(itemId => {
+            const itemData = report.data[itemId];
+            const itemDef = data.inventoryList.find((i:any) => i.id === itemId);
+            if (itemData.end || itemData.waste) {
+                logs.push({
+                    id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                    timestamp: timestamp,
+                    operator: report.submittedBy,
+                    itemId: itemId,
+                    itemName: itemDef?.name?.en || itemId,
+                    newStock: itemData.end || '0',
+                    waste: itemData.waste || '0',
+                    actionType: 'report'
+                });
+            }
+        });
+        
+        if (logs.length > 0) {
+            Cloud.saveInventoryLogs(logs);
+        }
+    };
+
     const renderView = () => {
+        // ... (Existing cases for team, home, chat)
         if (view === 'team') {
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
@@ -849,7 +1098,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             );
         }
         if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={data.directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} />;
-        if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={()=>{}} currentUser={currentUser} />;
+        // UPDATE: Updated InventoryView onSubmit to use new handleInventorySubmit
+        if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} />;
         if (view === 'contact') return <ContactView t={t} lang={lang} />;
         if (view === 'recipes') return <div className="h-full overflow-y-auto text-text animate-fade-in-up"><div className="bg-surface p-4 border-b"><h2 className="text-xl font-bold">{t.recipe_title}</h2></div><div className="p-4 bg-secondary">{data.recipes.map((d: DrinkRecipe) => <DrinkCard key={d.id} drink={d} lang={lang} t={t} />)}</div></div>;
         if (view === 'training') return <TrainingView data={data} onComplete={() => {}} />;
@@ -859,6 +1109,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return <div className="p-10 text-center text-text-light">Section {view} under maintenance <button onClick={()=>setView('home')} className="text-primary underline block mt-4">Back</button></div>;
     };
 
+    // ... (Existing return)
     return (
         <div className="max-w-md mx-auto h-screen bg-secondary relative flex flex-col font-sans">
             <CustomConfirmModal isOpen={confirmModal.isOpen} title="Confirm Action" message={confirmModal.msg} onConfirm={confirmModal.action} onCancel={() => setConfirmModal(prev => ({...prev, isOpen:false}))} />
@@ -874,15 +1125,33 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     );
 };
 
-// --- LOGIN SCREEN ---
-const LoginScreen = ({ t, onLogin }: { t: any, onLogin: (id: string) => void }) => {
+// ... (Existing LoginScreen and App export)
+const LoginScreen = ({ t, onLogin }: { t: any, onLogin: (id: string, keepLogin: boolean) => void }) => {
+    // ... (same as before)
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [rememberPwd, setRememberPwd] = useState(false);
+    const [keepLogin, setKeepLogin] = useState(true); // Default to true as per modern standards, but user can uncheck
+
+    useEffect(() => {
+        const savedPwd = localStorage.getItem('onesip_saved_password');
+        if (savedPwd) {
+            try {
+                setPassword(atob(savedPwd)); // Simple decode
+                setRememberPwd(true);
+            } catch (e) { console.error("Pwd load error", e); }
+        }
+    }, []);
 
     const handleLogin = () => {
         const user = USERS.find(u => u.password === password && u.password);
         if (user) {
-            onLogin(user.id);
+            if (rememberPwd) {
+                localStorage.setItem('onesip_saved_password', btoa(password));
+            } else {
+                localStorage.removeItem('onesip_saved_password');
+            }
+            onLogin(user.id, keepLogin);
         } else {
             setError(t.invalid_code);
             setTimeout(() => setError(''), 3000);
@@ -898,9 +1167,6 @@ const LoginScreen = ({ t, onLogin }: { t: any, onLogin: (id: string) => void }) 
     return (
         <div className="h-screen bg-gradient-to-br from-gray-50 to-gray-200 flex flex-col items-center justify-center p-6 font-sans text-text animate-fade-in overflow-hidden">
             <div className="text-center mb-10">
-                <div className="w-28 h-28 bg-white rounded-3xl flex items-center justify-center mb-5 shadow-2xl animate-float mx-auto">
-                    <span className="text-5xl font-black text-primary tracking-tighter">1S</span>
-                </div>
                 <h1 className="text-3xl font-black text-text mb-1 tracking-tight">ONESIP {t.login_title.split(' ')[1]}</h1>
                 <p className="text-text-light font-medium">Store Management System</p>
             </div>
@@ -919,11 +1185,32 @@ const LoginScreen = ({ t, onLogin }: { t: any, onLogin: (id: string) => void }) 
                     />
                 </div>
                 
+                <div className="flex flex-col gap-2 mt-2 px-1">
+                    <label className="flex items-center gap-2 text-xs text-text-light cursor-pointer select-none">
+                        <input 
+                            type="checkbox" 
+                            checked={rememberPwd} 
+                            onChange={e => setRememberPwd(e.target.checked)} 
+                            className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer" 
+                        />
+                        记住密码 (Remember Password)
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-text-light cursor-pointer select-none">
+                        <input 
+                            type="checkbox" 
+                            checked={keepLogin} 
+                            onChange={e => setKeepLogin(e.target.checked)} 
+                            className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer" 
+                        />
+                        保持登录 (Keep Me Logged In)
+                    </label>
+                </div>
+
                 {error && <p className="text-destructive text-xs text-center font-bold animate-pulse">{error}</p>}
                 
                 <button 
                     onClick={handleLogin}
-                    className="w-full bg-primary text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-primary-light hover:bg-primary-dark active:scale-95 transition-all"
+                    className="w-full bg-primary text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-primary-light hover:bg-primary-dark active:scale-95 transition-all mt-4"
                 >
                     {t.login_btn}
                 </button>
@@ -939,7 +1226,7 @@ const LoginScreen = ({ t, onLogin }: { t: any, onLogin: (id: string) => void }) 
 // --- APP COMPONENT ---
 const App = () => {
     const [user, setUser] = useState<User | null>(() => {
-        const saved = localStorage.getItem('onesip_user');
+        const saved = localStorage.getItem('onesip_user') || sessionStorage.getItem('onesip_user');
         return saved ? JSON.parse(saved) : null;
     });
     const [lang, setLang] = useState<Lang>('zh');
@@ -972,8 +1259,24 @@ const App = () => {
         return () => { unsubInv(); unsubSched(); unsubContent(); unsubLogs(); unsubChat(); unsubSwaps(); unsubSales(); unsubHistory(); };
     }, []);
 
-    const handleLogin = (userId: string) => { const u = USERS.find(user => user.id === userId); if (u) { setUser(u); localStorage.setItem('onesip_user', JSON.stringify(u)); } };
-    const handleLogout = () => { setUser(null); setAdminRole(null); localStorage.removeItem('onesip_user'); };
+    const handleLogin = (userId: string, persist: boolean) => { 
+        const u = USERS.find(user => user.id === userId); 
+        if (u) { 
+            setUser(u); 
+            if (persist) {
+                localStorage.setItem('onesip_user', JSON.stringify(u)); 
+            } else {
+                sessionStorage.setItem('onesip_user', JSON.stringify(u));
+            }
+        } 
+    };
+    
+    const handleLogout = () => { 
+        setUser(null); 
+        setAdminRole(null); 
+        localStorage.removeItem('onesip_user'); 
+        sessionStorage.removeItem('onesip_user');
+    };
 
     const appData = { lang, setLang, t, inventoryList, setInventoryList, schedule, setSchedule, logs, setLogs, sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, directMessages, setDirectMessages, notices, setNotices, swapRequests, setSwapRequests, salesRecords, setSalesRecords, inventoryHistory, setInventoryHistory };
 
