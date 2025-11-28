@@ -1,321 +1,243 @@
-// @ts-ignore
-import { initializeApp } from 'firebase/app';
-// @ts-ignore
-import { getAnalytics } from "firebase/analytics";
-import { 
-  getFirestore, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  updateDoc, 
-  onSnapshot, 
-  arrayUnion 
-} from 'firebase/firestore';
-import { INVENTORY_ITEMS, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
-import { ScheduleDay, WeeklySchedule } from '../types';
 
-// --- FIREBASE CONFIGURATION ---
-// Prioritize Environment Variables for "Double Guarantee", fallback to hardcoded defaults.
+import { initializeApp } from 'firebase/app';
+import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
+import { INITIAL_MENU_DATA, INITIAL_ANNOUNCEMENT_DATA, INITIAL_WIKI_DATA, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
+
+// --- CONFIG ---
+// Replace with your Firebase Project Config
+// For Cloud functionality to work, you MUST create a Firebase project and enable Firestore.
 const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY || "AIzaSyBDfYlwxPV9pASCLu4U5ffGvv6lK5qGC4A",
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || "onesip--management.firebaseapp.com",
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID || "onesip--management",
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || "onesip--management.firebasestorage.app",
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "6590856722",
-  appId: process.env.VITE_FIREBASE_APP_ID || "1:6590856722:web:bf4abcc0a51de16fae62cb",
-  measurementId: process.env.VITE_FIREBASE_MEASUREMENT_ID || "G-GXZYD1GB8E"
+    apiKey: process.env.API_KEY, 
+    authDomain: "onesip--management.firebaseapp.com",
+    projectId: "onesip--management",
+    storageBucket: "onesip--management.firebasestorage.app",
+    messagingSenderId: "6590856722",
+    appId: "1:6590856722:web:bf4abcc0a51de16fae62cb",
+    measurementId: "G-GXZYD1GB8E"
 };
 
-let db: any = null;
-let isConfigured = false;
+// Initialize
+let app;
+let db: any;
 
-// Initialize Firebase
 try {
-    const app = initializeApp(firebaseConfig);
-    // Analytics is optional and environment dependent
-    if (typeof window !== 'undefined') {
-        try {
-            getAnalytics(app);
-        } catch (analyticsError) {
-            console.warn("Analytics failed to initialize (likely blocked):", analyticsError);
-        }
-    }
-    
+    app = initializeApp(firebaseConfig);
     db = getFirestore(app);
-    isConfigured = true;
-    console.log("🔥 Cloud Connected Successfully to: onesip--management");
 } catch (e) {
-    console.error("Firebase Init Error:", e);
+    console.warn("Firebase Init Failed (Likely no config provided). Running in local mode.");
 }
 
-export const isCloudEnabled = () => isConfigured;
-
-// --- NEW: DYNAMIC SCHEDULE GENERATION ---
-const generateInitialSchedule = (): WeeklySchedule => {
-    const startDate = new Date();
-    const days: ScheduleDay[] = [];
-    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const dayNamesZh = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-
-    for (let i = 0; i < 60; i++) { // Generate for 2 months
-        const currentDate = new Date(startDate);
-        currentDate.setDate(startDate.getDate() + i);
-
-        days.push({
-            date: `${(currentDate.getMonth() + 1).toString().padStart(2, '0')}-${currentDate.getDate().toString().padStart(2, '0')}`,
-            name: dayNames[currentDate.getDay()],
-            zh: dayNamesZh[currentDate.getDay()],
-            morning: [],
-            evening: [],
-            hours: {
-                morning: { start: '10:00', end: '15:00' },
-                evening: { start: '14:30', end: '19:00' }
-            }
-        });
-    }
-
-    return {
-        title: `Schedule from ${startDate.toLocaleDateString()}`,
-        days: days
-    };
-};
-
-// --- INITIAL DATA SEEDING ---
+// --- SEEDING ---
 export const seedInitialData = async () => {
     if (!db) return;
-    
     try {
-        const checkRef = doc(db, 'config', 'inventory');
-        const checkSnap = await getDoc(checkRef);
-
-        if (!checkSnap.exists()) {
-            console.log("🌱 Database appears empty. Seeding all initial data...");
-
-            const collections = [
-                { name: 'config', id: 'inventory', data: { list: INVENTORY_ITEMS } },
-                { name: 'config', id: 'schedule', data: { week: generateInitialSchedule() } },
-                { name: 'config', id: 'content', data: { sops: SOP_DATABASE, training: TRAINING_LEVELS, recipes: DRINK_RECIPES } },
-                { name: 'data', id: 'logs', data: { entries: [] } },
-                { name: 'data', id: 'chat', data: { messages: [], notices: [] } },
-                { name: 'data', id: 'swaps', data: { requests: [] } },
-                { name: 'data', id: 'sales', data: { records: [] } },
-                { name: 'data', id: 'inventory_history', data: { reports: [] } },
-                { name: 'data', id: 'inventory_logs', data: { entries: [] } }
-            ];
-
-            for (const col of collections) {
-                try {
-                    await setDoc(doc(db, col.name, col.id), col.data);
-                    console.log(`✅ Seeded: ${col.name}/${col.id}`);
-                } catch (e) {
-                    console.error(`Error seeding ${col.name}/${col.id}:`, e);
-                }
-            }
-            return;
+        const docRef = doc(db, 'config', 'app_data');
+        const docSnap = await getDoc(docRef);
+        if (!docSnap.exists()) {
+            await setDoc(docRef, {
+                menu: INITIAL_MENU_DATA,
+                wiki: INITIAL_WIKI_DATA,
+                announcement: INITIAL_ANNOUNCEMENT_DATA
+            });
+            console.log("Seeded Initial App Data");
         }
-
-        const scheduleRef = doc(db, 'config', 'schedule');
-        const scheduleSnap = await getDoc(scheduleRef);
-        if (!scheduleSnap.exists() || !scheduleSnap.data()?.week?.days?.length) {
-            console.log("⚠️ Schedule data missing or invalid. Regenerating schedule to fix.");
-            await setDoc(scheduleRef, { week: generateInitialSchedule() });
-        } else {
-            // Check if the entire schedule is in the past and regenerate if so.
-            const scheduleData = scheduleSnap.data().week;
-            if (scheduleData.days && scheduleData.days.length > 0) {
-                const lastDayString = scheduleData.days[scheduleData.days.length - 1].date;
-                const [lastMonth, lastDayOfMonth] = lastDayString.split('-').map(Number);
-
-                const today = new Date();
-                today.setHours(0,0,0,0);
-                
-                const currentYear = today.getFullYear();
-                const lastDayDate = new Date(currentYear, lastMonth - 1, lastDayOfMonth);
-                lastDayDate.setHours(23,59,59,999); // Compare end of day
-
-                // Handle year wrap-around (e.g., today is Jan 2025, schedule ends Dec 2024)
-                if (lastDayDate < today && lastMonth > today.getMonth()) {
-                    lastDayDate.setFullYear(currentYear - 1);
-                }
-
-                if (lastDayDate < today) {
-                     console.log("📅 Schedule is entirely in the past. Regenerating from today.");
-                     await setDoc(scheduleRef, { week: generateInitialSchedule() }, { merge: true });
-                }
-            }
+        // Seed Content if empty
+        const contentRef = doc(db, 'config', 'content');
+        const contentSnap = await getDoc(contentRef);
+        if (!contentSnap.exists()) {
+             await setDoc(contentRef, {
+                 sops: SOP_DATABASE,
+                 training: TRAINING_LEVELS,
+                 recipes: DRINK_RECIPES
+             });
         }
-        console.log("✅ Database integrity checks complete.");
+        
+        // Seed Schedule if empty
+        const schedRef = doc(db, 'config', 'schedule');
+        const schedSnap = await getDoc(schedRef);
+        if (!schedSnap.exists()) {
+            // Generate basic schedule
+             const days = [];
+             const today = new Date();
+             for (let i = 0; i < 21; i++) {
+                 const d = new Date(today);
+                 d.setDate(today.getDate() + i);
+                 const dateStr = `${d.getMonth()+1}-${d.getDate()}`;
+                 days.push({
+                     date: dateStr,
+                     name: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()],
+                     zh: '',
+                     morning: [],
+                     evening: [],
+                     hours: {
+                         morning: {start: '10:00', end: '15:00'},
+                         evening: {start: '14:30', end: '19:00'}
+                     }
+                 });
+             }
+             await setDoc(schedRef, { week: { title: 'Weekly Schedule', days } });
+        }
+        
     } catch (e) {
-        console.error("Error during seed check:", e);
+        console.error("Seeding Error", e);
     }
 };
 
-// --- SUBSCRIPTIONS (REAL-TIME SYNC) ---
-
+// --- INVENTORY ---
 export const subscribeToInventory = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'config', 'inventory'), (docSnap) => {
-        if (docSnap.exists()) callback(docSnap.data().list);
+    return onSnapshot(doc(db, 'data', 'inventory'), (doc) => {
+        if (doc.exists()) callback(doc.data().items);
     });
 };
 
+export const saveInventoryList = async (items: any[]) => {
+    if (!db) return;
+    await setDoc(doc(db, 'data', 'inventory'), { items }, { merge: true });
+};
+
+// --- SCHEDULE ---
 export const subscribeToSchedule = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'config', 'schedule'), (docSnap) => {
-        if (docSnap.exists()) {
-            const schedule = docSnap.data().week;
-            callback(schedule);
-        }
+    return onSnapshot(doc(db, 'config', 'schedule'), (doc) => {
+        if (doc.exists()) callback(doc.data().week);
     });
 };
-
-export const subscribeToContent = (callback: (data: any) => void) => {
-    if (!db) return () => {};
-    return onSnapshot(doc(db, 'config', 'content'), (docSnap) => {
-        if (docSnap.exists()) callback(docSnap.data());
-    });
-};
-
-export const subscribeToLogs = (callback: (data: any) => void) => {
-    if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'logs'), (docSnap) => {
-        if (docSnap.exists()) callback(docSnap.data().entries || []);
-    });
-};
-
-export const subscribeToChat = (callback: (msgs: any[], notices: any[]) => void) => {
-    if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'chat'), (docSnap) => {
-        if (docSnap.exists()) {
-            const data = docSnap.data();
-            callback(data.messages || [], data.notices || []);
-        }
-    });
-};
-
-export const subscribeToSwaps = (callback: (requests: any[]) => void) => {
-    if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'swaps'), (docSnap) => {
-        if (docSnap.exists()) callback(docSnap.data().requests || []);
-    });
-};
-
-export const subscribeToSales = (callback: (records: any[]) => void) => {
-    if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'sales'), (docSnap) => {
-        if (docSnap.exists()) callback(docSnap.data().records || []);
-    });
-};
-
-export const subscribeToInventoryHistory = (callback: (reports: any[]) => void) => {
-    if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'inventory_history'), (docSnap) => {
-        if (docSnap.exists()) callback(docSnap.data().reports || []);
-    });
-};
-
-export const subscribeToInventoryLogs = (callback: (entries: any[]) => void) => {
-    if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'inventory_logs'), (docSnap) => {
-        if (docSnap.exists()) callback(docSnap.data().entries || []);
-    });
-};
-
-// --- ACTIONS (WRITING TO CLOUD) ---
-
-export const saveInventoryList = async (list: any[]) => {
-    if (!db) return;
-    await updateDoc(doc(db, 'config', 'inventory'), { list });
-};
-
-export const saveInventoryReport = async (report: any) => {
-    if (!db) return;
-    await setDoc(doc(db, 'data', 'inventory_history'), {
-        reports: arrayUnion(report)
-    }, { merge: true });
-};
-
-export const saveInventoryLogs = async (logs: any[]) => {
-    if (!db || logs.length === 0) return;
-    await setDoc(doc(db, 'data', 'inventory_logs'), {
-        entries: arrayUnion(...logs)
-    }, { merge: true });
-}
 
 export const saveSchedule = async (week: any) => {
     if (!db) return;
-    await updateDoc(doc(db, 'config', 'schedule'), { week });
+    // FIX: Use setDoc with merge: true to ensure the document is upserted/updated reliably
+    await setDoc(doc(db, 'config', 'schedule'), { week }, { merge: true });
+};
+
+
+// --- LOGS (Clock In/Out) ---
+export const subscribeToLogs = (callback: (data: any) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'logs'), (doc) => {
+        if (doc.exists()) callback(doc.data().entries || []);
+    });
 };
 
 export const saveLog = async (logEntry: any) => {
     if (!db) return;
     await updateDoc(doc(db, 'data', 'logs'), {
         entries: arrayUnion(logEntry)
+    }).catch(async (e) => {
+        // Create if not exists
+        await setDoc(doc(db, 'data', 'logs'), { entries: [logEntry] });
     });
 };
 
-export const saveMessage = async (message: any) => {
-    if (!db) return;
-    await setDoc(doc(db, 'data', 'chat'), {
-        messages: arrayUnion(message)
-    }, { merge: true });
+// --- CHAT & NOTICES ---
+export const subscribeToChat = (callback: (msgs: any[], notices: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'chat'), (doc) => {
+        if (doc.exists()) {
+            const d = doc.data();
+            callback(d.messages || [], d.notices || []);
+        }
+    });
 };
 
-export const saveNotice = async (notice: any) => {
+export const saveMessage = async (msg: any) => {
     if (!db) return;
-    await setDoc(doc(db, 'data', 'chat'), {
-        notices: arrayUnion(notice)
-    }, { merge: true });
+    await updateDoc(doc(db, 'data', 'chat'), { messages: arrayUnion(msg) })
+        .catch(() => setDoc(doc(db, 'data', 'chat'), { messages: [msg], notices: [] }));
 };
 
 export const updateNotices = async (notices: any[]) => {
-    if (!db) {
-        return { success: false, error: "Database not initialized." };
-    }
+    if (!db) return { success: false };
     try {
-        await setDoc(doc(db, 'data', 'chat'), { notices }, { merge: true });
+        if (notices.length === 1) {
+             await updateDoc(doc(db, 'data', 'chat'), { notices: arrayUnion(notices[0]) });
+        } else {
+             await setDoc(doc(db, 'data', 'chat'), { notices }, { merge: true });
+        }
         return { success: true };
     } catch (e) {
-        console.error("❌ Error updating notices:", e);
-        return { success: false, error: e };
+        return { success: false };
     }
 };
 
 export const clearAllNotices = async () => {
-    if (!db) {
-        return { success: false, error: "Database not initialized." };
-    }
-    try {
-        await setDoc(doc(db, 'data', 'chat'), { notices: [] }, { merge: true });
-        return { success: true };
-    } catch (e) {
-        console.error("❌ Error clearing all notices:", e);
-        return { success: false, error: e };
-    }
+    if (!db) return;
+    await updateDoc(doc(db, 'data', 'chat'), { notices: [] });
 };
 
-export const saveContent = async (type: 'sops' | 'training' | 'recipes', data: any[]) => {
-    if (!db) return;
-    await updateDoc(doc(db, 'config', 'content'), {
-        [type]: data
+
+// --- SWAPS ---
+export const subscribeToSwaps = (callback: (reqs: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'swap_requests'), (doc) => {
+        if (doc.exists()) callback(doc.data().requests || []);
     });
 };
 
-export const saveSwapRequest = async (request: any) => {
+export const saveSwapRequest = async (req: any) => {
     if (!db) return;
-    await setDoc(doc(db, 'data', 'swaps'), {
-        requests: arrayUnion(request)
-    }, { merge: true });
+    await updateDoc(doc(db, 'data', 'swap_requests'), { requests: arrayUnion(req) })
+        .catch(() => setDoc(doc(db, 'data', 'swap_requests'), { requests: [req] }));
 };
 
 export const updateSwapRequests = async (requests: any[]) => {
     if (!db) return;
-    await updateDoc(doc(db, 'data', 'swaps'), { requests });
+    await setDoc(doc(db, 'data', 'swap_requests'), { requests }, { merge: true });
+};
+
+
+// --- SALES ---
+export const subscribeToSales = (callback: (sales: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'sales'), (doc) => {
+        if (doc.exists()) callback(doc.data().records || []);
+    });
 };
 
 export const saveSalesRecord = async (record: any) => {
     if (!db) return;
-    await setDoc(doc(db, 'data', 'sales'), {
-        records: arrayUnion(record)
+    await updateDoc(doc(db, 'data', 'sales'), { records: arrayUnion(record) })
+        .catch(() => setDoc(doc(db, 'data', 'sales'), { records: [record] }));
+};
+
+// --- INVENTORY HISTORY ---
+export const subscribeToInventoryHistory = (callback: (reports: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'inventory_history'), (doc) => {
+        if (doc.exists()) callback(doc.data().reports || []);
+    });
+};
+
+export const saveInventoryReport = async (report: any) => {
+    if (!db) return;
+    await updateDoc(doc(db, 'data', 'inventory_history'), { reports: arrayUnion(report) })
+         .catch(() => setDoc(doc(db, 'data', 'inventory_history'), { reports: [report] }));
+};
+
+// --- CONTENT (SOP/Training/Recipes) ---
+export const subscribeToContent = (callback: (data: any) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'config', 'content'), (doc) => {
+        if (doc.exists()) callback(doc.data());
+    });
+};
+
+export const saveContent = async (key: 'sops'|'training'|'recipes', list: any[]) => {
+    if (!db) return;
+    await setDoc(doc(db, 'config', 'content'), { [key]: list }, { merge: true });
+};
+
+// --- INVENTORY LOGS ---
+export const subscribeToInventoryLogs = (callback: (logs: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'inventory_logs'), (doc) => {
+        if (doc.exists()) callback(doc.data().entries || []);
+    });
+};
+
+export const saveInventoryLogs = async (logs: any[]) => {
+    if (!db || logs.length === 0) return;
+    await setDoc(doc(db, 'data', 'inventory_logs'), {
+        entries: arrayUnion(...logs)
     }, { merge: true });
 };

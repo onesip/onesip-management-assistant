@@ -1,5 +1,4 @@
 
-// FIX: Imported useState and useEffect from React to resolve 'Cannot find name' errors.
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { Icon } from './components/Icons';
@@ -27,8 +26,6 @@ function deg2rad(deg: number) { return deg * (Math.PI/180); }
 function getYouTubeId(url: string | undefined) {
     if (!url) return null;
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    // FIX: Corrected a typo. Was `url.match(RegExp)` which passes the constructor,
-    // now `url.match(regExp)` which passes the RegExp instance.
     const match = url.match(regExp);
     return (match && match[2].length === 11) ? match[2] : null;
 }
@@ -50,7 +47,7 @@ const CloudSetupModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => 
 };
 
 const AnnouncementModal = ({ notice, onClose }: { notice: Notice | null, onClose: () => void }) => {
-    if (!notice || notice.status === 'cancelled') return null; // Frontend Safe-guard
+    if (!notice || notice.status === 'cancelled') return null; 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-6 animate-fade-in">
             <div className="bg-surface rounded-3xl p-6 w-full max-w-sm shadow-2xl relative border-2 border-accent/50 transform scale-100 transition-all animate-pop-in">
@@ -241,10 +238,8 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
         setMessages((prev: DirectMessage[]) => [...prev, msg]); 
         
         if (activeChannel === AI_BOT_ID) {
-            // AI INTERACTION Logic
             setIsAiTyping(true);
             try {
-                // Call Gemini Service
                 const responseText = await getChatResponse(text, sopList || [], trainingLevels || []);
                 const aiMsg: DirectMessage = {
                     id: (Date.now() + 1).toString(),
@@ -255,8 +250,8 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                     read: false
                 };
                 setMessages((prev: DirectMessage[]) => [...prev, aiMsg]);
-                Cloud.saveMessage(msg); // Save user query
-                Cloud.saveMessage(aiMsg); // Save AI response to history
+                Cloud.saveMessage(msg); 
+                Cloud.saveMessage(aiMsg); 
             } catch (error) {
                 console.error("AI Error", error);
                 setMessages((prev: DirectMessage[]) => [...prev, {
@@ -271,7 +266,6 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                 setIsAiTyping(false);
             }
         } else {
-            // Human P2P
             Cloud.saveMessage(msg); 
         }
     };
@@ -945,7 +939,31 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     };
 
     const clearRequests = () => { if(window.confirm("Delete ALL requests?")) { setSwapRequests([]); Cloud.updateSwapRequests([]); } };
-    const handleSaveSchedule = (newStaff: string[], newHours: {start:string, end:string}) => { if (!editingShift) return; const { dayIdx, shift } = editingShift; const newSched = { ...schedule }; newSched.days[dayIdx][shift] = newStaff; if (!newSched.days[dayIdx].hours) newSched.days[dayIdx].hours = { morning: {start:'', end:''}, evening: {start:'', end:''} }; newSched.days[dayIdx].hours[shift] = newHours; setSchedule(newSched); Cloud.saveSchedule(newSched); setEditingShift(null); };
+
+    // FIX: Use deep copy for schedule to ensure safe mutation and persistence
+    const handleSaveSchedule = (newStaff: string[], newHours: {start:string, end:string}) => { 
+        if (!editingShift) return; 
+        const { dayIdx, shift } = editingShift; 
+        
+        // Deep copy the schedule object
+        const newSched = JSON.parse(JSON.stringify(schedule));
+        
+        // Guard clause in case schedule structure is invalid
+        if (!newSched.days || !newSched.days[dayIdx]) return;
+
+        newSched.days[dayIdx][shift] = newStaff; 
+        
+        if (!newSched.days[dayIdx].hours) {
+            newSched.days[dayIdx].hours = { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end:'19:00'} }; 
+        }
+        
+        newSched.days[dayIdx].hours[shift] = newHours; 
+        
+        setSchedule(newSched); 
+        Cloud.saveSchedule(newSched); 
+        setEditingShift(null); 
+    };
+    
     const pendingReqs = swapRequests?.filter((r: SwapRequest) => r.status === 'accepted_by_peer') || [];
 
     // --- ADDED: Planning Helpers ---
