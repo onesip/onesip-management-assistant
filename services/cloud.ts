@@ -1,14 +1,15 @@
 
 import * as firebaseApp from 'firebase/app';
 import { getFirestore, collection, doc, setDoc, onSnapshot, getDoc, updateDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
-import { INVENTORY_ITEMS, MOCK_SCHEDULE_WEEK02, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
+import { INVENTORY_ITEMS, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
+import { ScheduleDay, WeeklySchedule } from '../types';
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "AIzaSyBDfYlwxPV9pASCLu4U5ffGvv6lK5qGC4A",
-  authDomain: "onesip--management.firebaseapp.com",
-  projectId: "onesip--management",
-  storageBucket: "onesip--management.firebasestorage.app",
+  apiKey: "AIzaSyC2_c8-g9H5v3Bq_cI7aF6dE4eK0jZ_AgU",
+  authDomain: "onesip-management.firebaseapp.com",
+  projectId: "onesip-management",
+  storageBucket: "onesip-management.appspot.com",
   messagingSenderId: "6590856722",
   appId: "1:6590856722:web:bf4abcc0a51de16fae62cb",
   measurementId: "G-GXZYD1GB8E"
@@ -24,50 +25,88 @@ try {
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
     isConfigured = true;
-    console.log("🔥 Cloud Connected Successfully to: onesip--management");
+    console.log("🔥 Cloud Connected Successfully to: onesip-management");
 } catch (e) {
     console.error("Firebase Init Error:", e);
 }
 
 export const isCloudEnabled = () => isConfigured;
 
+// --- NEW: DYNAMIC SCHEDULE GENERATION ---
+const generateInitialSchedule = (): WeeklySchedule => {
+    const startDate = new Date();
+    const days: ScheduleDay[] = [];
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const dayNamesZh = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+    for (let i = 0; i < 60; i++) { // Generate for 2 months
+        const currentDate = new Date(startDate);
+        currentDate.setDate(startDate.getDate() + i);
+
+        days.push({
+            date: `${(currentDate.getMonth() + 1).toString().padStart(2, '0')}-${currentDate.getDate().toString().padStart(2, '0')}`,
+            name: dayNames[currentDate.getDay()],
+            zh: dayNamesZh[currentDate.getDay()],
+            morning: [],
+            evening: [],
+            hours: {
+                morning: { start: '10:00', end: '15:00' },
+                evening: { start: '14:30', end: '19:00' }
+            }
+        });
+    }
+
+    return {
+        title: `Schedule from ${startDate.toLocaleDateString()}`,
+        days: days
+    };
+};
+
 // --- INITIAL DATA SEEDING ---
 // Checks if critical collections exist. If not, uploads local defaults.
 export const seedInitialData = async () => {
     if (!db) return;
     
-    // Check specific collections to determine if seeding is needed
-    // We check 'config/inventory' as a proxy for "is the DB initialized?"
+    // Check if the database has been seeded at all using one item as a flag
     const checkRef = doc(db, 'config', 'inventory');
     const checkSnap = await getDoc(checkRef);
 
-    if (checkSnap.exists()) {
-        console.log("✅ Database already initialized. Skipping seed.");
-        return;
-    }
+    if (!checkSnap.exists()) {
+        console.log("🌱 Database appears empty. Seeding all initial data...");
 
-    console.log("🌱 Database empty. Seeding initial data...");
+        const collections = [
+            { name: 'config', id: 'inventory', data: { list: INVENTORY_ITEMS } },
+            { name: 'config', id: 'schedule', data: { week: generateInitialSchedule() } },
+            { name: 'config', id: 'content', data: { sops: SOP_DATABASE, training: TRAINING_LEVELS, recipes: DRINK_RECIPES } },
+            { name: 'data', id: 'logs', data: { entries: [] } },
+            { name: 'data', id: 'chat', data: { messages: [], notices: [] } },
+            { name: 'data', id: 'swaps', data: { requests: [] } },
+            { name: 'data', id: 'sales', data: { records: [] } },
+            { name: 'data', id: 'inventory_history', data: { reports: [] } },
+            { name: 'data', id: 'inventory_logs', data: { entries: [] } }
+        ];
 
-    const collections = [
-        { name: 'config', id: 'inventory', data: { list: INVENTORY_ITEMS } },
-        { name: 'config', id: 'schedule', data: { week: MOCK_SCHEDULE_WEEK02 } },
-        { name: 'config', id: 'content', data: { sops: SOP_DATABASE, training: TRAINING_LEVELS, recipes: DRINK_RECIPES } },
-        { name: 'data', id: 'logs', data: { entries: [] } },
-        { name: 'data', id: 'chat', data: { messages: [], notices: [] } },
-        { name: 'data', id: 'swaps', data: { requests: [] } },
-        { name: 'data', id: 'sales', data: { records: [] } },
-        { name: 'data', id: 'inventory_history', data: { reports: [] } },
-        { name: 'data', id: 'inventory_logs', data: { entries: [] } }
-    ];
-
-    for (const col of collections) {
-        try {
-            await setDoc(doc(db, col.name, col.id), col.data);
-            console.log(`✅ Seeded: ${col.id}`);
-        } catch (e) {
-            console.error(`Error seeding ${col.id}:`, e);
+        for (const col of collections) {
+            try {
+                await setDoc(doc(db, col.name, col.id), col.data);
+                console.log(`✅ Seeded: ${col.name}/${col.id}`);
+            } catch (e) {
+                console.error(`Error seeding ${col.name}/${col.id}:`, e);
+            }
         }
+        return; // Exit after full seed.
     }
+
+    // --- SELF-HEALING FOR SCHEDULE (FIX) ---
+    // If the DB is already initialized, still perform this specific check for schedule integrity.
+    const scheduleRef = doc(db, 'config', 'schedule');
+    const scheduleSnap = await getDoc(scheduleRef);
+    if (!scheduleSnap.exists() || !scheduleSnap.data()?.week?.days?.length) {
+        console.log("⚠️ Schedule data missing or invalid. Regenerating schedule to fix.");
+        await setDoc(scheduleRef, { week: generateInitialSchedule() });
+    }
+
+    console.log("✅ Database integrity checks complete.");
 };
 
 // --- SUBSCRIPTIONS (REAL-TIME SYNC) ---

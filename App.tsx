@@ -1,9 +1,10 @@
 
+
 // FIX: Imported useState and useEffect from React to resolve 'Cannot find name' errors.
 import React, { useState, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { Icon } from './components/Icons';
-import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, TEAM_MEMBERS, MOCK_SCHEDULE_WEEK02, INITIAL_MENU_DATA, INITIAL_WIKI_DATA, INITIAL_ANNOUNCEMENT_DATA, USERS } from './constants';
+import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, TEAM_MEMBERS, USERS } from './constants';
 import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog } from './types';
 import * as Cloud from './services/cloud';
 
@@ -247,6 +248,21 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             alert("Error: Failed to cancel announcement. Please check your connection and try again.");
         }
     };
+
+    // FIX: add clearAllNotices - start
+    const clearAllNotices = async () => {
+        if (!window.confirm("Are you sure you want to delete ALL announcements? This cannot be undone.")) return;
+        
+        console.log(`[Manager] Clearing all notices.`);
+        const res = await Cloud.updateNotices([]);
+        if (!res?.success) {
+            console.error("[Manager] Failed to clear all notices:", res?.error);
+            alert("Error: Failed to clear announcements. Please check your connection and try again.");
+        } else {
+            console.log("[Manager] All notices cleared successfully.");
+        }
+    };
+    // FIX: add clearAllNotices - end
     
     const formatDate = (isoString: string) => {
         const date = new Date(isoString);
@@ -333,7 +349,14 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                                         <option value="once">Once Only</option>
                                     </select>
                                 </div>
-                                <button onClick={handleBroadcast} className="bg-accent text-white px-4 py-2 rounded-lg font-bold text-xs shadow-md hover:bg-yellow-600 transition-all">Post</button>
+                                {/* FIX: add clearAllNotices button - start */}
+                                <div className="flex items-center gap-2">
+                                    <button onClick={clearAllNotices} className="bg-destructive text-white px-3 py-2 rounded-lg font-bold text-xs shadow-md hover:bg-red-600 transition-all">
+                                        Clear All
+                                    </button>
+                                    <button onClick={handleBroadcast} className="bg-accent text-white px-4 py-2 rounded-lg font-bold text-xs shadow-md hover:bg-yellow-600 transition-all">Post</button>
+                                </div>
+                                {/* FIX: add clearAllNotices button - end */}
                             </div>
                         </div>
                     )}
@@ -765,10 +788,15 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     // ... (Existing code)
     const managerUser = USERS.find(u => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests } = data;
-    const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests'>('requests');
+    const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
     const [wages, setWages] = useState<Record<string, number>>(() => { const saved = localStorage.getItem('onesip_wages'); const def: any = {}; TEAM_MEMBERS.forEach(m => def[m] = 12); return saved ? { ...def, ...JSON.parse(saved) } : def; });
+    
+    // --- NEW: Schedule Navigation State ---
+    const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+    const totalWeeks = schedule?.days ? Math.ceil(schedule.days.length / 7) : 0;
+    // ------------------------------------
 
     const handleWageChange = (name: string, val: string) => { const newWages = { ...wages, [name]: parseFloat(val) || 0 }; setWages(newWages); localStorage.setItem('onesip_wages', JSON.stringify(newWages)); };
     const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem('onesip_budget_max', b.toString()); };
@@ -831,6 +859,20 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const handleSaveSchedule = (newStaff: string[], newHours: {start:string, end:string}) => { if (!editingShift) return; const { dayIdx, shift } = editingShift; const newSched = { ...schedule }; newSched.days[dayIdx][shift] = newStaff; if (!newSched.days[dayIdx].hours) newSched.days[dayIdx].hours = { morning: {start:'', end:''}, evening: {start:'', end:''} }; newSched.days[dayIdx].hours[shift] = newHours; setSchedule(newSched); Cloud.saveSchedule(newSched); setEditingShift(null); };
     const pendingReqs = swapRequests?.filter((r: SwapRequest) => r.status === 'accepted_by_peer') || [];
 
+    // --- ADDED: Planning Helpers ---
+    const getShiftCost = (staff: string[], start: string, end: string) => {
+        const s = parseInt(start.split(':')[0]) + (parseInt(start.split(':')[1]||'0')/60);
+        const e = parseInt(end.split(':')[0]) + (parseInt(end.split(':')[1]||'0')/60);
+        const duration = Math.max(0, e - s);
+        return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
+    };
+    const totalWeeklyPlanningCost = schedule.days?.reduce((acc: number, day: any) => {
+        const m = getShiftCost(day.morning, day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
+        const e = getShiftCost(day.evening, day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
+        return acc + m + e;
+    }, 0) || 0;
+    // -----------------------------
+
     return (
         <div className="h-full flex flex-col bg-dark-bg text-dark-text font-sans">
             <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
@@ -838,7 +880,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
             </div>
             <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
-                {['requests', 'schedule', 'chat', 'logs', 'financial'].map(v => (
+                {['requests', 'schedule', 'planning', 'chat', 'logs', 'financial'].map(v => (
                     <button key={v} onClick={() => setView(v as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === v ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
                         {v} {v==='requests' && pendingReqs.length > 0 && `(${pendingReqs.length})`}
                     </button>
@@ -875,28 +917,124 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 {view === 'chat' && <ChatView t={t} currentUser={managerUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} onExit={() => setView('requests')} />}
                 {view === 'schedule' && (
                     <div className="space-y-3 pb-10">
-                        <div className="bg-dark-surface p-4 rounded-xl border border-white/10 shadow-sm mb-4">
-                            <h3 className="font-bold text-dark-text mb-2">{schedule.title || "Current Week"}</h3>
-                            <p className="text-xs text-dark-text-light">Tap on a shift to edit staff & times.</p>
-                        </div>
-                        {schedule.days?.map((day: ScheduleDay, idx: number) => (
-                            <div key={idx} className="bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10">
-                                <div className="flex justify-between mb-2">
-                                    <span className="font-bold text-dark-text">{day.name}</span>
-                                    <span className="text-xs text-dark-text-light">{day.date}</span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'morning' })} className="p-2 bg-orange-500/10 rounded border border-orange-500/20 cursor-pointer hover:bg-orange-500/20 transition-all">
-                                        <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-orange-400 font-bold">MORNING</div><div className="text-[10px] text-dark-text-light">{day.hours?.morning?.start || '10:00'}-{day.hours?.morning?.end || '15:00'}</div></div>
-                                        <div className="text-xs text-dark-text-light font-medium">{day.morning.length > 0 ? day.morning.join(', ') : <span className="italic">Empty</span>}</div>
-                                    </div>
-                                    <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'evening' })} className="p-2 bg-blue-500/10 rounded border border-blue-500/20 cursor-pointer hover:bg-blue-500/20 transition-all">
-                                        <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-blue-400 font-bold">EVENING</div><div className="text-[10px] text-dark-text-light">{day.hours?.evening?.start || '14:30'}-{day.hours?.evening?.end || '19:00'}</div></div>
-                                        <div className="text-xs text-dark-text-light font-medium">{day.evening.length > 0 ? day.evening.join(', ') : <span className="italic">Empty</span>}</div>
-                                    </div>
+                        <div className="bg-dark-surface p-4 rounded-xl border border-white/10 shadow-sm mb-4 sticky top-0 z-20">
+                            <div className="flex justify-between items-center">
+                                <h3 className="font-bold text-dark-text mb-2">
+                                    Week {currentWeekIndex + 1} of {totalWeeks}
+                                </h3>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setCurrentWeekIndex(Math.max(0, currentWeekIndex - 1))} disabled={currentWeekIndex === 0} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronLeft" size={16}/></button>
+                                    <button onClick={() => setCurrentWeekIndex(Math.min(totalWeeks - 1, currentWeekIndex + 1))} disabled={currentWeekIndex >= totalWeeks - 1} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronRight" size={16}/></button>
                                 </div>
                             </div>
-                        ))}
+                            <p className="text-xs text-dark-text-light">Tap on a shift to edit staff & times.</p>
+                        </div>
+                        {schedule.days?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, dayIndexInWeek: number) => {
+                            const absoluteDayIndex = currentWeekIndex * 7 + dayIndexInWeek;
+                            return (
+                                <div key={absoluteDayIndex} className="bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10">
+                                    <div className="flex justify-between mb-2">
+                                        <span className="font-bold text-dark-text">{day.name}</span>
+                                        <span className="text-xs text-dark-text-light">{day.date}</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'morning' })} className="p-2 bg-orange-500/10 rounded border border-orange-500/20 cursor-pointer hover:bg-orange-500/20 transition-all">
+                                            <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-orange-400 font-bold">MORNING</div><div className="text-[10px] text-dark-text-light">{day.hours?.morning?.start || '10:00'}-{day.hours?.morning?.end || '15:00'}</div></div>
+                                            <div className="text-xs text-dark-text-light font-medium">{day.morning.length > 0 ? day.morning.join(', ') : <span className="italic">Empty</span>}</div>
+                                        </div>
+                                        <div onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'evening' })} className="p-2 bg-blue-500/10 rounded border border-blue-500/20 cursor-pointer hover:bg-blue-500/20 transition-all">
+                                            <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-blue-400 font-bold">EVENING</div><div className="text-[10px] text-dark-text-light">{day.hours?.evening?.start || '14:30'}-{day.hours?.evening?.end || '19:00'}</div></div>
+                                            <div className="text-xs text-dark-text-light font-medium">{day.evening.length > 0 ? day.evening.join(', ') : <span className="italic">Empty</span>}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+                {/* FIX: Add Planning & Cost View */}
+                {view === 'planning' && (
+                    <div className="space-y-4 pb-10">
+                        <div className="bg-dark-surface p-5 rounded-xl border border-white/10 mb-4 shadow-lg">
+                            <h3 className="font-bold text-dark-text mb-2 flex items-center gap-2 uppercase tracking-wider text-sm">
+                                <Icon name="Briefcase" size={16}/> Staff Planning & Cost
+                            </h3>
+                            <p className="text-xs text-dark-text-light mb-4">
+                                Live estimate based on current schedule and individual wage settings.
+                            </p>
+                            <div className="flex justify-between items-center bg-dark-bg p-4 rounded-xl border border-white/5">
+                                <span className="text-xs font-bold text-dark-text-light uppercase">Total Weekly Forecast</span>
+                                <span className="text-2xl font-black text-green-400">€{totalWeeklyPlanningCost.toFixed(0)}</span>
+                            </div>
+                        </div>
+
+                        {schedule.days?.slice(0, 7).map((day: ScheduleDay, idx: number) => { // Planning view only shows current week
+                            const mStart = day.hours?.morning?.start || '10:00';
+                            const mEnd = day.hours?.morning?.end || '15:00';
+                            const eStart = day.hours?.evening?.start || '14:30';
+                            const eEnd = day.hours?.evening?.end || '19:00';
+                            const mCost = getShiftCost(day.morning, mStart, mEnd);
+                            const eCost = getShiftCost(day.evening, eStart, eEnd);
+
+                            return (
+                                <div key={idx} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
+                                    <div className="flex justify-between items-center mb-3 border-b border-white/5 pb-2">
+                                        <div>
+                                            <span className="font-bold text-dark-text">{day.name}</span>
+                                            <span className="text-xs text-dark-text-light ml-2">{day.date}</span>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="block text-[10px] text-dark-text-light uppercase">Daily Cost</span>
+                                            <span className="font-bold text-white">€{(mCost + eCost).toFixed(0)}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Morning */}
+                                    <div 
+                                        onClick={() => setEditingShift({ dayIdx: idx, shift: 'morning' })} 
+                                        className="mb-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-orange-500/30 cursor-pointer transition-all"
+                                    >
+                                        <div className="flex justify-between items-center mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded font-bold">AM</span>
+                                                <span className="text-[10px] text-dark-text-light font-mono">{mStart}-{mEnd}</span>
+                                            </div>
+                                            <span className="text-xs font-mono text-dark-text-light">€{mCost.toFixed(0)}</span>
+                                        </div>
+                                        <div className="space-y-1">
+                                            {day.morning.length > 0 ? day.morning.map((name, i) => (
+                                                <div key={i} className="flex justify-between text-xs">
+                                                    <span className="text-dark-text font-medium">{name}</span>
+                                                    <span className="text-dark-text-light text-[10px] opacity-60">€{wages[name] || 12}/h</span>
+                                                </div>
+                                            )) : <span className="text-xs text-dark-text-light italic">Empty Shift</span>}
+                                        </div>
+                                    </div>
+
+                                    {/* Evening */}
+                                    <div 
+                                        onClick={() => setEditingShift({ dayIdx: idx, shift: 'evening' })} 
+                                        className="p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-blue-500/30 cursor-pointer transition-all"
+                                    >
+                                        <div className="flex justify-between items-center mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-bold">PM</span>
+                                                <span className="text-[10px] text-dark-text-light font-mono">{eStart}-{eEnd}</span>
+                                            </div>
+                                            <span className="text-xs font-mono text-dark-text-light">€{eCost.toFixed(0)}</span>
+                                        </div>
+                                        <div className="space-y-1">
+                                            {day.evening.length > 0 ? day.evening.map((name, i) => (
+                                                <div key={i} className="flex justify-between text-xs">
+                                                    <span className="text-dark-text font-medium">{name}</span>
+                                                    <span className="text-dark-text-light text-[10px] opacity-60">€{wages[name] || 12}/h</span>
+                                                </div>
+                                            )) : <span className="text-xs text-dark-text-light italic">Empty Shift</span>}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
                 {view === 'logs' && (
@@ -1109,7 +1247,15 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         );
     };
 
-    const DrinkCard = ({ drink, lang, t }: { drink: DrinkRecipe, lang: Lang, t: any }) => {
+    // FIX: Refactored DrinkCard to use React.FC and a props interface. This helps TypeScript
+    // correctly identify it as a React component and handle special props like `key` without errors,
+    // resolving the type assignment issue when used in a list.
+    interface DrinkCardProps {
+        drink: DrinkRecipe;
+        lang: Lang;
+        t: any;
+    }
+    const DrinkCard: React.FC<DrinkCardProps> = ({ drink, lang, t }) => {
         const [expanded, setExpanded] = useState(false);
         return (<div className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer" onClick={() => setExpanded(!expanded)}><div className="flex justify-between items-center"><div><h3 className="font-bold text-text">{drink.name?.[lang] || drink.name?.['zh']}</h3><p className="text-xs text-text-light">{drink.cat} • {drink.size}</p></div><Icon name={expanded ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" /></div>{expanded && (<div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3"><p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p><p><strong>Sugar:</strong> {drink.sugar}</p><p><strong>Ice:</strong> {drink.ice}</p><div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div><div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div></div>)}</div>);
     };

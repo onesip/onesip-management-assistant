@@ -701,19 +701,6 @@ export const INVENTORY_ITEMS: InventoryItem[] = [
     { id: 'cups_700', name: { zh: '700ml 杯子', en: '700ml Cups' }, unit: 'slv' },
 ];
 
-export const MOCK_SCHEDULE_WEEK02: WeeklySchedule = {
-    title: "Week 02 (Jan 06 - Jan 12)",
-    days: [
-        { name: "Monday", zh: "周一", date: "01-06", morning: ["RURU", "Mengchu"], evening: ["Yang"] }, 
-        { name: "Tuesday", zh: "周二", date: "01-07", morning: ["Mengchu"], evening: ["Zhiyi"] },
-        { name: "Wednesday", zh: "周三", date: "01-08", morning: ["Lambert"], evening: ["Haohui"] },
-        { name: "Thursday", zh: "周四", date: "01-09", morning: ["Kloe"], evening: ["Tingshan"] },
-        { name: "Friday", zh: "周五", date: "01-10", morning: ["Xinrui"], evening: ["Maidou"] },
-        { name: "Saturday", zh: "周六", date: "01-11", morning: ["Linda"], evening: ["Julia"] },
-        { name: "Sunday", zh: "周日", date: "01-12", morning: ["Najata"], evening: ["RURU"] }
-    ]
-};
-
 export const INITIAL_MENU_DATA: CustomerMenuItem[] = []; 
 export const INITIAL_WIKI_DATA: WikiItem[] = [];
 export const INITIAL_ANNOUNCEMENT_DATA: AnnouncementData = {
