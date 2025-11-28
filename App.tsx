@@ -1,15 +1,16 @@
 
-
 // FIX: Imported useState and useEffect from React to resolve 'Cannot find name' errors.
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { Icon } from './components/Icons';
 import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, TEAM_MEMBERS, USERS } from './constants';
 import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog } from './types';
 import * as Cloud from './services/cloud';
+import { getChatResponse } from './services/geminiService';
 
 // --- CONSTANTS ---
 const STORE_COORDS = { lat: 51.9207886, lng: 4.4863897 };
+const AI_BOT_ID = 'u_ai_assistant';
 
 // --- HELPERS ---
 function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -206,18 +207,73 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     );
 };
 
-const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isManager }: any) => {
+const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isManager, sopList, trainingLevels }: any) => {
     const [activeChannel, setActiveChannel] = useState<string | null>(null);
     const [inputText, setInputText] = useState('');
     const [broadcastText, setBroadcastText] = useState('');
     const [broadcastFreq, setBroadcastFreq] = useState<'always' | 'daily' | '3days' | 'once'>('always');
+    const [isAiTyping, setIsAiTyping] = useState(false);
+    const messagesEndRef = useRef<null | HTMLDivElement>(null);
 
-    const handleSend = () => {
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages, activeChannel, isAiTyping]);
+
+    const handleSend = async () => {
         if (!inputText.trim() || !activeChannel) return;
-        const msg: DirectMessage = { id: Date.now().toString(), fromId: currentUser.id, toId: activeChannel, content: inputText, timestamp: new Date().toISOString(), read: false };
-        setMessages([...messages, msg]); 
-        Cloud.saveMessage(msg); 
+        
+        const text = inputText;
         setInputText('');
+
+        const msg: DirectMessage = { 
+            id: Date.now().toString(), 
+            fromId: currentUser.id, 
+            toId: activeChannel, 
+            content: text, 
+            timestamp: new Date().toISOString(), 
+            read: false 
+        };
+        
+        setMessages((prev: DirectMessage[]) => [...prev, msg]); 
+        
+        if (activeChannel === AI_BOT_ID) {
+            // AI INTERACTION Logic
+            setIsAiTyping(true);
+            try {
+                // Call Gemini Service
+                const responseText = await getChatResponse(text, sopList || [], trainingLevels || []);
+                const aiMsg: DirectMessage = {
+                    id: (Date.now() + 1).toString(),
+                    fromId: AI_BOT_ID,
+                    toId: currentUser.id,
+                    content: responseText,
+                    timestamp: new Date().toISOString(),
+                    read: false
+                };
+                setMessages((prev: DirectMessage[]) => [...prev, aiMsg]);
+                Cloud.saveMessage(msg); // Save user query
+                Cloud.saveMessage(aiMsg); // Save AI response to history
+            } catch (error) {
+                console.error("AI Error", error);
+                setMessages((prev: DirectMessage[]) => [...prev, {
+                    id: Date.now().toString(),
+                    fromId: AI_BOT_ID,
+                    toId: currentUser.id,
+                    content: "Sorry, my brain froze. Please try again.",
+                    timestamp: new Date().toISOString(),
+                    read: false
+                }]);
+            } finally {
+                setIsAiTyping(false);
+            }
+        } else {
+            // Human P2P
+            Cloud.saveMessage(msg); 
+        }
     };
 
     const handleBroadcast = async () => {
@@ -231,45 +287,25 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             frequency: broadcastFreq,
             status: 'active'
         };
-        // By calling updateNotices with an array containing only the new notice,
-        // we effectively replace all old announcements with the latest one.
         const res = await Cloud.updateNotices([notice]); 
         if (res.success) {
             setBroadcastText('');
             alert("New announcement posted. This is now the only active announcement.");
         } else {
-            console.error("Failed to post announcement:", res.error);
-            alert("Error: Could not post announcement. Please try again.");
+            alert("Error: Could not post announcement.");
         }
     };
 
     const cancelNotice = async (id: string) => {
-        if (!window.confirm("Cancel/Withdraw this announcement? Staff will no longer see it.")) return;
-    
-        console.log(`[Manager] Cancelling notice: ${id}`);
+        if (!window.confirm("Cancel/Withdraw this announcement?")) return;
         const updatedNotices = notices.map((n: Notice) => n.id === id ? { ...n, status: 'cancelled' } : n);
-    
-        const res = await Cloud.updateNotices(updatedNotices);
-        if (!res?.success) {
-            console.error("[Manager] Failed to sync notice cancellation:", res?.error);
-            alert("Error: Failed to cancel announcement. Please check your connection and try again.");
-        }
+        await Cloud.updateNotices(updatedNotices);
     };
 
-    // FIX: add clearAllNotices - start
     const clearAllNotices = async () => {
-        if (!window.confirm("Are you sure you want to delete ALL announcements? This cannot be undone.")) return;
-        
-        console.log(`[Manager] Clearing all notices.`);
-        const res = await Cloud.clearAllNotices();
-        if (!res?.success) {
-            console.error("[Manager] Failed to clear all notices:", res?.error);
-            alert("Error: Failed to clear announcements. Please check your connection and try again.");
-        } else {
-            console.log("[Manager] All notices cleared successfully.");
-        }
+        if (!window.confirm("Delete ALL announcements?")) return;
+        await Cloud.clearAllNotices();
     };
-    // FIX: add clearAllNotices - end
     
     const formatDate = (isoString: string) => {
         const date = new Date(isoString);
@@ -280,41 +316,74 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
         return date.toLocaleDateString();
     };
 
-
     if (activeChannel) {
         const threadMessages = messages
             .filter((m: DirectMessage) => (m.fromId === currentUser.id && m.toId === activeChannel) || (m.fromId === activeChannel && m.toId === currentUser.id))
             .sort((a: DirectMessage, b: DirectMessage) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         
-        const targetUser = USERS.find(u => u.id === activeChannel);
+        const isAi = activeChannel === AI_BOT_ID;
+        const targetUser = isAi ? { name: "AI Assistant", id: AI_BOT_ID } : USERS.find(u => u.id === activeChannel);
 
         return (
             <div className="h-full flex flex-col bg-secondary text-text absolute inset-0 z-[100] animate-fade-in"> 
-                <div className="p-4 bg-surface border-b flex items-center gap-3 sticky top-0 z-10">
+                <div className="p-4 bg-surface border-b flex items-center gap-3 sticky top-0 z-10 shadow-sm">
                     <button onClick={() => setActiveChannel(null)} className="p-2 -ml-2 rounded-full hover:bg-secondary"><Icon name="ArrowLeft" /></button>
-                    <div className="w-9 h-9 rounded-full bg-primary-light flex items-center justify-center font-bold text-primary">{targetUser?.name[0]}</div>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white shadow-lg ${isAi ? 'bg-gradient-to-br from-indigo-500 to-purple-600' : 'bg-primary'}`}>
+                        {isAi ? <Icon name="Sparkles" size={20}/> : targetUser?.name[0]}
+                    </div>
                     <div>
                         <h3 className="font-bold">{targetUser?.name}</h3>
-                        <p className="text-xs text-green-500 font-bold">Online</p>
+                        <p className={`text-xs font-bold ${isAi ? 'text-indigo-500' : 'text-green-500'}`}>
+                            {isAi ? 'Always Online' : 'Online'}
+                        </p>
                     </div>
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+                    {isAi && threadMessages.length === 0 && (
+                        <div className="text-center p-6 text-gray-400 text-sm">
+                            <Icon name="Sparkles" size={40} className="mx-auto mb-2 opacity-20"/>
+                            <p>Ask me anything about Recipes, SOPs, or Cleaning!</p>
+                            <div className="flex gap-2 justify-center mt-4">
+                                <button onClick={() => setInputText("How to make Grape Tea?")} className="text-xs bg-white border px-3 py-2 rounded-full shadow-sm hover:bg-indigo-50 text-indigo-500">🍇 Grape Tea Recipe</button>
+                                <button onClick={() => setInputText("Closing checklist?")} className="text-xs bg-white border px-3 py-2 rounded-full shadow-sm hover:bg-indigo-50 text-indigo-500">🧹 Closing SOP</button>
+                            </div>
+                        </div>
+                    )}
                     {threadMessages.map((m: DirectMessage) => (
                         <div key={m.id} className={`flex flex-col items-start ${m.fromId === currentUser.id ? 'items-end' : 'items-start'}`}>
-                            <div className={`max-w-[75%] p-3 rounded-2xl text-sm shadow-sm ${m.fromId === currentUser.id ? 'bg-primary text-white rounded-br-none' : 'bg-surface border rounded-bl-none'}`}>{m.content}</div>
-                            <span className="text-[10px] text-text-light mt-1 px-1">{formatDate(m.timestamp)}</span>
+                            <div className={`max-w-[85%] p-3 rounded-2xl text-sm shadow-sm whitespace-pre-line leading-relaxed ${m.fromId === currentUser.id ? 'bg-primary text-white rounded-br-none' : 'bg-white border rounded-bl-none text-gray-800'}`}>
+                                {m.content}
+                            </div>
+                            <span className="text-[10px] text-gray-400 mt-1 px-1">{formatDate(m.timestamp)}</span>
                         </div>
                     ))}
+                    {isAiTyping && (
+                        <div className="flex items-start">
+                            <div className="bg-white border rounded-2xl rounded-bl-none p-3 shadow-sm flex gap-1">
+                                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
+                                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce delay-75"></div>
+                                <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce delay-150"></div>
+                            </div>
+                        </div>
+                    )}
+                    <div ref={messagesEndRef} />
                 </div>
                 <div className="sticky bottom-0 left-0 right-0 bg-surface border-t p-3 pb-8 max-w-md mx-auto flex gap-2">
-                    <input value={inputText} onChange={e => setInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} className="flex-1 bg-secondary rounded-full px-4 py-2.5" placeholder={t.type_message}/>
-                    <button onClick={handleSend} className="w-11 h-11 bg-primary text-white rounded-full transition-all active:scale-90 flex items-center justify-center shrink-0"><Icon name="Send"/></button>
+                    <input 
+                        value={inputText} 
+                        onChange={e => setInputText(e.target.value)} 
+                        onKeyDown={(e) => e.key === 'Enter' && handleSend()} 
+                        className="flex-1 bg-secondary rounded-full px-4 py-2.5 outline-none focus:ring-2 ring-primary/20 transition-all" 
+                        placeholder={isAi ? "Ask AI Assistant..." : t.type_message}
+                    />
+                    <button onClick={handleSend} className={`w-11 h-11 text-white rounded-full transition-all active:scale-90 flex items-center justify-center shrink-0 shadow-lg ${isAi ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-primary hover:bg-primary-dark'}`}>
+                        <Icon name="Send"/>
+                    </button>
                 </div>
             </div>
         );
     }
     
-    // Filter notices for display: If Manager, show all (cancelled ones maybe with style), if Staff, hide cancelled.
     const displayNotices = isManager 
         ? notices.slice().reverse()
         : notices.filter((n: Notice) => n.status !== 'cancelled').slice().reverse();
@@ -331,7 +400,24 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             </div>
             
             <div className="flex-1 overflow-y-auto">
-                <div className="p-4 bg-accent/10">
+                {/* AI ASSISTANT ENTRY */}
+                <div className="p-4 pb-0">
+                    <div 
+                        onClick={() => setActiveChannel(AI_BOT_ID)}
+                        className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-4 shadow-lg text-white flex items-center gap-4 cursor-pointer transform transition-all active:scale-95"
+                    >
+                        <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm">
+                            <Icon name="Sparkles" size={24} />
+                        </div>
+                        <div className="flex-1">
+                            <h3 className="font-bold text-lg">AI Assistant</h3>
+                            <p className="text-indigo-100 text-xs">Ask about Recipes, SOPs...</p>
+                        </div>
+                        <Icon name="ChevronRight" className="text-white/50" />
+                    </div>
+                </div>
+
+                <div className="p-4 bg-accent/10 mt-4 mx-4 rounded-2xl">
                     <h3 className="text-sm font-bold text-accent uppercase tracking-wider mb-3 flex items-center gap-2"><Icon name="Megaphone" size={16}/> Announcements</h3>
                     {isManager && (
                         <div className="flex flex-col gap-2 mb-4 bg-surface p-3 rounded-xl border border-accent/20">
@@ -344,26 +430,23 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                             />
                             <div className="flex justify-between items-center mt-1">
                                 <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-bold text-text-light uppercase">Popup Freq:</span>
+                                    <span className="text-[10px] font-bold text-text-light uppercase">Freq:</span>
                                     <select 
                                         value={broadcastFreq} 
                                         onChange={(e) => setBroadcastFreq(e.target.value as any)} 
                                         className="text-xs bg-secondary border rounded-md p-1 font-bold text-text cursor-pointer focus:ring-1 focus:ring-accent"
                                     >
-                                        <option value="always">Every Login</option>
-                                        <option value="daily">Once Daily</option>
-                                        <option value="3days">Every 3 Days</option>
-                                        <option value="once">Once Only</option>
+                                        <option value="always">Always</option>
+                                        <option value="daily">Daily</option>
+                                        <option value="once">Once</option>
                                     </select>
                                 </div>
-                                {/* FIX: add clearAllNotices button - start */}
                                 <div className="flex items-center gap-2">
                                     <button onClick={clearAllNotices} className="bg-destructive text-white px-3 py-2 rounded-lg font-bold text-xs shadow-md hover:bg-red-600 transition-all">
-                                        Clear All
+                                        Clear
                                     </button>
                                     <button onClick={handleBroadcast} className="bg-accent text-white px-4 py-2 rounded-lg font-bold text-xs shadow-md hover:bg-yellow-600 transition-all">Post</button>
                                 </div>
-                                {/* FIX: add clearAllNotices button - end */}
                             </div>
                         </div>
                     )}
@@ -375,7 +458,6 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                                       <span className="font-bold text-text">{n.author}</span>
                                       <div className="flex items-center gap-2">
                                           {n.status === 'cancelled' && <span className="text-[9px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded uppercase font-bold">CANCELLED</span>}
-                                          {n.frequency && <span className="text-[9px] bg-accent/10 text-accent px-1.5 py-0.5 rounded uppercase font-bold">{n.frequency}</span>}
                                           <span className="text-[10px] text-text-light">{formatDate(n.date)}</span>
                                       </div>
                                     </div>
@@ -395,16 +477,16 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                 </div>
 
                 <div className="p-2">
-                    <h3 className="text-sm font-bold text-text-light uppercase tracking-wider my-2 px-2">Direct Messages</h3>
+                    <h3 className="text-sm font-bold text-text-light uppercase tracking-wider my-2 px-2">Team Chat</h3>
                     {USERS.filter((u: User) => u.id !== currentUser.id).map((user: User) => (
-                    <div key={user.id} onClick={() => setActiveChannel(user.id)} className="flex items-center gap-4 p-3 hover:bg-secondary rounded-lg border-b cursor-pointer">
+                    <div key={user.id} onClick={() => setActiveChannel(user.id)} className="flex items-center gap-4 p-3 hover:bg-secondary rounded-lg border-b cursor-pointer transition-colors">
                         <div className="w-11 h-11 rounded-full bg-secondary flex items-center justify-center font-bold text-text-light shrink-0 relative">
                             {user.name[0]}
                             <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-surface"></span>
                         </div>
                         <div className="flex-1">
-                            <h3 className="font-bold">{user.name}</h3>
-                            <p className="text-xs text-text-light truncate">Click to chat</p>
+                            <h3 className="font-bold text-text">{user.name}</h3>
+                            <p className="text-xs text-text-light truncate">Tap to message</p>
                         </div>
                     </div>
                     ))}
@@ -921,7 +1003,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         ))}
                     </div>
                 )}
-                {view === 'chat' && <ChatView t={t} currentUser={managerUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} onExit={() => setView('requests')} />}
+                {view === 'chat' && <ChatView t={t} currentUser={managerUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} onExit={() => setView('requests')} sopList={data.sopList} trainingLevels={data.trainingLevels} />}
                 {view === 'schedule' && (
                     <div className="space-y-3 pb-10">
                         <div className="bg-dark-surface p-4 rounded-xl border border-white/10 shadow-sm mb-4 sticky top-0 z-20">
@@ -1396,7 +1478,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             );
         }
-        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={data.directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} />;
+        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={data.directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} />;
         // UPDATE: Updated InventoryView onSubmit to use new handleInventorySubmit
         if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} />;
         if (view === 'contact') return <ContactView t={t} lang={lang} />;

@@ -1,9 +1,13 @@
 
-import { initializeApp } from 'firebase/app';
-import { getAnalytics } from "firebase/analytics";
+import * as firebaseApp from 'firebase/app';
+import * as firebaseAnalytics from "firebase/analytics";
 import { getFirestore, doc, setDoc, onSnapshot, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { INVENTORY_ITEMS, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '../constants';
 import { ScheduleDay, WeeklySchedule } from '../types';
+
+// Fix for TS error: Module 'firebase/app' has no exported member 'initializeApp'
+const initializeApp = (firebaseApp as any).initializeApp;
+const getAnalytics = (firebaseAnalytics as any).getAnalytics;
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {

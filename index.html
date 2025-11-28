@@ -87,31 +87,24 @@
           -ms-overflow-style: none;
           scrollbar-width: none;
       }
-      
-      /* Mascot Animations */
-      @keyframes blink { 0%, 90%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
-      @keyframes tailWag { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
-      .eye { transform-origin: center; animation: blink 4s infinite; }
-      .tail { transform-origin: bottom center; animation: tailWag 3s ease-in-out infinite; }
-      .text-gold-gradient { background: linear-gradient(to right, #FCD34D 20%, #FFF 40%, #FCD34D 60%, #D97706 80%); background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: gold-shimmer 3s linear infinite; }
-      @keyframes gold-shimmer { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
     </style>
 <script type="importmap">
 {
   "imports": {
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
-    "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
-    "firebase/analytics": "https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics.js",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
   }
 }
 </script>
 </head>
 <body>
     <div id="root"></div>
+    <!-- VITAL: This tells the browser/Vite to start running your React code -->
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>
