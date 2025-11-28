@@ -1,6 +1,6 @@
 
-import * as firebaseApp from 'firebase/app';
-import * as firebaseAnalytics from "firebase/analytics";
+import { initializeApp } from 'firebase/app';
+import { getAnalytics } from "firebase/analytics";
 import { 
   getFirestore, 
   doc, 
@@ -14,14 +14,15 @@ import { INVENTORY_ITEMS, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES } from '.
 import { ScheduleDay, WeeklySchedule } from '../types';
 
 // --- FIREBASE CONFIGURATION ---
+// Prioritize Environment Variables for "Double Guarantee", fallback to hardcoded defaults.
 const firebaseConfig = {
-  apiKey: "AIzaSyBDfYlwxPV9pASCLu4U5ffGvv6lK5qGC4A",
-  authDomain: "onesip--management.firebaseapp.com",
-  projectId: "onesip--management",
-  storageBucket: "onesip--management.firebasestorage.app",
-  messagingSenderId: "6590856722",
-  appId: "1:6590856722:web:bf4abcc0a51de16fae62cb",
-  measurementId: "G-GXZYD1GB8E"
+  apiKey: process.env.VITE_FIREBASE_API_KEY || "AIzaSyBDfYlwxPV9pASCLu4U5ffGvv6lK5qGC4A",
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || "onesip--management.firebaseapp.com",
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID || "onesip--management",
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || "onesip--management.firebasestorage.app",
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "6590856722",
+  appId: process.env.VITE_FIREBASE_APP_ID || "1:6590856722:web:bf4abcc0a51de16fae62cb",
+  measurementId: process.env.VITE_FIREBASE_MEASUREMENT_ID || "G-GXZYD1GB8E"
 };
 
 let db: any = null;
@@ -29,13 +30,11 @@ let isConfigured = false;
 
 // Initialize Firebase
 try {
-    // FIX: Using namespace import to avoid named export resolution issues
-    const app = firebaseApp.initializeApp(firebaseConfig);
+    const app = initializeApp(firebaseConfig);
     // Analytics is optional and environment dependent
     if (typeof window !== 'undefined') {
         try {
-            // FIX: Using namespace import for analytics
-            firebaseAnalytics.getAnalytics(app);
+            getAnalytics(app);
         } catch (analyticsError) {
             console.warn("Analytics failed to initialize (likely blocked):", analyticsError);
         }
