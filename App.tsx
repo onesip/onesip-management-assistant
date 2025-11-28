@@ -47,6 +47,29 @@ const CloudSetupModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => 
     );
 };
 
+const AnnouncementModal = ({ notice, onClose }: { notice: Notice | null, onClose: () => void }) => {
+    if (!notice || notice.status === 'cancelled') return null; // Frontend Safe-guard
+    return (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-6 animate-fade-in">
+            <div className="bg-surface rounded-3xl p-6 w-full max-w-sm shadow-2xl relative border-2 border-accent/50 transform scale-100 transition-all animate-pop-in">
+                <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-accent text-white w-12 h-12 rounded-full flex items-center justify-center border-4 border-surface shadow-lg">
+                    <Icon name="Megaphone" size={24}/>
+                </div>
+                <div className="mt-6 text-center">
+                    <h3 className="text-lg font-black text-text mb-1 uppercase tracking-wider">Announcement</h3>
+                    <p className="text-xs text-text-light font-bold mb-4">{new Date(notice.date).toLocaleDateString()}</p>
+                    <div className="bg-secondary p-4 rounded-xl text-sm text-text font-medium leading-relaxed mb-6 text-left max-h-60 overflow-y-auto">
+                        {notice.content}
+                    </div>
+                    <button onClick={onClose} className="w-full bg-primary text-white py-3 rounded-xl font-bold shadow-lg shadow-primary-light hover:bg-primary-dark transition-all active:scale-95">
+                        Got it
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const CustomConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }: { isOpen: boolean, title: string, message: React.ReactNode, onConfirm: () => void, onCancel: () => void }) => {
     if (!isOpen) return null;
     return (
@@ -212,10 +235,17 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
         alert("Announcement posted with frequency: " + broadcastFreq);
     };
 
-    const cancelNotice = (id: string) => {
+    const cancelNotice = async (id: string) => {
         if (!window.confirm("Cancel/Withdraw this announcement? Staff will no longer see it.")) return;
+    
+        console.log(`[Manager] Cancelling notice: ${id}`);
         const updatedNotices = notices.map((n: Notice) => n.id === id ? { ...n, status: 'cancelled' } : n);
-        Cloud.updateNotices(updatedNotices);
+    
+        const res = await Cloud.updateNotices(updatedNotices);
+        if (!res?.success) {
+            console.error("[Manager] Failed to sync notice cancellation:", res?.error);
+            alert("Error: Failed to cancel announcement. Please check your connection and try again.");
+        }
     };
     
     const formatDate = (isoString: string) => {
@@ -919,10 +949,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     );
 };
 
-// ... (Existing StaffApp and LoginScreen code remains, just need to update InventoryView usage inside StaffApp if needed, 
-// but wait, InventoryView is used as <InventoryView ... onSubmit={...} /> in StaffApp. 
-// I need to ensure the onSubmit handler in StaffApp creates logs.
-
 // --- STAFF APP ---
 
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
@@ -932,6 +958,75 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [clockBtnText, setClockBtnText] = useState({ in: t.clock_in, out: t.clock_out });
     const [currentShift, setCurrentShift] = useState<string>('opening'); 
     
+    // Announcement Logic
+    const [announcement, setAnnouncement] = useState<Notice | null>(null);
+
+    useEffect(() => {
+        if (!notices) return;
+
+        // 1. SAFETY: Get the currently displayed announcement's fresh state
+        if (announcement) {
+            const currentFresh = notices.find((n: Notice) => n.id === announcement.id);
+            // If it's gone or cancelled, close immediately
+            if (!currentFresh || currentFresh.status === 'cancelled') {
+                setAnnouncement(null);
+                // Continue to check if there is a valid notice to replace it, or stop.
+                // If we don't stop, the code below will find the next valid one.
+            }
+        }
+
+        // 2. Find the candidate for display (Newest active notice)
+        const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
+        
+        if (activeNotices.length === 0) {
+             setAnnouncement(null);
+             return;
+        }
+        
+        // notices array is usually appending new ones at the end, so last one is latest.
+        // But let's be safe and use logic similar to ChatView if needed, assuming array order is chronological.
+        const latest = activeNotices[activeNotices.length - 1]; 
+
+        // If we are already showing the latest, do nothing
+        if (announcement && announcement.id === latest.id) return;
+
+        // 3. Frequency Check for the candidate
+        const seenKey = `notice_seen_${latest.id}`;
+        const lastSeen = localStorage.getItem(seenKey);
+        const now = Date.now();
+        let shouldShow = false;
+
+        if (!latest.frequency || latest.frequency === 'always') {
+            shouldShow = true; // Default
+        } else if (latest.frequency === 'once') {
+            if (!lastSeen) shouldShow = true;
+        } else if (latest.frequency === 'daily') {
+            if (!lastSeen) shouldShow = true;
+            else {
+                const lastDate = new Date(parseInt(lastSeen)).toDateString();
+                const today = new Date().toDateString();
+                if (lastDate !== today) shouldShow = true;
+            }
+        } else if (latest.frequency === '3days') {
+            if (!lastSeen) shouldShow = true;
+            else {
+                const diff = now - parseInt(lastSeen);
+                if (diff > 3 * 24 * 60 * 60 * 1000) shouldShow = true;
+            }
+        }
+
+        if (shouldShow) {
+            setAnnouncement(latest);
+        }
+    }, [notices]); // Only depend on notices updating
+
+    const closeAnnouncement = () => {
+        if (announcement) {
+            localStorage.setItem(`notice_seen_${announcement.id}`, Date.now().toString());
+            setAnnouncement(null);
+        }
+    };
+
     // ... (Existing swap logic)
     const [swapMode, setSwapMode] = useState(false);
     const [swapSelection, setSwapSelection] = useState<{ step: 1|2, myDate?: string, myShift?: 'morning'|'evening', targetName?: string, targetDate?: string, targetShift?: 'morning'|'evening' }>({ step: 1 });
@@ -1113,6 +1208,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     return (
         <div className="max-w-md mx-auto h-screen bg-secondary relative flex flex-col font-sans">
             <CustomConfirmModal isOpen={confirmModal.isOpen} title="Confirm Action" message={confirmModal.msg} onConfirm={confirmModal.action} onCancel={() => setConfirmModal(prev => ({...prev, isOpen:false}))} />
+            <AnnouncementModal notice={announcement} onClose={closeAnnouncement} />
             <div className="flex-1 overflow-hidden relative">{renderView()}</div>
             {view !== 'checklist' && (
                 <nav className="fixed bottom-0 w-full max-w-md bg-surface border-t p-2 pb-4 z-50 flex overflow-x-auto shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] no-scrollbar gap-1">

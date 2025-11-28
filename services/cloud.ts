@@ -155,12 +155,10 @@ export const saveInventoryReport = async (report: any) => {
 
 export const saveInventoryLogs = async (logs: any[]) => {
     if (!db || logs.length === 0) return;
-    // Need to use arrayUnion spread or loop if many, but Firestore limits arrayUnion args.
-    // For safety, we can just fetch, concat, and save, OR use arrayUnion for small batches.
-    // Given usage, arrayUnion one by one or spread is okay for small sets.
-    await updateDoc(doc(db, 'data', 'inventory_logs'), {
+    // Use setDoc with merge: true to ensure the document exists
+    await setDoc(doc(db, 'data', 'inventory_logs'), {
         entries: arrayUnion(...logs)
-    });
+    }, { merge: true });
 }
 
 export const saveSchedule = async (week: any) => {
@@ -192,8 +190,19 @@ export const saveNotice = async (notice: any) => {
 };
 
 export const updateNotices = async (notices: any[]) => {
-    if (!db) return;
-    await updateDoc(doc(db, 'data', 'chat'), { notices });
+    if (!db) {
+        console.error("❌ DB not initialized in updateNotices");
+        return { success: false, error: "Database not initialized." };
+    }
+    try {
+        console.log("📤 Syncing Notices to Cloud:", notices.length, "items");
+        await updateDoc(doc(db, 'data', 'chat'), { notices });
+        console.log("✅ Notices Synced Successfully");
+        return { success: true };
+    } catch (e) {
+        console.error("❌ Error updating notices:", e);
+        return { success: false, error: e };
+    }
 };
 
 export const saveContent = async (type: 'sops' | 'training' | 'recipes', data: any[]) => {
