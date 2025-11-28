@@ -550,172 +550,6 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
 
 // --- DASHBOARDS ---
 
-const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { inventoryList, setInventoryList, t, lang, inventoryHistory, salesRecords, setSalesRecords } = data;
-    const [view, setView] = useState<'inventory' | 'history' | 'prediction' | 'logs'>('inventory');
-    const [weather, setWeather] = useState<any>(null);
-    const [newSales, setNewSales] = useState({ time: '15:00', amount: '' });
-    const [inventoryLogs, setInventoryLogs] = useState<InventoryLog[]>([]);
-    
-    useEffect(() => { 
-        if (view === 'prediction') { 
-            fetch('https://api.open-meteo.com/v1/forecast?latitude=51.92&longitude=4.48&current_weather=true')
-            .then(res => res.json()).then(data => setWeather(data.current_weather))
-            .catch(err => console.error("Weather fetch failed", err)); 
-        }
-        if (view === 'logs') {
-            const unsub = Cloud.subscribeToInventoryLogs(setInventoryLogs);
-            return () => unsub();
-        }
-    }, [view]);
-
-    const exportCSV = () => { if (!inventoryHistory || inventoryHistory.length === 0) return alert("No history to export"); let csv = "Date,User,Item,Count,Waste\n"; inventoryHistory.forEach((report: InventoryReport) => { Object.keys(report.data).forEach(itemId => { const itemName = inventoryList.find((i:any) => i.id === itemId)?.name?.en || itemId; csv += `${report.date},${report.submittedBy},${itemName},${report.data[itemId].end},${report.data[itemId].waste}\n`; }); }); const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "inventory_history.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
-    const handleSalesSubmit = () => { if (!newSales.amount) return; const record: SalesRecord = { id: Date.now().toString(), date: new Date().toLocaleDateString(), timeSlot: newSales.time as any, amount: parseFloat(newSales.amount), weatherTemp: weather?.temperature || 0, weatherCode: weather?.weathercode || 0 }; Cloud.saveSalesRecord(record); setNewSales({ ...newSales, amount: '' }); alert("Sales recorded for Prediction Model!"); };
-    
-    const exportLogsCSV = () => {
-        if (!inventoryLogs || inventoryLogs.length === 0) return alert("No logs to export");
-        let csv = "Timestamp,Operator,ItemName,NewStock,Waste\n";
-        inventoryLogs.slice().reverse().forEach(log => {
-            csv += `${log.timestamp},${log.operator},${log.itemName},${log.newStock},${log.waste}\n`;
-        });
-        const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "inventory_logs.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
-    const getPrediction = () => { 
-        if (salesRecords.length < 1) return null; 
-        const recentSales = salesRecords.slice(-14); 
-        const totalRev = recentSales.reduce((acc: number, curr: any) => acc + curr.amount, 0); 
-        const daysCount = Math.max(1, recentSales.length / 2); 
-        const avgDailyRev = totalRev / daysCount; 
-        let weatherMultiplier = 1.0; 
-        if (weather) { 
-            const temp = weather.temperature; 
-            if (temp > 25) weatherMultiplier = 1.3; 
-            else if (temp > 20) weatherMultiplier = 1.1; 
-            else if (temp < 10) weatherMultiplier = 0.8; 
-            if ([51,53,55,61,63,65,80,81,82].includes(weather.weathercode)) { weatherMultiplier *= 0.8; } 
-        } 
-        const projectedWeeklyRev = avgDailyRev * 7 * weatherMultiplier; 
-        const drinksCount = projectedWeeklyRev / 6.5; 
-        return { 
-            avgDailyRev: avgDailyRev.toFixed(2), 
-            weatherFactor: weatherMultiplier.toFixed(2), 
-            estRevenue: projectedWeeklyRev.toFixed(2), 
-            estDrinks: Math.ceil(drinksCount), 
-            restock: [ { item: "Cups (500/700ml)", amount: Math.ceil(drinksCount) + " pcs" }, { item: "Tapioca Pearls", amount: (drinksCount * 0.05).toFixed(1) + " kg" }, { item: "Fresh Milk", amount: (drinksCount * 0.15).toFixed(1) + " L" }, { item: "Tea Leaves (Raw)", amount: (drinksCount * 0.015).toFixed(2) + " kg" }, { item: "Fructose/Sugar", amount: (drinksCount * 0.03).toFixed(1) + " kg" } ] 
-        }; 
-    };
-    const prediction = getPrediction();
-
-    return (
-        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
-            <div className="p-4 bg-dark-surface shadow-lg shrink-0 border-b border-white/10">
-                <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-black text-dark-accent tracking-wider">OWNER COMMAND</h2><button onClick={onExit} className="bg-white/10 p-2 rounded-lg hover:bg-white/20 transition-all"><Icon name="LogOut" size={20}/></button></div>
-                <div className="flex gap-2"><button onClick={() => setView('inventory')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'inventory' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>Inventory</button><button onClick={() => setView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'history' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>History</button><button onClick={() => setView('prediction')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'prediction' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>AI Forecast</button><button onClick={() => setView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'logs' ? 'bg-dark-accent text-dark-bg' : 'bg-white/10 hover:bg-white/20'}`}>Logs</button></div>
-            </div>
-            <div className="flex-1 overflow-y-auto bg-dark-bg">
-                 {view === 'inventory' && (<div className="h-full"><InventoryView lang={lang} t={t} inventoryList={inventoryList} setInventoryList={setInventoryList} isOwner={true} /></div>)}
-                 {view === 'history' && (<div className="p-4 h-full overflow-y-auto"><button onClick={exportCSV} className="w-full bg-green-600 hover:bg-green-500 text-white py-3 rounded-xl font-bold mb-4 flex justify-center gap-2 shadow-lg transition-all"><Icon name="List" /> Download CSV Report</button><div className="space-y-3">{inventoryHistory?.slice().reverse().map((report: InventoryReport) => (<div key={report.id} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10"><div className="flex justify-between mb-2"><span className="font-bold text-dark-accent">{report.date}</span><span className="text-sm text-dark-text-light">{report.submittedBy}</span></div><div className="text-xs text-dark-text-light">Recorded {Object.keys(report.data).length} items</div></div>))}</div></div>)}
-                 {view === 'logs' && (
-                     <div className="p-4 h-full overflow-y-auto">
-                         <div className="flex justify-between items-center mb-4">
-                             <h3 className="text-dark-text font-bold uppercase">Real-time Logs</h3>
-                             <button onClick={exportLogsCSV} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16}/> Export CSV</button>
-                         </div>
-                         <div className="space-y-2">
-                             {inventoryLogs?.slice().reverse().map((log: InventoryLog, idx: number) => (
-                                 <div key={idx} className="bg-dark-surface p-3 rounded-lg border border-white/10 flex justify-between items-center">
-                                     <div>
-                                         <div className="text-xs text-dark-text-light mb-1">{log.timestamp} • {log.operator}</div>
-                                         <div className="font-bold text-dark-text">{log.itemName}</div>
-                                     </div>
-                                     <div className="text-right">
-                                         <div className="text-sm font-bold text-dark-accent">Count: {log.newStock}</div>
-                                         {log.waste && <div className="text-xs text-red-400">Waste: {log.waste}</div>}
-                                     </div>
-                                 </div>
-                             ))}
-                         </div>
-                     </div>
-                 )}
-                 {view === 'prediction' && (
-                     <div className="p-4 h-full overflow-y-auto">
-                        <div className="bg-dark-surface p-6 rounded-2xl mb-6 border border-white/10">
-                            <h3 className="text-sm font-bold text-dark-text-light uppercase mb-4">AI Sales Forecast (Next 7 Days)</h3>
-                            {prediction ? (
-                                <div className="space-y-6">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-dark-bg p-4 rounded-xl">
-                                            <div className="text-xs text-dark-text-light mb-1">Est. Revenue</div>
-                                            <div className="text-2xl font-black text-white">€{prediction.estRevenue}</div>
-                                        </div>
-                                        <div className="bg-dark-bg p-4 rounded-xl">
-                                            <div className="text-xs text-dark-text-light mb-1">Volume</div>
-                                            <div className="text-2xl font-black text-dark-accent">{prediction.estDrinks} Cups</div>
-                                        </div>
-                                    </div>
-                                    
-                                    <div>
-                                        <h4 className="text-xs font-bold text-dark-text-light mb-3 uppercase flex items-center gap-2">
-                                            <Icon name="Sparkles" size={14} className="text-dark-accent"/> Suggested Restock
-                                        </h4>
-                                        <div className="space-y-2">
-                                            {prediction.restock.map((r: any, idx: number) => (
-                                                <div key={idx} className="flex justify-between items-center bg-dark-bg p-3 rounded-lg border border-white/10">
-                                                    <span className="text-sm font-bold text-dark-text">{r.item}</span>
-                                                    <span className="text-sm font-mono text-dark-accent">{r.amount}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="text-center py-8 text-dark-text-light">
-                                    <p>Not enough data for prediction.</p>
-                                    <p className="text-xs mt-2">Need at least 2 weeks of sales records.</p>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="bg-dark-surface p-6 rounded-2xl border border-white/10">
-                            <h3 className="text-sm font-bold text-dark-text-light uppercase mb-4">Input Daily Sales</h3>
-                            <div className="flex gap-2 mb-2">
-                                <select 
-                                    value={newSales.time} 
-                                    onChange={e => setNewSales({...newSales, time: e.target.value})}
-                                    className="bg-dark-bg text-white rounded-lg p-3 font-bold text-sm outline-none focus:ring-2 ring-dark-accent"
-                                >
-                                    <option value="15:00">15:00 (Morning Shift)</option>
-                                    <option value="19:00">19:00 (Evening Shift)</option>
-                                </select>
-                                <input 
-                                    type="number" 
-                                    placeholder="Amount (€)" 
-                                    value={newSales.amount}
-                                    onChange={e => setNewSales({...newSales, amount: e.target.value})}
-                                    className="bg-dark-bg text-white rounded-lg p-3 font-bold text-sm flex-1 outline-none focus:ring-2 ring-dark-accent"
-                                />
-                            </div>
-                            <button 
-                                onClick={handleSalesSubmit}
-                                className="w-full bg-dark-accent hover:opacity-90 text-dark-bg py-3 rounded-xl font-black shadow-lg shadow-dark-accent/20 transition-all"
-                            >
-                                Record Sales
-                            </button>
-                        </div>
-                     </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
 const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t } = data;
     const [view, setView] = useState<'training' | 'sop' | 'recipes'>('training');
@@ -925,6 +759,43 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     );
 };
 
+// FIX: Added missing OwnerDashboard component.
+const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
+    const { lang, t, inventoryList, setInventoryList } = data;
+    const ownerUser = USERS.find(u => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
+    const [view, setView] = useState<'inventory' | 'manager'>('inventory');
+
+    if (view === 'manager') {
+        // Here, ManagerDashboard's exit button will return to the owner's inventory view.
+        return <ManagerDashboard data={data} onExit={() => setView('inventory')} />;
+    }
+
+    // Owner's main view is inventory management.
+    return (
+        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
+             <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
+                <div><h1 className="text-xl font-black tracking-tight text-white">{t.owner_dashboard || 'Owner Dashboard'}</h1><p className="text-xs text-dark-text-light">User: {ownerUser.name}</p></div>
+                <div className="flex gap-2">
+                    <button onClick={() => setView('manager')} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all text-xs font-bold px-3">Manager Dashboard</button>
+                    {/* This onExit is the one passed from App to fully exit admin mode */}
+                    <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
+                </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+                <InventoryView 
+                    lang={lang} 
+                    t={t} 
+                    inventoryList={inventoryList} 
+                    setInventoryList={setInventoryList} 
+                    isOwner={true} 
+                    onSubmit={() => {}}
+                    currentUser={ownerUser} 
+                />
+            </div>
+        </div>
+    );
+};
+
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     // ... (Existing code)
     const managerUser = USERS.find(u => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
@@ -939,7 +810,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const totalWeeks = schedule?.days ? Math.ceil(schedule.days.length / 7) : 0;
     // ------------------------------------
 
-    const handleWageChange = (name: string, val: string) => { const newWages = { ...wages, [name]: parseFloat(val) || 0 }; setWages(newWages); localStorage.setItem('onesip_wages', JSON.stringify(newWages)); };
+    const handleWageChange = (name: string, val: string) => { const num = parseFloat(val); const newWages = { ...wages, [name]: isNaN(num) ? 0 : num }; setWages(newWages); localStorage.setItem('onesip_wages', JSON.stringify(newWages)); };
     const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem('onesip_budget_max', b.toString()); };
 
     const calculateFinancials = () => {
@@ -955,7 +826,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     };
     const { stats, totalEstCost, totalActualCost } = calculateFinancials();
 
-    const exportFinancialCSV = () => { let csv = "Name,Wage,Est.Hours,Est.Cost,Act.Hours,Act.Cost\n"; Object.keys(stats).forEach(name => { const s = stats[name]; csv += `${name},${wages[name]},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)}\n`; }); csv += `TOTALS,,${totalEstCost.toFixed(2)},,${totalActualCost.toFixed(2)}\n`; const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "financial_report.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
+    const exportFinancialCSV = () => { let csv = "Name,Wage,Est.Hours,Est.Cost,Act.Hours,Act.Cost\n"; Object.keys(stats).forEach(name => { const s = stats[name]; csv += `${name},${Number(wages[name] || 0).toFixed(2)},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)}\n`; }); csv += `TOTALS,,${totalEstCost.toFixed(2)},,${totalActualCost.toFixed(2)}\n`; const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "financial_report.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
     
     const confirmSwap = (req: SwapRequest) => {
         let scheduleUpdated = false;
@@ -1231,7 +1102,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                         <tr key={name}>
                                             <td className="p-2 font-bold text-dark-text">{name}</td>
                                             <td className="p-2 text-center">
-                                                <input className="w-10 text-center border rounded bg-dark-bg border-white/20 text-dark-text" value={wages[name] || 0} onChange={(e) => handleWageChange(name, e.target.value)}/>
+                                                <input type="number" step="0.01" className="w-12 text-center border rounded bg-dark-bg border-white/20 text-dark-text" value={wages[name] || ''} onChange={(e) => handleWageChange(name, e.target.value)}/>
                                             </td>
                                             <td className="p-2 text-center text-dark-text-light">{stats[name].actualHours.toFixed(1)}</td>
                                             <td className="p-2 text-right font-mono text-dark-text">€{stats[name].actualCost.toFixed(0)}</td>
