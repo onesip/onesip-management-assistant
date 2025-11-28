@@ -173,7 +173,7 @@ const ScheduleEditorModal = ({ isOpen, day, shiftType, currentStaff, currentHour
 
 // --- SCREENS & VIEWS ---
 
-const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser }: any) => {
+const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel }: any) => {
     // Staff state
     const [employee, setEmployee] = useState(currentUser?.name || ''); 
     const [inputData, setInputData] = useState<Record<string, { end: string, waste: string }>>({});
@@ -243,11 +243,19 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         );
     }
 
-    // Staff view remains unchanged
+    // Staff view
     return (
         <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
             <div className="bg-surface p-4 border-b sticky top-0 z-10 space-y-3 shadow-sm">
-                <div className="flex justify-between items-center"><h2 className="text-xl font-black">{t.inventory_title}</h2></div>
+                 <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-black">{t.inventory_title}</h2>
+                    {isForced && (
+                        <button onClick={onCancel} className="bg-destructive-light text-destructive px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-200 transition-all">
+                            {t.cancel}
+                        </button>
+                    )}
+                </div>
+                 {isForced && <p className="text-xs text-destructive font-bold animate-pulse">{t.complete_inventory_to_clock_out}</p>}
             </div>
             <div className="p-4 space-y-3 overflow-y-auto flex-1">
                 {inventoryList.map((item: any) => (
@@ -1128,6 +1136,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [view, setView] = useState<StaffViewMode>('home');
     const [clockBtnText, setClockBtnText] = useState({ in: t.clock_in, out: t.clock_out });
     const [currentShift, setCurrentShift] = useState<string>('opening'); 
+    const [onInventorySuccess, setOnInventorySuccess] = useState<(() => void) | null>(null);
+
     
     // Announcement Logic
     const [announcement, setAnnouncement] = useState<Notice | null>(null);
@@ -1269,7 +1279,18 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
     const nextShift = findNextShift();
 
-    const handleClockLog = (type: 'clock-in' | 'clock-out') => {
+    const hasShiftToday = (user: User, scheduleData: any): boolean => {
+        if (!scheduleData?.days) return false;
+        const now = new Date();
+        const todayDateStr = `${now.getMonth() + 1}-${now.getDate()}`;
+        
+        const todaySchedule = scheduleData.days.find((day: ScheduleDay) => day.date === todayDateStr);
+        if (!todaySchedule) return false;
+
+        return todaySchedule.morning.includes(user.name) || todaySchedule.evening.includes(user.name);
+    };
+
+    const performClockLog = (type: 'clock-in' | 'clock-out') => {
         setClockBtnText(p => ({ ...p, [type === 'clock-in'?'in':'out']: '📡...' }));
         if (!navigator.geolocation) { recordLog(type, "GPS Not Supported"); return; }
         navigator.geolocation.getCurrentPosition(
@@ -1285,6 +1306,28 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             { timeout: 10000, enableHighAccuracy: true }
         );
     };
+    
+    const handleClockLog = (type: 'clock-in' | 'clock-out') => {
+        if (!hasShiftToday(currentUser, schedule)) {
+            alert(t.no_shift_today_alert);
+            return;
+        }
+
+        if (type === 'clock-out') {
+            alert(t.inventory_before_clock_out);
+            setOnInventorySuccess(() => () => performClockLog('clock-out'));
+            setView('inventory');
+        } else {
+            performClockLog('clock-in');
+        }
+    };
+
+    const cancelInventoryClockOut = () => {
+        if (window.confirm(t.cancel_clock_out_confirm)) {
+            setOnInventorySuccess(null);
+            setView('home');
+        }
+    }
 
     const recordLog = (type: string, note: string) => {
         const newLog: LogEntry = { id: Date.now(), shift: type, name: currentUser.name, userId: currentUser.id, time: new Date().toLocaleString(), type: type as any, reason: note };
@@ -1379,6 +1422,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (logs.length > 0) {
             Cloud.saveInventoryLogs(logs);
         }
+
+        if (onInventorySuccess) {
+            onInventorySuccess();
+            setOnInventorySuccess(null);
+            setView('home');
+        }
     };
 
     const renderView = () => {
@@ -1423,8 +1472,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             );
         }
         if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={data.directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} />;
-        // UPDATE: Updated InventoryView onSubmit to use new handleInventorySubmit
-        if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} />;
+        if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} isForced={!!onInventorySuccess} onCancel={cancelInventoryClockOut} />;
         if (view === 'contact') return <ContactView t={t} lang={lang} />;
         if (view === 'recipes') return <div className="h-full overflow-y-auto text-text animate-fade-in-up pb-24"><div className="bg-surface p-4 border-b"><h2 className="text-xl font-bold">{t.recipe_title}</h2></div><div className="p-4 bg-secondary">{data.recipes.map((d: DrinkRecipe) => <DrinkCard key={d.id} drink={d} lang={lang} t={t} />)}</div></div>;
         if (view === 'training') return <TrainingView data={data} onComplete={() => {}} />;
