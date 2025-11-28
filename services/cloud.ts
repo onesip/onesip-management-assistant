@@ -1,6 +1,6 @@
 
-import { initializeApp } from 'firebase/app';
-import { getAnalytics } from "firebase/analytics";
+import * as firebaseApp from 'firebase/app';
+import * as firebaseAnalytics from "firebase/analytics";
 import { 
   getFirestore, 
   doc, 
@@ -30,11 +30,11 @@ let isConfigured = false;
 
 // Initialize Firebase
 try {
-    const app = initializeApp(firebaseConfig);
+    const app = firebaseApp.initializeApp(firebaseConfig);
     // Analytics is optional and environment dependent
     if (typeof window !== 'undefined') {
         try {
-            getAnalytics(app);
+            firebaseAnalytics.getAnalytics(app);
         } catch (analyticsError) {
             console.warn("Analytics failed to initialize (likely blocked):", analyticsError);
         }
