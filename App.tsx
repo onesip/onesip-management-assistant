@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { Icon } from './components/Icons';
@@ -52,29 +51,6 @@ const CloudSetupModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => 
                 <h3 className="font-black text-xl text-text mb-2">Cloud Sync Offline</h3>
                 <p className="text-text-light text-sm mb-6">Running in local mode. Data will not be saved to the server.</p>
                 <button onClick={onClose} className="w-full bg-primary hover:bg-primary-dark text-white font-bold py-3 rounded-xl transition-all">Continue Offline</button>
-            </div>
-        </div>
-    );
-};
-
-const AnnouncementModal = ({ notice, onClose }: { notice: Notice | null, onClose: () => void }) => {
-    if (!notice || notice.status === 'cancelled') return null; 
-    return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-6 animate-fade-in">
-            <div className="bg-surface rounded-3xl p-6 w-full max-w-sm shadow-2xl relative border-2 border-accent/50 transform scale-100 transition-all animate-pop-in">
-                <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-accent text-white w-12 h-12 rounded-full flex items-center justify-center border-4 border-surface shadow-lg">
-                    <Icon name="Megaphone" size={24}/>
-                </div>
-                <div className="mt-6 text-center">
-                    <h3 className="text-lg font-black text-text mb-1 uppercase tracking-wider">Announcement</h3>
-                    <p className="text-xs text-text-light font-bold mb-4">{new Date(notice.date).toLocaleDateString()}</p>
-                    <div className="bg-secondary p-4 rounded-xl text-sm text-text font-medium leading-relaxed mb-6 text-left max-h-60 overflow-y-auto">
-                        {notice.content}
-                    </div>
-                    <button onClick={onClose} className="w-full bg-primary text-white py-3 rounded-xl font-bold shadow-lg shadow-primary-light hover:bg-primary-dark transition-all active:scale-95">
-                        Got it
-                    </button>
-                </div>
             </div>
         </div>
     );
@@ -1342,34 +1318,83 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
     }, [view, directMessages]);
     
-    const [announcement, setAnnouncement] = useState<Notice | null>(null);
-
     useEffect(() => {
-        if (!notices) return;
-        if (announcement) {
-            const currentFresh = notices.find((n: Notice) => n.id === announcement.id);
-            if (!currentFresh || currentFresh.status === 'cancelled') setAnnouncement(null);
-        }
+        if (!notices || notices.length === 0) return;
         const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
-        if (activeNotices.length === 0) { setAnnouncement(null); return; }
-        const latest = activeNotices[activeNotices.length - 1]; 
-        if (announcement && announcement.id === latest.id) return;
+        if (activeNotices.length === 0) return;
+        
+        const latest = activeNotices[activeNotices.length - 1];
+
         const seenKey = `notice_seen_${latest.id}`;
         const lastSeen = localStorage.getItem(seenKey);
         let shouldShow = false;
-        if (!latest.frequency || latest.frequency === 'always') shouldShow = true;
-        else if (latest.frequency === 'once') { if (!lastSeen) shouldShow = true; }
-        else if (latest.frequency === 'daily') { if (!lastSeen || new Date(parseInt(lastSeen)).toDateString() !== new Date().toDateString()) shouldShow = true; }
-        else if (latest.frequency === '3days') { if (!lastSeen || Date.now() - parseInt(lastSeen) > 3 * 24 * 60 * 60 * 1000) shouldShow = true; }
-        if (shouldShow) setAnnouncement(latest);
-    }, [notices, announcement]);
 
-    const closeAnnouncement = () => {
-        if (announcement) {
-            localStorage.setItem(`notice_seen_${announcement.id}`, Date.now().toString());
-            setAnnouncement(null);
+        if (!latest.frequency || latest.frequency === 'always') {
+            shouldShow = true;
+        } else if (latest.frequency === 'once') {
+            if (!lastSeen) shouldShow = true;
+        } else if (latest.frequency === 'daily') {
+            if (!lastSeen || new Date(parseInt(lastSeen)).toDateString() !== new Date().toDateString()) shouldShow = true;
+        } else if (latest.frequency === '3days') {
+            if (!lastSeen || Date.now() - parseInt(lastSeen) > 3 * 24 * 60 * 60 * 1000) shouldShow = true;
         }
-    };
+
+        if (shouldShow) {
+            showNotification({
+                type: 'announcement',
+                title: t.team_board || 'Team Announcement',
+                message: latest.content,
+                sticky: latest.frequency === 'always',
+                dedupeKey: latest.id,
+            });
+            
+            if (latest.frequency !== 'always') {
+                localStorage.setItem(seenKey, Date.now().toString());
+            }
+        }
+    }, [notices, showNotification, t.team_board]);
+
+    useEffect(() => {
+        if (!schedule?.days) return;
+
+        const timer = setInterval(() => {
+            const now = new Date();
+            const todayDateStr = `${now.getMonth() + 1}-${now.getDate()}`;
+            const todaySchedule = schedule.days.find((day: ScheduleDay) => day.date === todayDateStr);
+            if (!todaySchedule) return;
+
+            const hasClockedIn = logs.some((l: LogEntry) => l.userId === currentUser.id && new Date(l.time).toDateString() === now.toDateString() && l.type === 'clock-in');
+            const hasClockedOut = logs.some((l: LogEntry) => l.userId === currentUser.id && new Date(l.time).toDateString() === now.toDateString() && l.type === 'clock-out');
+
+            const checkShift = (shiftType: 'morning' | 'evening', shiftHours: any, clockedStatus: boolean, notificationType: 'clock_in_reminder' | 'clock_out_reminder', title: string, message: string) => {
+                if (todaySchedule[shiftType].includes(currentUser.name) && !clockedStatus) {
+                    const timeStr = notificationType === 'clock_in_reminder' ? shiftHours.start : shiftHours.end;
+                    const [hour, minute] = timeStr.split(':').map(Number);
+                    const shiftTime = new Date();
+                    shiftTime.setHours(hour, minute, 0, 0);
+                    const diffMinutes = (now.getTime() - shiftTime.getTime()) / 60000;
+                    
+                    if (diffMinutes >= -15 && diffMinutes <= 15) {
+                        const dedupeKey = `${notificationType}-${todayDateStr}-${shiftType}-${Math.floor(now.getTime() / (5 * 60 * 1000))}`;
+                        showNotification({
+                            type: notificationType,
+                            title: title,
+                            message: message,
+                            dedupeKey: dedupeKey,
+                        });
+                    }
+                }
+            };
+            
+            checkShift('morning', todaySchedule.hours.morning, hasClockedIn, 'clock_in_reminder', 'Clock-in Reminder', 'Your morning shift is starting soon. Please remember to clock in.');
+            checkShift('evening', todaySchedule.hours.evening, hasClockedIn, 'clock_in_reminder', 'Clock-in Reminder', 'Your evening shift is starting soon. Please remember to clock in.');
+            checkShift('morning', todaySchedule.hours.morning, hasClockedOut, 'clock_out_reminder', 'Clock-out Reminder', 'Your morning shift is ending soon. Please complete tasks and clock out.');
+            checkShift('evening', todaySchedule.hours.evening, hasClockedOut, 'clock_out_reminder', 'Clock-out Reminder', 'Your evening shift is ending soon. Please complete tasks and clock out.');
+
+        }, 60 * 1000); // Check every minute
+
+        return () => clearInterval(timer);
+    }, [currentUser, schedule, logs, showNotification]);
 
     const [swapMode, setSwapMode] = useState(false);
     const [swapSelection, setSwapSelection] = useState<{ step: 1|2, myDate?: string, myShift?: 'morning'|'evening', targetName?: string, targetDate?: string, targetShift?: 'morning'|'evening' }>({ step: 1 });
@@ -1607,7 +1632,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     return (
         <div className="max-w-md mx-auto min-h-screen max-h-[100dvh] overflow-y-auto bg-secondary relative flex flex-col font-sans pt-8 md:pt-0">
             <CustomConfirmModal isOpen={confirmModal.isOpen} title="Confirm Action" message={confirmModal.msg} onConfirm={confirmModal.action} onCancel={() => setConfirmModal(prev => ({...prev, isOpen:false}))} />
-            <AnnouncementModal notice={announcement} onClose={closeAnnouncement} />
             <AvailabilityReminderModal isOpen={showAvailabilityReminder} t={t} onCancel={() => setShowAvailabilityReminder(false)} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} />
             <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />
 

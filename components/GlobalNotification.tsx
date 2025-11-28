@@ -1,8 +1,7 @@
-
 import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useCallback } from 'react';
 import { Icon } from './Icons';
 
-export type NotificationType = 'message' | 'announcement' | 'clock_in_reminder';
+export type NotificationType = 'message' | 'announcement' | 'clock_in_reminder' | 'clock_out_reminder';
 
 interface NotificationItem {
     id: string;
@@ -28,7 +27,14 @@ export const NotificationProvider = ({ children }: { children?: ReactNode }) => 
     const timers = useRef<Record<string, number>>({});
 
     const removeNotification = useCallback((id: string) => {
-        setNotifications(prev => prev.filter(n => n.id !== id));
+        setNotifications(prev => {
+            const notification = prev.find(n => n.id === id);
+            // Allow the same notification to be shown again after it's dismissed
+            if (notification?.dedupeKey) {
+                shownKeys.current.delete(notification.dedupeKey);
+            }
+            return prev.filter(n => n.id !== id);
+        });
         if (timers.current[id]) {
             clearTimeout(timers.current[id]);
             delete timers.current[id];
@@ -72,14 +78,15 @@ export const NotificationProvider = ({ children }: { children?: ReactNode }) => 
                         {/* Status Indicator Bar */}
                         <div className={`absolute left-0 top-0 bottom-0 w-1 ${
                             n.type === 'clock_in_reminder' ? 'bg-orange-500' :
+                            n.type === 'clock_out_reminder' ? 'bg-red-500' :
                             n.type === 'announcement' ? 'bg-blue-500' : 'bg-green-500'
                         }`}></div>
 
                         <div className={`mt-0.5 rounded-full p-2 shrink-0 ${
-                            n.type === 'clock_in_reminder' ? 'bg-orange-100 text-orange-600' :
+                            n.type.includes('reminder') ? 'bg-orange-100 text-orange-600' :
                             n.type === 'announcement' ? 'bg-blue-100 text-blue-600' : 'bg-green-100 text-green-600'
                         }`}>
-                            <Icon name={n.type === 'clock_in_reminder' ? 'Clock' : n.type === 'announcement' ? 'Megaphone' : 'MessageSquare'} size={20} />
+                            <Icon name={n.type.includes('reminder') ? 'Clock' : n.type === 'announcement' ? 'Megaphone' : 'MessageSquare'} size={20} />
                         </div>
                         <div className="flex-1">
                             <h4 className="font-bold text-gray-900 text-sm leading-tight mb-1">{n.title}</h4>
