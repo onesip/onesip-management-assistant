@@ -1890,7 +1890,47 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-black">{t.team_title}</h2><button onClick={() => { setSwapMode(!swapMode); setSwapSelection({step:1}); }} className={`px-4 py-2 rounded-xl font-bold text-xs shadow-sm transition-all ${swapMode ? 'bg-destructive text-white animate-pulse' : 'bg-primary text-white'}`}>{swapMode ? 'Exit Swap' : '🔄 Swap Shift'}</button></div>
                     {swapMode && <div className="bg-yellow-400/20 p-3 rounded-xl mb-4 text-sm text-yellow-800 border border-yellow-400/30"><strong>Wizard:</strong> {swapSelection.step === 1 ? 'Step 1: Select YOUR shift' : 'Step 2: Select TARGET shift'}</div>}
                     {myPendingSwaps.length > 0 && !swapMode && (<div className="bg-surface border border-destructive-light p-4 rounded-xl mb-4 shadow-sm"><h3 className="font-bold text-destructive mb-2">🔔 Swap Requests</h3>{myPendingSwaps.map((req: SwapRequest) => (<div key={req.id} className="bg-secondary p-3 rounded-lg mb-2 text-sm"><p><strong>{req.requesterName}</strong> wants your <strong>{req.targetDate}</strong> for <strong>{req.requesterDate}</strong></p><div className="flex gap-2 mt-2"><button onClick={()=>handleSwapAction(req.id, 'accepted_by_peer')} className="flex-1 bg-green-500 text-white py-2 rounded font-bold">Accept</button><button onClick={()=>handleSwapAction(req.id, 'rejected')} className="flex-1 bg-gray-300 text-text-light py-2 rounded font-bold">Reject</button></div></div>))}</div>)}
-                    <div className="space-y-4">{clientSchedule?.days?.map((day: any, idx: number) => (<div key={idx} className="p-4 rounded-xl shadow-sm border bg-surface border-gray-100"><div className="flex justify-between items-center mb-3"><h3 className="font-bold text-text">{day.name} <span className="text-text-light font-normal ml-1">{day.date}</span></h3></div><div className="space-y-2">{['morning', 'evening'].map(shift => (<div key={shift} className="flex items-center gap-2"><span className={`text-xs font-bold w-8 ${shift==='morning'?'text-orange-500':'text-indigo-500'}`}>{shift==='morning'?'AM':'PM'}</span><div className="flex flex-wrap gap-2">{day[shift].map((name: string, i: number) => { const isMe = name === currentUser.name; let bg = shift==='morning' ? 'bg-orange-400/10 text-orange-700' : 'bg-indigo-500/10 text-indigo-700'; if (swapMode) { if (swapSelection.step === 1) bg = isMe ? 'bg-green-500 text-white ring-4 ring-green-200 cursor-pointer animate-pulse' : 'bg-gray-100 text-gray-300'; else if (swapSelection.step === 2) bg = !isMe ? 'bg-blue-500 text-white ring-4 ring-blue-200 cursor-pointer animate-pulse' : 'bg-gray-100 text-gray-300'; } else if (isMe) bg = shift==='morning' ? 'bg-orange-500 text-white' : 'bg-indigo-600 text-white'; return (<div key={i} onClick={() => handleShiftClick(day, shift as any, name)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${bg}`}>{name}</div>); })}</div></div>))}</div></div>))}</div>
+                    <div className="space-y-4">{clientSchedule?.days?.map((day: any, idx: number) => (
+                        <div key={idx} className="p-4 rounded-xl shadow-sm border bg-surface border-gray-100">
+                            <div className="flex justify-between items-center mb-3">
+                                <h3 className="font-bold text-text">{day.name} <span className="text-text-light font-normal ml-1">{day.date}</span></h3>
+                            </div>
+                            <div className="space-y-2">
+                                {
+                                    (['morning', 'evening', 'night'] as const)
+                                    .filter(shift => day[shift] && day[shift].length > 0)
+                                    .map(shift => (
+                                        <div key={shift} className="flex items-center gap-2">
+                                            <span className={`text-xs font-bold w-12 text-center ${
+                                                shift === 'morning' ? 'text-orange-500' : 
+                                                shift === 'evening' ? 'text-indigo-500' : 'text-purple-500'
+                                            }`}>
+                                                {shift === 'morning' ? 'AM' : shift === 'evening' ? 'PM' : 'NIGHT'}
+                                            </span>
+                                            <div className="flex flex-wrap gap-2">
+                                                {day[shift].map((name: string, i: number) => { 
+                                                    const isMe = name === currentUser.name; 
+                                                    let bg = shift === 'morning' ? 'bg-orange-400/10 text-orange-700' : 
+                                                             shift === 'evening' ? 'bg-indigo-500/10 text-indigo-700' : 
+                                                             'bg-purple-500/10 text-purple-700';
+
+                                                    if (swapMode) { 
+                                                        if (swapSelection.step === 1) bg = isMe ? 'bg-green-500 text-white ring-4 ring-green-200 cursor-pointer animate-pulse' : 'bg-gray-100 text-gray-300'; 
+                                                        else if (swapSelection.step === 2) bg = !isMe ? 'bg-blue-500 text-white ring-4 ring-blue-200 cursor-pointer animate-pulse' : 'bg-gray-100 text-gray-300'; 
+                                                    } else if (isMe) {
+                                                        bg = shift === 'morning' ? 'bg-orange-500 text-white' : 
+                                                             shift === 'evening' ? 'bg-indigo-600 text-white' : 
+                                                             'bg-purple-600 text-white';
+                                                    } 
+                                                    return (<div key={i} onClick={() => handleShiftClick(day, shift as any, name)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${bg}`}>{name}</div>); 
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))
+                                }
+                            </div>
+                        </div>
+                    ))}</div>
                 </div>
             );
         }
