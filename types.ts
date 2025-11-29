@@ -182,9 +182,11 @@ export interface ScheduleDay {
     zh: string;
     morning: string[]; // List of names
     evening: string[]; // List of names
+    night?: string[]; // Optional third shift for weekends
     hours?: {
         morning: { start: string, end: string };
         evening: { start: string, end: string };
+        night?: { start: string, end: string }; // Optional hours for third shift
     };
 }
 

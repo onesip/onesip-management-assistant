@@ -102,8 +102,8 @@ const AdminLoginModal = ({ isOpen, onClose, onLogin }: { isOpen: boolean, onClos
 
 const ScheduleEditorModal = ({ isOpen, day, shiftType, currentStaff, currentHours, onClose, onSave, teamMembers }: any) => {
     const [selectedStaff, setSelectedStaff] = useState<string[]>(currentStaff || []);
-    const [startTime, setStartTime] = useState(currentHours?.start || (shiftType === 'morning' ? '10:00' : '14:30'));
-    const [endTime, setEndTime] = useState(currentHours?.end || (shiftType === 'morning' ? '15:00' : '19:00'));
+    const [startTime, setStartTime] = useState(currentHours?.start || (shiftType === 'morning' ? '10:00' : shiftType === 'evening' ? '14:30' : '18:00'));
+    const [endTime, setEndTime] = useState(currentHours?.end || (shiftType === 'morning' ? '15:00' : shiftType === 'evening' ? '19:00' : '22:00'));
 
     if (!isOpen) return null;
 
@@ -1194,7 +1194,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users } = data;
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability'>('requests');
-    const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' } | null>(null);
+    const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
     const [wages, setWages] = useState<Record<string, number>>(() => { const saved = localStorage.getItem('onesip_wages'); const def: any = {}; users.forEach((m:User) => def[m.name] = 12); return saved ? { ...def, ...JSON.parse(saved) } : def; });
     
@@ -1287,16 +1287,20 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const pendingReqs = swapRequests?.filter((r: SwapRequest) => r.status === 'accepted_by_peer') || [];
 
     const getShiftCost = (staff: string[], start: string, end: string) => {
+        if (!staff || staff.length === 0) return 0;
         const s = parseInt(start.split(':')[0]) + (parseInt(start.split(':')[1]||'0')/60);
         const e = parseInt(end.split(':')[0]) + (parseInt(end.split(':')[1]||'0')/60);
         const duration = Math.max(0, e - s);
         return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
     };
+    
     const totalWeeklyPlanningCost = schedule.days?.reduce((acc: number, day: any) => {
         const m = getShiftCost(day.morning, day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
         const e = getShiftCost(day.evening, day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
-        return acc + m + e;
+        const n = day.night ? getShiftCost(day.night, day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00') : 0;
+        return acc + m + e + n;
     }, 0) || 0;
+
 
     return (
         <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
@@ -1357,13 +1361,14 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         </div>
                         {schedule.days?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, dayIndexInWeek: number) => {
                             const absoluteDayIndex = currentWeekIndex * 7 + dayIndexInWeek;
+                            const isWeekend = ['Friday', 'Saturday', 'Sunday'].includes(day.name);
                             return (
                                 <div key={absoluteDayIndex} className="bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10">
                                     <div className="flex justify-between mb-2">
                                         <span className="font-bold text-dark-text">{day.name}</span>
                                         <span className="text-xs text-dark-text-light">{day.date}</span>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-2">
+                                    <div className={`grid ${isWeekend ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2'} gap-2`}>
                                         <div onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'morning' })} className="p-2 bg-orange-500/10 rounded border border-orange-500/20 cursor-pointer hover:bg-orange-500/20 transition-all">
                                             <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-orange-400 font-bold">MORNING</div><div className="text-[10px] text-dark-text-light">{day.hours?.morning?.start || '10:00'}-{day.hours?.morning?.end || '15:00'}</div></div>
                                             <div className="text-xs text-dark-text-light font-medium">{day.morning.length > 0 ? day.morning.join(', ') : <span className="italic">Empty</span>}</div>
@@ -1372,6 +1377,12 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                             <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-blue-400 font-bold">EVENING</div><div className="text-[10px] text-dark-text-light">{day.hours?.evening?.start || '14:30'}-{day.hours?.evening?.end || '19:00'}</div></div>
                                             <div className="text-xs text-dark-text-light font-medium">{day.evening.length > 0 ? day.evening.join(', ') : <span className="italic">Empty</span>}</div>
                                         </div>
+                                        {isWeekend && (
+                                            <div onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'night' })} className="p-2 bg-indigo-500/10 rounded border border-indigo-500/20 cursor-pointer hover:bg-indigo-500/20 transition-all">
+                                                <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-indigo-400 font-bold uppercase">Night</div><div className="text-[10px] text-dark-text-light">{day.hours?.night?.start || '18:00'}-{day.hours?.night?.end || '22:00'}</div></div>
+                                                <div className="text-xs text-dark-text-light font-medium">{day.night && day.night.length > 0 ? day.night.join(', ') : <span className="italic">Empty</span>}</div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )
@@ -1398,8 +1409,14 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                             const mEnd = day.hours?.morning?.end || '15:00';
                             const eStart = day.hours?.evening?.start || '14:30';
                             const eEnd = day.hours?.evening?.end || '19:00';
+                            const nStart = day.hours?.night?.start || '18:00';
+                            const nEnd = day.hours?.night?.end || '22:00';
+
                             const mCost = getShiftCost(day.morning, mStart, mEnd);
                             const eCost = getShiftCost(day.evening, eStart, eEnd);
+                            const nCost = day.night ? getShiftCost(day.night, nStart, nEnd) : 0;
+                            
+                            const isWeekend = ['Friday', 'Saturday', 'Sunday'].includes(day.name);
 
                             return (
                                 <div key={idx} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
@@ -1410,7 +1427,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                         </div>
                                         <div className="text-right">
                                             <span className="block text-[10px] text-dark-text-light uppercase">Daily Cost</span>
-                                            <span className="font-bold text-white">€{(mCost + eCost).toFixed(0)}</span>
+                                            <span className="font-bold text-white">€{(mCost + eCost + nCost).toFixed(0)}</span>
                                         </div>
                                     </div>
                                     
@@ -1449,6 +1466,26 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                             )) : <span className="text-xs text-dark-text-light italic">Empty Shift</span>}
                                         </div>
                                     </div>
+                                    
+                                    {isWeekend && (
+                                        <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'night' })} className="mt-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-indigo-500/30 cursor-pointer transition-all" >
+                                            <div className="flex justify-between items-center mb-2">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-bold">NIGHT</span>
+                                                    <span className="text-[10px] text-dark-text-light font-mono">{nStart}-{nEnd}</span>
+                                                </div>
+                                                <span className="text-xs font-mono text-dark-text-light">€{nCost.toFixed(0)}</span>
+                                            </div>
+                                            <div className="space-y-1">
+                                                {day.night && day.night.length > 0 ? day.night.map((name, i) => (
+                                                    <div key={i} className="flex justify-between text-xs">
+                                                        <span className="text-dark-text font-medium">{name}</span>
+                                                        <span className="text-dark-text-light text-[10px] opacity-60">€{wages[name] || 12}/h</span>
+                                                    </div>
+                                                )) : <span className="text-xs text-dark-text-light italic">Empty Shift</span>}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}
