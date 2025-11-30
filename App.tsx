@@ -669,8 +669,10 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                 const base64Data = (event.target?.result as string).split(',')[1];
                 
                 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-                const prompt = `Extract recipe data from this PDF into JSON. 
-                Format: 
+                const prompt = `You are a recipe processing assistant.
+                1. First, analyze the provided PDF and extract the recipe information into a JSON object with ONLY English values for the fields: "name", "cat", "size", "ice", "sugar", "toppings", and "steps" (for both "cold" and "warm").
+                2. Second, translate the extracted English text for "name", "toppings", and "steps" into Simplified Chinese.
+                3. Finally, return a single, complete JSON object that includes both the original English and the translated Chinese, formatted exactly like this:
                 {
                   "name": {"en": "...", "zh": "..."},
                   "cat": "...",
@@ -683,7 +685,10 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                     "warm": [{"en": "...", "zh": "..."}]
                   }
                 }
-                If warm steps are missing, leave array empty. Infer missing details reasonably.`;
+                - For 'cat', 'size', 'ice', 'sugar', just extract the value; do not create en/zh objects.
+                - The 'steps' arrays must contain objects, each with 'en' and 'zh' keys.
+                - If a section (like warm steps) is missing, return an empty array for it.
+                - Infer missing details reasonably but prioritize accuracy from the PDF.`;
 
                 const response = await ai.models.generateContent({
                     model: 'gemini-2.5-flash',
@@ -703,17 +708,43 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                     const jsonMatch = text.match(/\{[\s\S]*\}/);
                     if (jsonMatch) {
                         const extracted = JSON.parse(jsonMatch[0]);
-                        setEditingItem(prev => ({ ...prev, ...extracted }));
-                        alert("Auto-filled from PDF!");
+                        
+                        // "Fill empty fields only" logic
+                        setEditingItem((prev: DrinkRecipe) => {
+                            const updated = JSON.parse(JSON.stringify(prev));
+
+                            if (!updated.name.en && extracted.name?.en) updated.name.en = extracted.name.en;
+                            if (!updated.name.zh && extracted.name?.zh) updated.name.zh = extracted.name.zh;
+
+                            if (!updated.cat && extracted.cat) updated.cat = extracted.cat;
+                            if (!updated.size && extracted.size) updated.size = extracted.size;
+                            if (!updated.ice && extracted.ice) updated.ice = extracted.ice;
+                            if (!updated.sugar && extracted.sugar) updated.sugar = extracted.sugar;
+
+                            if (!updated.toppings.en && extracted.toppings?.en) updated.toppings.en = extracted.toppings.en;
+                            if (!updated.toppings.zh && extracted.toppings?.zh) updated.toppings.zh = extracted.toppings.zh;
+
+                            if ((!updated.steps.cold || updated.steps.cold.length === 0) && extracted.steps?.cold) {
+                                updated.steps.cold = extracted.steps.cold;
+                            }
+                            if ((!updated.steps.warm || updated.steps.warm.length === 0) && extracted.steps?.warm) {
+                                updated.steps.warm = extracted.steps.warm;
+                            }
+
+                            return updated;
+                        });
+
+                        alert("✅ Recipe auto-filled from PDF!\n已从 PDF 识别英文内容并生成中文翻译草稿。");
                     } else {
-                        alert("Could not parse PDF response.");
+                        alert("Could not parse recipe from PDF. Please check the console.");
+                        console.error("Gemini Response (no JSON found):", text);
                     }
                 }
             };
             reader.readAsDataURL(file);
         } catch (err) {
             console.error(err);
-            alert("Error processing PDF");
+            alert("Error processing PDF. Please check the console for details.");
         } finally {
             setIsProcessingPdf(false);
         }
