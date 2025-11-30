@@ -2110,7 +2110,7 @@ const LoginScreen = ({ t, onLogin, users }: { t: any, onLogin: (id: string, keep
                             onChange={e => setRememberPwd(e.target.checked)} 
                             className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer" 
                         />
-                        记住密码 (Remember Password)
+                        {t.remember_password}
                     </label>
                     <label className="flex items-center gap-2 text-xs text-text-light cursor-pointer select-none">
                         <input 
@@ -2119,7 +2119,7 @@ const LoginScreen = ({ t, onLogin, users }: { t: any, onLogin: (id: string, keep
                             onChange={e => setKeepLogin(e.target.checked)} 
                             className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer" 
                         />
-                        保持登录 (Keep Me Logged In)
+                        {t.keep_logged_in}
                     </label>
                 </div>
 
