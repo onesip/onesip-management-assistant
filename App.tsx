@@ -359,7 +359,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     );
 };
 
-const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isManager, sopList, trainingLevels, lastReadAt, allUsers }: any) => {
+const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isManager, sopList, trainingLevels, allUsers }: any) => {
     const [activeChannel, setActiveChannel] = useState<string | null>(null);
     const [inputText, setInputText] = useState('');
     const [broadcastText, setBroadcastText] = useState('');
@@ -473,8 +473,6 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
         const isAi = activeChannel === AI_BOT_ID;
         const targetUser = isAi ? { name: "AI Assistant", id: AI_BOT_ID } : allUsers.find((u:User) => u.id === activeChannel);
 
-        let readDividerPlaced = false;
-
         return (
             <div className="h-full flex flex-col bg-secondary text-text absolute inset-0 z-[100] animate-fade-in"> 
                 <div className="p-4 bg-surface border-b flex items-center gap-3 sticky top-0 z-10 shadow-sm">
@@ -500,32 +498,16 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                             </div>
                         </div>
                     )}
-                    {threadMessages.map((m: DirectMessage, index: number) => {
-                        const messageTime = new Date(m.timestamp);
-                        const prevMessage = threadMessages[index - 1];
-                        let showReadDivider = false;
-
-                        if (lastReadAt && !readDividerPlaced && messageTime > lastReadAt) {
-                            if (!prevMessage || new Date(prevMessage.timestamp) <= lastReadAt) {
-                                showReadDivider = true;
-                                readDividerPlaced = true;
-                            }
-                        }
-
-                        return (
-                            <React.Fragment key={m.id}>
-                                {showReadDivider && (
-                                    <div className="text-center text-xs text-gray-400 my-2">-- Unread messages --</div>
-                                )}
-                                <div className={`flex flex-col items-start ${m.fromId === currentUser.id ? 'items-end' : 'items-start'}`}>
-                                    <div className={`max-w-[85%] p-3 rounded-2xl text-sm shadow-sm whitespace-pre-line leading-relaxed ${m.fromId === currentUser.id ? 'bg-primary text-white rounded-br-none' : 'bg-white border rounded-bl-none text-gray-800'}`}>
-                                        {m.content}
-                                    </div>
-                                    <span className="text-[10px] text-gray-400 mt-1 px-1">{formatDate(m.timestamp)}</span>
+                    {threadMessages.map((m: DirectMessage) => (
+                        <React.Fragment key={m.id}>
+                            <div className={`flex flex-col items-start ${m.fromId === currentUser.id ? 'items-end' : 'items-start'}`}>
+                                <div className={`max-w-[85%] p-3 rounded-2xl text-sm shadow-sm whitespace-pre-line leading-relaxed ${m.fromId === currentUser.id ? 'bg-primary text-white rounded-br-none' : 'bg-white border rounded-bl-none text-gray-800'}`}>
+                                    {m.content}
                                 </div>
-                            </React.Fragment>
-                        );
-                    })}
+                                <span className="text-[10px] text-gray-400 mt-1 px-1">{formatDate(m.timestamp)}</span>
+                            </div>
+                        </React.Fragment>
+                    ))}
                     {isAiTyping && (
                         <div className="flex items-start">
                             <div className="bg-white border rounded-2xl rounded-bl-none p-3 shadow-sm flex gap-1">
@@ -722,7 +704,6 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                     ]
                 });
 
-                // FIX: The `text` property on a GenerateContentResponse is a getter, not a function.
                 const text = response.text;
                 if (text) {
                     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -1624,7 +1605,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const { showNotification } = useNotification();
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
-    const [lastReadAt, setLastReadAt] = useState<Date | null>(null);
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
 
     useEffect(() => {
@@ -1642,59 +1622,65 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             }
         };
         const timer = setTimeout(checkAvailability, 3000);
-
-        const unsubReadState = Cloud.subscribeToChatReadState(currentUser.id, (readState) => {
-            if (readState && readState.lastReadAt) {
-                setLastReadAt(readState.lastReadAt.toDate());
-            }
-        });
-
-        return () => {
-            clearTimeout(timer);
-            unsubReadState();
-        };
+        return () => clearTimeout(timer);
     }, [currentUser.id]);
 
+    // Handles chat notifications and unread status
     useEffect(() => {
-        if (!directMessages || directMessages.length === 0) return;
+        const notifiedKey = `notifiedMessages_${currentUser.id}`;
+        const notifiedIds = new Set<string>(JSON.parse(localStorage.getItem(notifiedKey) || '[]'));
 
-        const latestMessage = directMessages[directMessages.length - 1];
-        if (latestMessage.fromId === currentUser.id) return;
-        
-        const latestMessageTime = new Date(latestMessage.timestamp);
-        const hasUnread = !lastReadAt || latestMessageTime > lastReadAt;
+        if (view === 'chat') {
+            // When chat is open, mark all incoming messages for the user as "notified"
+            let updated = false;
+            directMessages.forEach(msg => {
+                if (msg.toId === currentUser.id && !notifiedIds.has(msg.id)) {
+                    notifiedIds.add(msg.id);
+                    updated = true;
+                }
+            });
 
-        setHasUnreadChat(hasUnread);
+            if (updated) {
+                localStorage.setItem(notifiedKey, JSON.stringify(Array.from(notifiedIds)));
+            }
+            setHasUnreadChat(false); // When view is chat, bubble is always hidden
+            return; // No popups while chat is open
+        }
 
-        if (hasUnread && view !== 'chat') {
-            const sender = users.find((u:User) => u.id === latestMessage.fromId);
+        // When chat is not open, check for new messages to notify about
+        if (!directMessages || directMessages.length === 0) {
+            setHasUnreadChat(false);
+            return;
+        }
+
+        const messagesToNotify = directMessages.filter(msg => 
+            msg.toId === currentUser.id && !notifiedIds.has(msg.id)
+        );
+
+        setHasUnreadChat(messagesToNotify.length > 0);
+
+        if (messagesToNotify.length > 0) {
+            // Get the single most recent message to show in the notification
+            const latestMessageToNotify = messagesToNotify.reduce((latest, current) => 
+                new Date(current.timestamp) > new Date(latest.timestamp) ? current : latest
+            );
+
+            const sender = users.find((u: User) => u.id === latestMessageToNotify.fromId);
             showNotification({
                 type: 'message',
                 title: `New Message from ${sender?.name || 'Team'}`,
-                message: latestMessage.content.length > 40 ? latestMessage.content.substring(0, 40) + '...' : latestMessage.content,
-                dedupeKey: `chat::${latestMessage.id}`,
+                message: latestMessageToNotify.content.length > 40 ? latestMessageToNotify.content.substring(0, 40) + '...' : latestMessageToNotify.content,
+                dedupeKey: `chat::${latestMessageToNotify.id}`,
             });
-        }
-    }, [directMessages, view, currentUser.id, showNotification, lastReadAt, users]);
 
-    const markChatAsRead = () => {
-        if (!directMessages || directMessages.length === 0) return;
-        const latestMessage = directMessages[directMessages.length - 1];
-        const latestMessageTime = new Date(latestMessage.timestamp);
-
-        if (!lastReadAt || latestMessageTime > lastReadAt) {
-            Cloud.saveChatReadState(currentUser.id, latestMessageTime);
-            setLastReadAt(latestMessageTime); // Optimistic update
-            setHasUnreadChat(false);
+            // Mark all pending messages as notified to prevent a storm of popups
+            const newNotifiedIds = new Set(notifiedIds);
+            messagesToNotify.forEach(msg => newNotifiedIds.add(msg.id));
+            localStorage.setItem(notifiedKey, JSON.stringify(Array.from(newNotifiedIds)));
         }
-    };
-
-    useEffect(() => {
-        if (view === 'chat') {
-           markChatAsRead();
-        }
-    }, [view, directMessages]);
+    }, [directMessages, view, currentUser.id, users, showNotification]);
     
+    // This useEffect handles ONLY announcements. It is intentionally separate.
     useEffect(() => {
         if (!notices || notices.length === 0) return;
         const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
@@ -2041,7 +2027,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             );
         }
-        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} lastReadAt={lastReadAt} allUsers={users} />;
+        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />;
         if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} isForced={!!onInventorySuccess} onCancel={cancelInventoryClockOut} />;
         if (view === 'contact') return <ContactView t={t} lang={lang} />;
         if (view === 'recipes') {
