@@ -271,8 +271,23 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         setNewItemName({ zh: '', en: '' });
     };
     
-    const handleOwnerPresetChange = (id: string, value: string) => {
-        setLocalInventory(prev => prev.map(item => item.id === id ? { ...item, defaultVal: value } : item));
+    const handleOwnerItemChange = (id: string, field: string, value: string, lang?: 'en' | 'zh') => {
+        setLocalInventory(prev => prev.map(item => {
+            if (item.id === id) {
+                if (field === 'name' && lang) {
+                    return { ...item, name: { ...item.name, [lang]: value } };
+                }
+                return { ...item, [field]: value };
+            }
+            return item;
+        }));
+    };
+
+    const handleDeleteItem = (id: string) => {
+        if (window.confirm("Confirm to delete this inventory item? Historical records will not be affected.")) {
+            const updatedList = localInventory.filter(item => item.id !== id);
+            setLocalInventory(updatedList);
+        }
     };
 
     const handleSavePresets = async () => {
@@ -293,13 +308,17 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                 </div>
                 <div className="p-4 space-y-3 overflow-y-auto flex-1">
                     {localInventory.map((item: InventoryItem) => (
-                        <div key={item.id} className="bg-dark-bg p-3 rounded-xl border border-white/10 flex items-center justify-between">
-                            <div className="flex-1">
-                                <div className="font-bold text-sm text-dark-text">{item.name.en}</div>
-                                <div className="text-[10px] text-dark-text-light">{item.unit}</div>
+                        <div key={item.id} className="bg-dark-bg p-3 rounded-xl border border-white/10 space-y-2">
+                            <div className="grid grid-cols-2 gap-2">
+                                <input type="text" placeholder="Name (EN)" value={item.name.en || ''} onChange={(e) => handleOwnerItemChange(item.id, 'name', e.target.value, 'en')} className="w-full p-2 rounded-lg border border-white/20 bg-dark-surface text-sm" />
+                                <input type="text" placeholder="Name (ZH)" value={item.name.zh || ''} onChange={(e) => handleOwnerItemChange(item.id, 'name', e.target.value, 'zh')} className="w-full p-2 rounded-lg border border-white/20 bg-dark-surface text-sm" />
                             </div>
-                            <div className="flex gap-2 w-2/5">
-                                <input type="text" placeholder="Preset Value" value={item.defaultVal || ''} onChange={(e) => handleOwnerPresetChange(item.id, e.target.value)} className="w-full p-2 rounded-lg border border-white/20 bg-dark-surface text-center text-sm" />
+                            <div className="grid grid-cols-3 gap-2 items-center">
+                                <input type="text" placeholder="Unit" value={item.unit || ''} onChange={(e) => handleOwnerItemChange(item.id, 'unit', e.target.value)} className="col-span-1 w-full p-2 rounded-lg border border-white/20 bg-dark-surface text-center text-sm" />
+                                <input type="text" placeholder="Preset Value" value={item.defaultVal || ''} onChange={(e) => handleOwnerItemChange(item.id, 'defaultVal', e.target.value)} className="col-span-1 w-full p-2 rounded-lg border border-white/20 bg-dark-surface text-center text-sm" />
+                                <button onClick={() => handleDeleteItem(item.id)} className="col-span-1 bg-red-500/20 text-red-400 p-2 rounded-lg h-full flex items-center justify-center hover:bg-red-500/30 transition-colors">
+                                    <Icon name="Trash" size={16} />
+                                </button>
                             </div>
                         </div>
                     ))}
@@ -703,6 +722,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                     ]
                 });
 
+                // FIX: The `text` property on a GenerateContentResponse is a getter, not a function.
                 const text = response.text;
                 if (text) {
                     const jsonMatch = text.match(/\{[\s\S]*\}/);
