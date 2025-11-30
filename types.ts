@@ -210,12 +210,14 @@ export interface SwapRequest {
     requesterName: string;
     requesterId: string;
     requesterDate: string; // Date of the shift being given away
-    requesterShift: 'morning' | 'evening';
+    // FIX: Add 'night' to support night shift swaps.
+    requesterShift: 'morning' | 'evening' | 'night';
     
     targetName: string; // The person being asked
     targetId: string;
     targetDate: string; // Date of the shift being taken (usually same if swapping on same day, or different)
-    targetShift: 'morning' | 'evening';
+    // FIX: Add 'night' to support night shift swaps.
+    targetShift: 'morning' | 'evening' | 'night';
 
     status: 'pending' | 'accepted_by_peer' | 'rejected' | 'approved'; // approved means Manager finalized
     timestamp: number;

@@ -1233,11 +1233,11 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const targetDay = findDay(req.targetDate);
 
         if (reqDay && targetDay) {
-            const remove = (day: any, shift: 'morning' | 'evening', name: string) => {
+            const remove = (day: any, shift: 'morning' | 'evening' | 'night', name: string) => {
                 const idx = day[shift].indexOf(name);
                 if (idx > -1) day[shift].splice(idx, 1);
             };
-            const add = (day: any, shift: 'morning' | 'evening', name: string) => {
+            const add = (day: any, shift: 'morning' | 'evening' | 'night', name: string) => {
                 if (!day[shift].includes(name)) day[shift].push(name);
             };
             remove(reqDay, req.requesterShift, req.requesterName);
@@ -1554,6 +1554,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
     const [lastReadAt, setLastReadAt] = useState<Date | null>(null);
+    const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
 
     useEffect(() => {
         const checkAvailability = async () => {
@@ -1702,7 +1703,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     }, [currentUser, schedule, logs, showNotification]);
 
     const [swapMode, setSwapMode] = useState(false);
-    const [swapSelection, setSwapSelection] = useState<{ step: 1|2, myDate?: string, myShift?: 'morning'|'evening', targetName?: string, targetDate?: string, targetShift?: 'morning'|'evening' }>({ step: 1 });
+    // FIX: Add 'night' to support night shift swaps, resolving the type error.
+    const [swapSelection, setSwapSelection] = useState<{ step: 1|2, myDate?: string, myShift?: 'morning'|'evening'|'night', targetName?: string, targetDate?: string, targetShift?: 'morning'|'evening'|'night' }>({ step: 1 });
     const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, msg: React.ReactNode, action: () => void}>({isOpen:false, msg:'', action:()=>{}});
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
@@ -1804,7 +1806,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 msg: (<div>Request swap with <strong>{name}</strong>?<br/><br/>You give: {swapSelection.myDate} ({swapSelection.myShift})<br/>You take: {day.date} ({shift})</div>),
                 action: () => {
                     const targetUser = users.find((u:User) => u.name === name);
-                    const req: SwapRequest = { id: Date.now().toString(), requesterName: currentUser.name, requesterId: currentUser.id, requesterDate: swapSelection.myDate!, requesterShift: swapSelection.myShift as 'morning' | 'evening', targetName: name, targetId: targetUser ? targetUser.id : 'unknown', targetDate: day.date, targetShift: shift as 'morning' | 'evening', status: 'pending', timestamp: Date.now() };
+                    // FIX: Remove incorrect type assertions now that types support 'night'.
+                    const req: SwapRequest = { id: Date.now().toString(), requesterName: currentUser.name, requesterId: currentUser.id, requesterDate: swapSelection.myDate!, requesterShift: swapSelection.myShift!, targetName: name, targetId: targetUser ? targetUser.id : 'unknown', targetDate: day.date, targetShift: shift, status: 'pending', timestamp: Date.now() };
                     Cloud.saveSwapRequest(req); alert("✅ Request Sent!"); setSwapMode(false); setSwapSelection({ step: 1 }); setConfirmModal(prev => ({...prev, isOpen: false}));
                 }
             });
@@ -1970,7 +1973,45 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} lastReadAt={lastReadAt} allUsers={users} />;
         if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} isForced={!!onInventorySuccess} onCancel={cancelInventoryClockOut} />;
         if (view === 'contact') return <ContactView t={t} lang={lang} />;
-        if (view === 'recipes') return <div className="h-full overflow-y-auto text-text animate-fade-in-up pb-24"><div className="bg-surface p-4 border-b"><h2 className="text-xl font-bold">{t.recipe_title}</h2></div><div className="p-4 bg-secondary">{data.recipes.map((d: DrinkRecipe) => <DrinkCard key={d.id} drink={d} lang={lang} t={t} />)}</div></div>;
+        if (view === 'recipes') {
+            const filteredRecipes = data.recipes.filter((recipe: DrinkRecipe) => {
+                if (!recipeSearchQuery) return true;
+                const query = recipeSearchQuery.toLowerCase().trim();
+                const nameEn = recipe.name?.en?.toLowerCase() || '';
+                const nameZh = recipe.name?.zh || ''; // No toLowerCase needed for Chinese includes
+                const cat = recipe.cat?.toLowerCase() || '';
+                return nameEn.includes(query) || nameZh.includes(query) || cat.includes(query);
+            });
+
+            return (
+                 <div className="h-full flex flex-col text-text animate-fade-in-up pb-24">
+                    <div className="bg-surface p-4 border-b sticky top-0 z-10">
+                        <h2 className="text-xl font-black mb-3">{t.recipe_title}</h2>
+                        <div className="relative">
+                            <Icon name="Search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-light" />
+                            <input 
+                                type="text"
+                                value={recipeSearchQuery}
+                                onChange={e => setRecipeSearchQuery(e.target.value)}
+                                placeholder="Search recipes... / 搜索配方..."
+                                className="w-full p-3 pl-10 bg-secondary rounded-lg border border-gray-200 focus:ring-2 focus:ring-primary-light focus:border-primary outline-none transition-all"
+                            />
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 bg-secondary">
+                         {filteredRecipes.length > 0 ? (
+                            filteredRecipes.map((d: DrinkRecipe) => <DrinkCard key={d.id} drink={d} lang={lang} t={t} />)
+                        ) : (
+                            <div className="text-center py-12 text-text-light">
+                                <Icon name="Search" size={32} className="mx-auto mb-3 opacity-50"/>
+                                <p className="font-bold">No recipes found</p>
+                                <p className="text-sm">Try a different keyword.</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
         if (view === 'training') return <TrainingView data={data} onComplete={() => {}} />;
         if (view === 'sop') return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />;
         if (view === 'checklist') { const tmpl = CHECKLIST_TEMPLATES[currentShift] || CHECKLIST_TEMPLATES['opening']; return (<div className="h-full flex flex-col bg-surface text-text"><div className={`${tmpl.color} p-6 text-white`}><button onClick={() => setView('sop')} className="mb-4"><Icon name="ArrowLeft" /></button><h2 className="text-3xl font-bold">{getLoc(tmpl.title)}</h2></div><div className="flex-1 overflow-y-auto p-4">{tmpl.items.map((i: any) => (<div key={i.id} className="p-4 border-b flex items-center gap-3"><div className="w-6 h-6 border-2 rounded"></div><div><p className="font-bold">{getLoc(i.text)}</p></div></div>))}</div><div className="p-4 border-t"><button onClick={()=>{alert('OK'); setView('home');}} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold transition-all active:scale-95">Confirm</button></div></div>); }
