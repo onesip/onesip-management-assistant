@@ -1792,7 +1792,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setLogs([newLog, ...logs]); Cloud.saveLog(newLog); setClockBtnText({ in: t.clock_in, out: t.clock_out });
     };
 
-    const handleShiftClick = (day: any, shift: 'morning' | 'evening', name: string) => {
+    const handleShiftClick = (day: any, shift: 'morning' | 'evening' | 'night', name: string) => {
         if (!swapMode) return;
         if (swapSelection.step === 1) {
             if (name !== currentUser.name) { alert("⚠️ Step 1: Please select YOUR shift first (Green)."); return; }
@@ -1804,7 +1804,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 msg: (<div>Request swap with <strong>{name}</strong>?<br/><br/>You give: {swapSelection.myDate} ({swapSelection.myShift})<br/>You take: {day.date} ({shift})</div>),
                 action: () => {
                     const targetUser = users.find((u:User) => u.name === name);
-                    const req: SwapRequest = { id: Date.now().toString(), requesterName: currentUser.name, requesterId: currentUser.id, requesterDate: swapSelection.myDate!, requesterShift: swapSelection.myShift!, targetName: name, targetId: targetUser ? targetUser.id : 'unknown', targetDate: day.date, targetShift: shift, status: 'pending', timestamp: Date.now() };
+                    const req: SwapRequest = { id: Date.now().toString(), requesterName: currentUser.name, requesterId: currentUser.id, requesterDate: swapSelection.myDate!, requesterShift: swapSelection.myShift as 'morning' | 'evening', targetName: name, targetId: targetUser ? targetUser.id : 'unknown', targetDate: day.date, targetShift: shift as 'morning' | 'evening', status: 'pending', timestamp: Date.now() };
                     Cloud.saveSwapRequest(req); alert("✅ Request Sent!"); setSwapMode(false); setSwapSelection({ step: 1 }); setConfirmModal(prev => ({...prev, isOpen: false}));
                 }
             });
