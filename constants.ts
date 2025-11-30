@@ -38,6 +38,8 @@ export const TRANSLATIONS: Record<string, any> = {
         invalid_code: "密码错误",
         code_sent: "验证码已发送: 1234",
         select_user: "请选择你的名字",
+        remember_password: "记住密码",
+        keep_logged_in: "保持登录",
         
         // Inventory
         inventory_title: "库存管理",
@@ -141,6 +143,8 @@ export const TRANSLATIONS: Record<string, any> = {
         invalid_code: "Incorrect Password",
         code_sent: "Code sent: 1234",
         select_user: "Select your name",
+        remember_password: "Remember Password",
+        keep_logged_in: "Keep Me Logged In",
 
         // Inventory
         inventory_title: "Inventory Mgmt",
@@ -223,14 +227,14 @@ export const USERS: User[] = [
     { id: 'u_xinrui', name: 'Xinrui', role: 'staff', phone: '31628895082', password: '508209' },
     { id: 'u_linda', name: 'Linda', role: 'staff', phone: '31638100725', password: '072510' },
     { id: 'u_mengchu', name: 'Mengchu', role: 'staff', phone: '31616928771', password: '877111' },
-    { id: 'u_najata', name: 'Najata', role: 'staff', phone: '31684244371', password: '437112' },
+    { id: 'u_najata', name: 'Najat', role: 'staff', phone: '31684244371', password: '437112' },
     { id: 'u_editor', name: 'Editor', role: 'editor', phone: '0413', password: '0413' }, // Explicit editor user
     { id: 'u_julia', name: 'Julia', role: 'staff', phone: '', password: '' }, // No password for Julia yet
 ];
 
 export const TEAM_MEMBERS: string[] = [
     "RURU", "Yang", "Haohui", "Lambert", "Zhiyi", "Tingshan", 
-    "Kloe", "Maidou", "Xinrui", "Linda", "Mengchu", "Julia", "Najata"
+    "Kloe", "Maidou", "Xinrui", "Linda", "Mengchu", "Julia", "Najat"
 ];
 
 // ... (rest of the file remains unchanged)
@@ -246,7 +250,7 @@ export const CONTACTS_DATA: ContactItem[] = [
     { id: 'c_xinrui', name: 'Xinrui', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 28895082' },
     { id: 'c_linda', name: 'Linda', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 38100725' },
     { id: 'c_mengchu', name: 'Mengchu', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 16928771' },
-    { id: 'c_najata', name: 'Najata', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 84244371' },
+    { id: 'c_najata', name: 'Najat', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 84244371' },
     { id: 'c_julia', name: 'Julia', role: { zh: '员工', en: 'Staff' }, phone: null },
 ];
 
