@@ -1112,7 +1112,7 @@ const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave:
 };
 
 
-const StaffAvailabilityView = ({ t }: { t: any }) => {
+const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
     const [weekStart, setWeekStart] = useState(getStartOfWeek(new Date(), 1));
     const [availabilities, setAvailabilities] = useState<StaffAvailability[]>([]);
     const [loading, setLoading] = useState(true);
@@ -1159,7 +1159,7 @@ const StaffAvailabilityView = ({ t }: { t: any }) => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-white/10">
-                        {STATIC_USERS.filter(u=>u.active!==false).map(user => {
+                        {users.filter(u=>u.active!==false).map(user => {
                             if (!user) return null;
                             const userSlots = availabilityMap.get(user.id);
                             return (
@@ -1203,6 +1203,26 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const totalWeeks = schedule?.days ? Math.ceil(schedule.days.length / 7) : 0;
     const activeStaff = users.filter((u: User) => u.active !== false);
     // ------------------------------------
+
+    useEffect(() => {
+        if (schedule?.days?.length > 0) {
+            let needsUpdate = false;
+            const newDays = schedule.days.map((day: ScheduleDay) => {
+                const newMorning = day.morning.map(name => { if (name === 'Najata') { needsUpdate = true; return 'Najat'; } return name; });
+                const newEvening = day.evening.map(name => { if (name === 'Najata') { needsUpdate = true; return 'Najat'; } return name; });
+                const newNight = day.night?.map(name => { if (name === 'Najata') { needsUpdate = true; return 'Najat'; } return name; });
+                return { ...day, morning: newMorning, evening: newEvening, night: newNight };
+            });
+
+            if (needsUpdate) {
+                console.log("Performing one-time schedule name correction for 'Najata' -> 'Najat'");
+                const newSchedule = { ...schedule, days: newDays };
+                setSchedule(newSchedule);
+                Cloud.saveSchedule(newSchedule);
+            }
+        }
+    }, [schedule, setSchedule]);
+
 
     const handleWageChange = (name: string, val: string) => { const num = parseFloat(val); const newWages = { ...wages, [name]: isNaN(num) ? 0 : num }; setWages(newWages); localStorage.setItem('onesip_wages', JSON.stringify(newWages)); };
     const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem('onesip_budget_max', b.toString()); };
@@ -1343,7 +1363,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         ))}
                     </div>
                 )}
-                 {view === 'availability' && <StaffAvailabilityView t={t} />}
+                 {view === 'availability' && <StaffAvailabilityView t={t} users={users} />}
                 {view === 'chat' && <ChatView t={t} currentUser={managerUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} onExit={() => setView('requests')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />}
                 {view === 'schedule' && (
                     <div className="space-y-3 pb-10">
@@ -2110,7 +2130,7 @@ const LoginScreen = ({ t, onLogin, users }: { t: any, onLogin: (id: string, keep
                             onChange={e => setRememberPwd(e.target.checked)} 
                             className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer" 
                         />
-                        记住密码 (Remember Password)
+                        {t.remember_password}
                     </label>
                     <label className="flex items-center gap-2 text-xs text-text-light cursor-pointer select-none">
                         <input 
@@ -2119,7 +2139,7 @@ const LoginScreen = ({ t, onLogin, users }: { t: any, onLogin: (id: string, keep
                             onChange={e => setKeepLogin(e.target.checked)} 
                             className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer" 
                         />
-                        保持登录 (Keep Me Logged In)
+                        {t.keep_logged_in}
                     </label>
                 </div>
 

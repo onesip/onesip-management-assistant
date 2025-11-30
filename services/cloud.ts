@@ -304,7 +304,6 @@ export const getStaffAvailability = async (userId: string, weekStart: string) =>
 export const saveStaffAvailability = async (userId: string, weekStart: string, slots: any) => {
     if (!db) return;
     const docRef = firestoreDoc(db, 'staff_availability', `${userId}_${weekStart}`);
-    // FIX: `setFirestoreDoc` is not a valid function. It should be `setDoc`.
     await setDoc(docRef, {
         userId,
         weekStart,
@@ -316,7 +315,6 @@ export const saveStaffAvailability = async (userId: string, weekStart: string, s
 export const subscribeToAvailabilitiesForWeek = (weekStart: string, callback: (data: any[]) => void) => {
     if (!db) return () => {};
     const q = firestoreQuery(firestoreCollection(db, "staff_availability"), firestoreWhere("weekStart", "==", weekStart));
-    // FIX: `firestoreOnSnapshot` is not a valid function. It should be `onSnapshot`.
     return onSnapshot(q, (querySnapshot) => {
         const availabilities: any[] = [];
         querySnapshot.forEach((doc) => {
