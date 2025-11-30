@@ -38,8 +38,6 @@ export const TRANSLATIONS: Record<string, any> = {
         invalid_code: "密码错误",
         code_sent: "验证码已发送: 1234",
         select_user: "请选择你的名字",
-        remember_password: "记住密码",
-        keep_logged_in: "保持登录",
         
         // Inventory
         inventory_title: "库存管理",
@@ -143,8 +141,6 @@ export const TRANSLATIONS: Record<string, any> = {
         invalid_code: "Incorrect Password",
         code_sent: "Code sent: 1234",
         select_user: "Select your name",
-        remember_password: "Remember Password",
-        keep_logged_in: "Keep Me Logged In",
 
         // Inventory
         inventory_title: "Inventory Mgmt",
