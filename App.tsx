@@ -289,8 +289,19 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
 
 const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel }: any) => {
     // Staff state
-    const [employee, setEmployee] = useState(currentUser?.name || ''); 
-    const [inputData, setInputData] = useState<Record<string, { end: string, waste: string }>>({});
+    const [employee, setEmployee] = useState(currentUser?.name || '');
+    const [inputData, setInputData] = useState<Record<string, { end: string, waste: string }>>(() => {
+        const initialState: Record<string, { end: string, waste: string }> = {};
+        if (inventoryList && !isOwner) {
+            inventoryList.forEach((item: InventoryItem) => {
+                initialState[item.id] = {
+                    end: item.defaultVal || '',
+                    waste: '',
+                };
+            });
+        }
+        return initialState;
+    });
     
     // Owner state for editing
     const [localInventory, setLocalInventory] = useState<InventoryItem[]>([]);
@@ -394,7 +405,22 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                 {inventoryList.map((item: any) => (
                     <div key={item.id} className="bg-surface p-3 rounded-xl border shadow-sm flex items-center justify-between">
                         <div className="flex-1"><div className="font-bold text-sm text-text">{getLoc(item.name)}</div><div className="text-[10px] text-text-light">{item.unit}</div></div>
-                        <div className="flex gap-2 w-2/5"><input type="number" placeholder={item.defaultVal || 'End'} className="w-1/2 p-2 rounded-lg border text-center text-sm" onChange={(e) => handleInputChange(item.id, 'end', e.target.value)} /><input type="number" placeholder="Waste" className="w-1/2 p-2 rounded-lg border border-red-100 text-center text-sm bg-destructive-light text-destructive" onChange={(e) => handleInputChange(item.id, 'waste', e.target.value)} /></div>
+                        <div className="flex gap-2 w-2/5">
+                            <input 
+                                type="number" 
+                                placeholder={item.defaultVal || 'End'} 
+                                className="w-1/2 p-2 rounded-lg border text-center text-sm" 
+                                value={inputData[item.id]?.end ?? ''}
+                                onChange={(e) => handleInputChange(item.id, 'end', e.target.value)} 
+                            />
+                            <input 
+                                type="number" 
+                                placeholder="Waste" 
+                                className="w-1/2 p-2 rounded-lg border border-red-100 text-center text-sm bg-destructive-light text-destructive" 
+                                value={inputData[item.id]?.waste ?? ''}
+                                onChange={(e) => handleInputChange(item.id, 'waste', e.target.value)} 
+                            />
+                        </div>
                     </div>
                 ))}
             </div>
@@ -1981,18 +2007,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     
     const handleClockLog = (type: ClockType) => {
         if (!hasShiftToday(currentUser, schedule)) {
-            if (window.confirm("No scheduled shift found for today. Do you want to clock in anyway? This will require a reason.")) {
-                 setDeviationData({
-                    type,
-                    locTag: "No Schedule",
-                    details: {
-                        scheduledTime: "N/A",
-                        actualTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        deviationMinutes: 0,
-                        direction: type === 'clock-in' ? 'early' : 'late',
-                    }
-                });
-            }
+            // Updated alert message to be more informative as per the existing translation key.
+            alert(t.no_shift_today_alert);
             return;
         }
         if (type === 'clock-out') {
