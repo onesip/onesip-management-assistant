@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { Icon } from './components/Icons';
 import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, USERS as STATIC_USERS } from './constants';
-import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState, UserRole } from './types';
+import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState, UserRole, ClockType } from './types';
 import * as Cloud from './services/cloud';
 import { getChatResponse } from './services/geminiService';
 import { useNotification } from './components/GlobalNotification';
@@ -42,6 +42,50 @@ const getStartOfWeek = (date: Date, weekOffset = 0) => {
 const formatDateISO = (date: Date) => date.toISOString().split('T')[0];
 
 // --- MODALS ---
+
+const DeviationReasonModal = ({ isOpen, onClose, onSubmit, details, t }: any) => {
+    const [reason, setReason] = useState('');
+    const isSubmitDisabled = reason.trim() === '';
+
+    useEffect(() => {
+        if (isOpen) {
+            setReason(''); // Reset reason when modal opens
+        }
+    }, [isOpen]);
+
+    if (!isOpen || !details) return null;
+
+    return (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl border">
+                <h3 className="text-lg font-black text-text mb-1">{t.deviation_title}</h3>
+                <p className="text-sm text-text-light mb-4">{t.deviation_subtitle}</p>
+                <div className="text-sm text-text-light mb-4 space-y-1 bg-secondary p-3 rounded-lg border">
+                    <p><strong>Scheduled:</strong> {details.scheduledTime}</p>
+                    <p><strong>Actual:</strong> {details.actualTime}</p>
+                    <p className="font-bold"><strong>Deviation:</strong> {details.deviationMinutes} minutes ({details.direction})</p>
+                </div>
+                <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    className="w-full p-2 border rounded-lg h-24 text-sm focus:ring-2 focus:ring-primary-light outline-none"
+                    placeholder={t.deviation_placeholder}
+                    autoFocus
+                />
+                <div className="flex gap-3 mt-4">
+                    <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200">Cancel</button>
+                    <button 
+                        onClick={() => onSubmit(reason)} 
+                        disabled={isSubmitDisabled}
+                        className={`flex-1 py-3 rounded-xl font-bold transition-all ${isSubmitDisabled ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-primary text-white hover:bg-primary-dark'}`}
+                    >
+                        {t.deviation_confirm}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const CloudSetupModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
     if (!isOpen) return null;
@@ -1605,6 +1649,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const { showNotification } = useNotification();
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
+    const [deviationData, setDeviationData] = useState<any | null>(null);
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
 
     useEffect(() => {
@@ -1633,7 +1678,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (view === 'chat') {
             // When chat is open, mark all incoming messages for the user as "notified"
             let updated = false;
-            directMessages.forEach(msg => {
+            directMessages.forEach((msg: DirectMessage) => {
                 if (msg.toId === currentUser.id && !notifiedIds.has(msg.id)) {
                     notifiedIds.add(msg.id);
                     updated = true;
@@ -1653,7 +1698,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             return;
         }
 
-        const messagesToNotify = directMessages.filter(msg => 
+        const messagesToNotify = directMessages.filter((msg: DirectMessage) => 
             msg.toId === currentUser.id && !notifiedIds.has(msg.id)
         );
 
@@ -1760,7 +1805,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     }, [currentUser, schedule, logs, showNotification]);
 
     const [swapMode, setSwapMode] = useState(false);
-    // FIX: Add 'night' to support night shift swaps, resolving the type error.
     const [swapSelection, setSwapSelection] = useState<{ step: 1|2, myDate?: string, myShift?: 'morning'|'evening'|'night', targetName?: string, targetDate?: string, targetShift?: 'morning'|'evening'|'night' }>({ step: 1 });
     const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, msg: React.ReactNode, action: () => void}>({isOpen:false, msg:'', action:()=>{}});
 
@@ -1802,32 +1846,153 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const nextShift = findNextShift();
 
     const hasShiftToday = (user: User, scheduleData: any): boolean => {
-        if (!scheduleData?.days) return false;
+        if (!scheduleData?.days) {
+            console.log('[ATTENDANCE] Schedule data or days array is missing.');
+            return false;
+        }
         const now = new Date();
         const todayDateStr = `${now.getMonth() + 1}-${now.getDate()}`;
         const todaySchedule = scheduleData.days.find((day: ScheduleDay) => day.date === todayDateStr);
-        if (!todaySchedule) return false;
-        return todaySchedule.morning.includes(user.name) || todaySchedule.evening.includes(user.name);
+    
+        // As per request, add debugging logs
+        console.log(`[ATTENDANCE] currentUserId: ${user.id} (${user.name})`);
+        console.log(`[ATTENDANCE] today date key: ${todayDateStr}`);
+        console.log('[ATTENDANCE] all schedule entries for today (raw):', todaySchedule ? { ...todaySchedule } : 'No schedule found for today.');
+    
+        if (!todaySchedule) {
+            return false;
+        }
+    
+        // Correctly check all three shifts, including the optional 'night' shift
+        const hasShift = todaySchedule.morning.includes(user.name) ||
+                         todaySchedule.evening.includes(user.name) ||
+                         (todaySchedule.night?.includes(user.name) ?? false);
+        
+        console.log(`[ATTENDANCE] filtered check result for ${user.name}: ${hasShift}`);
+        
+        return hasShift;
     };
 
-    const performClockLog = (type: 'clock-in' | 'clock-out') => {
-        setClockBtnText(p => ({ ...p, [type === 'clock-in'?'in':'out']: '📡...' }));
-        if (!navigator.geolocation) { recordLog(type, "GPS Not Supported"); return; }
+    const recordLog = (type: ClockType, note: string, deviationInfo?: any) => {
+        const newLog: LogEntry = {
+            id: Date.now(),
+            shift: type,
+            name: currentUser.name,
+            userId: currentUser.id,
+            time: new Date().toLocaleString(),
+            type: type,
+            reason: note,
+            ...(deviationInfo && {
+                deviationMinutes: deviationInfo.details.deviationMinutes,
+                deviationDirection: deviationInfo.details.direction,
+                deviationReason: deviationInfo.reason,
+            })
+        };
+        setLogs((prevLogs: LogEntry[]) => [newLog, ...prevLogs]);
+        Cloud.saveLog(newLog);
+
+        if (deviationInfo) {
+            const managerLog: LogEntry = {
+                id: Date.now() + 1,
+                shift: 'attendance_deviation',
+                type: 'attendance_deviation',
+                name: currentUser.name,
+                userId: currentUser.id,
+                time: new Date().toLocaleString(),
+                reason: deviationInfo.reason,
+                deviationMinutes: deviationInfo.details.deviationMinutes,
+                deviationDirection: deviationInfo.details.direction,
+                scheduledTime: deviationInfo.details.scheduledTime,
+                actualTime: deviationInfo.details.actualTime,
+                shiftType: deviationInfo.type as ClockType,
+            };
+            setLogs((prevLogs: LogEntry[]) => [managerLog, ...prevLogs]);
+            Cloud.saveLog(managerLog);
+        }
+
+        setClockBtnText({ in: t.clock_in, out: t.clock_out });
+    };
+
+    const performClockLog = (type: ClockType) => {
+        setClockBtnText(p => ({ ...p, [type === 'clock-in' ? 'in' : 'out']: '📡...' }));
+        
+        const processClocking = (locTag: string) => {
+            const now = new Date();
+            const todayDateStr = `${now.getMonth() + 1}-${now.getDate()}`;
+            const todaySchedule = schedule.days.find((day: ScheduleDay) => day.date === todayDateStr);
+
+            let scheduledTimeStr: string | null = null;
+            let userShift: 'morning' | 'evening' | 'night' | null = null;
+
+            if (todaySchedule) {
+                if (todaySchedule.morning.includes(currentUser.name)) userShift = 'morning';
+                else if (todaySchedule.evening.includes(currentUser.name)) userShift = 'evening';
+                else if (todaySchedule.night?.includes(currentUser.name)) userShift = 'night';
+
+                if (userShift && todaySchedule.hours?.[userShift]) {
+                    scheduledTimeStr = type === 'clock-in' ? todaySchedule.hours[userShift]!.start : todaySchedule.hours[userShift]!.end;
+                }
+            }
+
+            let deviationMinutes = 0;
+            let scheduledTime: Date | null = null;
+            if (scheduledTimeStr) {
+                const [hour, minute] = scheduledTimeStr.split(':').map(Number);
+                scheduledTime = new Date();
+                scheduledTime.setHours(hour, minute, 0, 0);
+                deviationMinutes = Math.round(Math.abs(now.getTime() - scheduledTime.getTime()) / 60000);
+            }
+
+            if (scheduledTime && deviationMinutes > 15) {
+                setDeviationData({
+                    type,
+                    locTag,
+                    details: {
+                        scheduledTime: scheduledTimeStr,
+                        actualTime: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        deviationMinutes,
+                        direction: now > scheduledTime ? 'late' : 'early',
+                    }
+                });
+            } else {
+                alert(`✅ Success!\n${locTag}`);
+                recordLog(type, locTag);
+            }
+        };
+
+        if (!navigator.geolocation) {
+            processClocking("GPS Not Supported");
+            return;
+        }
+
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 const dist = getDistanceFromLatLonInKm(pos.coords.latitude, pos.coords.longitude, STORE_COORDS.lat, STORE_COORDS.lng);
                 const locTag = dist <= 500 ? `In Range (<500m)` : `Out Range (${Math.round(dist)}m)`;
-                alert(`✅ Success!\n${locTag}`);
-                recordLog(type, locTag);
+                processClocking(locTag);
             },
-            (err) => { console.error(err); alert("⚠️ GPS Error. Logging anyway."); recordLog(type, "GPS Error"); },
+            (err) => {
+                console.error(err);
+                processClocking("GPS Error");
+            },
             { timeout: 10000, enableHighAccuracy: true }
         );
     };
     
-    const handleClockLog = (type: 'clock-in' | 'clock-out') => {
+    const handleClockLog = (type: ClockType) => {
         if (!hasShiftToday(currentUser, schedule)) {
-            alert(t.no_shift_today_alert);
+            if (window.confirm("No scheduled shift found for today. Do you want to clock in anyway? This will require a reason.")) {
+                 setDeviationData({
+                    type,
+                    locTag: "No Schedule",
+                    details: {
+                        scheduledTime: "N/A",
+                        actualTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        deviationMinutes: 0,
+                        direction: type === 'clock-in' ? 'early' : 'late',
+                    }
+                });
+            }
             return;
         }
         if (type === 'clock-out') {
@@ -1846,11 +2011,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
     }
 
-    const recordLog = (type: string, note: string) => {
-        const newLog: LogEntry = { id: Date.now(), shift: type, name: currentUser.name, userId: currentUser.id, time: new Date().toLocaleString(), type: type as any, reason: note };
-        setLogs([newLog, ...logs]); Cloud.saveLog(newLog); setClockBtnText({ in: t.clock_in, out: t.clock_out });
-    };
-
     const handleShiftClick = (day: any, shift: 'morning' | 'evening' | 'night', name: string) => {
         if (!swapMode) return;
         if (swapSelection.step === 1) {
@@ -1863,7 +2023,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 msg: (<div>Request swap with <strong>{name}</strong>?<br/><br/>You give: {swapSelection.myDate} ({swapSelection.myShift})<br/>You take: {day.date} ({shift})</div>),
                 action: () => {
                     const targetUser = users.find((u:User) => u.name === name);
-                    // FIX: Remove incorrect type assertions now that types support 'night'.
                     const req: SwapRequest = { id: Date.now().toString(), requesterName: currentUser.name, requesterId: currentUser.id, requesterDate: swapSelection.myDate!, requesterShift: swapSelection.myShift!, targetName: name, targetId: targetUser ? targetUser.id : 'unknown', targetDate: day.date, targetShift: shift, status: 'pending', timestamp: Date.now() };
                     Cloud.saveSwapRequest(req); alert("✅ Request Sent!"); setSwapMode(false); setSwapSelection({ step: 1 }); setConfirmModal(prev => ({...prev, isOpen: false}));
                 }
@@ -2082,6 +2241,20 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             <CustomConfirmModal isOpen={confirmModal.isOpen} title="Confirm Action" message={confirmModal.msg} onConfirm={confirmModal.action} onCancel={() => setConfirmModal(prev => ({...prev, isOpen:false}))} />
             <AvailabilityReminderModal isOpen={showAvailabilityReminder} t={t} onCancel={() => setShowAvailabilityReminder(false)} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} />
             <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />
+            <DeviationReasonModal 
+                isOpen={!!deviationData}
+                details={deviationData?.details}
+                t={t}
+                onClose={() => setDeviationData(null)}
+                onSubmit={(reason: string) => {
+                    if (deviationData) {
+                        const fullDeviationInfo = { ...deviationData, reason };
+                        recordLog(deviationData.type, deviationData.locTag, fullDeviationInfo);
+                        alert(`✅ Success (Reason Logged)!\n${deviationData.locTag}`);
+                        setDeviationData(null);
+                    }
+                }}
+            />
 
             <div className="flex-1 overflow-y-auto relative">{renderView()}</div>
             {view !== 'checklist' && (

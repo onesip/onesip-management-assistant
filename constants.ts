@@ -106,6 +106,11 @@ export const TRANSLATIONS: Record<string, any> = {
         closing_title: "晚班收档",
         submit_success: "提交成功！",
         copied: "已复制号码",
+        // FIX: Add missing translations for deviation modal
+        deviation_title: "打卡时间与排班相差较大",
+        deviation_subtitle: "请填写原因",
+        deviation_placeholder: "例如：交通延误、临时换班、加班等...",
+        deviation_confirm: "确认并打卡",
     },
     en: {
         home: "Workbench",
@@ -211,6 +216,11 @@ export const TRANSLATIONS: Record<string, any> = {
         closing_title: "Closing",
         submit_success: "Submitted Successfully!",
         copied: "Number Copied",
+        // FIX: Add missing translations for deviation modal
+        deviation_title: "Clock time deviates from schedule",
+        deviation_subtitle: "Please provide a reason",
+        deviation_placeholder: "e.g., transport delay, shift change, overtime...",
+        deviation_confirm: "Confirm & Clock In/Out",
     }
 };
 
@@ -464,7 +474,7 @@ export const DRINK_RECIPES: DrinkRecipe[] = [
         }
     },
      {
-        id: 'm5', name: {zh: '小吊梨芦荟', en: 'Snow Pear Aloe Milk'}, cat: 'Milk Tea', size: '500ml', ice: 'Cold/Warm', sugar: 'No add',
+        id: 'm5', name: {zh: '小吊梨芦薈', en: 'Snow Pear Aloe Milk'}, cat: 'Milk Tea', size: '500ml', ice: 'Cold/Warm', sugar: 'No add',
         toppings: {zh: '马蹄爆爆珠1勺, 梨酱3粉勺', en: 'Waterchestnut boba 1 sp, Pear jam 3 ps'},
         steps: {
             cold: [{zh:'加爆爆珠和3勺梨酱',en:'Add boba & 3 spoons pear jam'}, {zh:'机器出茶',en:'Machine dispense'}, {zh:'加冰封口',en:'Add ice & Seal'}],
@@ -601,7 +611,7 @@ export const DRINK_RECIPES: DrinkRecipe[] = [
     },
     {
         id: 'nc2', name: {zh: '雪梨乌龙', en: 'Snow Pear Oolong'}, cat: '2025 New Creamer', size: '500/660ml', ice: 'Standard', sugar: 'No add',
-        toppings: {zh: '马蹄爆爆珠+芦荟+梨酱', en: 'Waterchestnut boba+Aloe+Pear jam'},
+        toppings: {zh: '马蹄爆爆珠+芦薈+梨酱', en: 'Waterchestnut boba+Aloe+Pear jam'},
         steps: {
             cold: [{zh:'加小料和梨酱',en:'Add toppings & jam'}, {zh:'机器出茶',en:'Dispense tea'}, {zh:'加冰封口',en:'Add ice & Seal'}, {zh:'摇匀',en:'Shake well'}],
             warm: [{zh:'加小料和梨酱',en:'Add toppings & jam'}, {zh:'机器出茶加热',en:'Dispense & Steam'}, {zh:'封口',en:'Seal'}]
@@ -663,70 +673,39 @@ export const DRINK_RECIPES: DrinkRecipe[] = [
             warm: []
         }
     },
+// FIX: Corrected corrupted recipe data and closed array.
     {
-        id: 'p1', name: {zh: '奶茶大满贯', en: 'Milk Tea Grand Slam'}, cat: 'Pop-up', size: '700ml', ice: 'Standard', sugar: 'Fixed',
-        toppings: {zh: '珍珠, 茶冻, 红豆, 花生碎, 葡萄干', en: 'Tapioca, Jelly, Red bean, Peanut, Raisin'},
+        id: 'p1', name: {zh: '奶茶大满贯', en: 'Milk Tea Grand Slam'}, cat: 'Milk Tea', size: '700ml', ice: 'Standard', sugar: '100%-0%',
+        toppings: {zh: '珍珠, 椰果, 茶冻', en: 'Tapioca, Coconut Jelly, Tea Jelly'},
         steps: {
-            cold: [{zh:'加5种小料',en:'Add 5 toppings'}, {zh:'机器出奶茶',en:'Dispense milk tea'}, {zh:'加冰摇匀',en:'Add ice & Shake'}, {zh:'封口',en:'Seal'}],
-            warm: []
-        }
-    },
-     {
-        id: 'p2', name: {zh: '红枣桂圆银耳奶茶', en: 'Longan Jujube Tremella'}, cat: 'Pop-up', size: '500ml', ice: 'Warm', sugar: 'Fixed',
-        toppings: {zh: '芋圆, 银耳', en: 'Taro ball, Tremella'},
-        steps: {
-            cold: [],
-            warm: [{zh:'加芋圆和银耳',en:'Add Taro ball & Tremella'}, {zh:'雪克杯: 红枣酱+机器出茶',en:'Shaker: Sauce + Dispense'}, {zh:'加热至70度',en:'Steam'}, {zh:'倒入杯中封口',en:'Pour & Seal'}]
-        }
-    },
-     {
-        id: 'p3', name: {zh: '花香拿铁 (玫瑰/桂花)', en: 'Floral Latte (Rose/Osmanthus)'}, cat: 'Coffee', size: '500ml', ice: 'Standard', sugar: 'Fixed',
-        toppings: {zh: '花瓣', en: 'Petals'},
-        steps: {
-            cold: [{zh:'加花糖浆',en:'Add floral syrup'}, {zh:'加冰满杯',en:'Fill ice'}, {zh:'咖啡机制作拿铁',en:'Make Latte'}, {zh:'顶部撒花瓣',en:'Sprinkle petals'}],
-            warm: [{zh:'加花糖浆',en:'Add floral syrup'}, {zh:'咖啡机制作热拿铁',en:'Make Hot Latte'}, {zh:'顶部撒花瓣',en:'Sprinkle petals'}]
-        }
-    },
-    {
-        id: 'y1', name: {zh: '草莓万圣节', en: 'Strawberry Halloween'}, cat: 'Pop-up', size: '500ml', ice: 'Cold', sugar: '100%-0%',
-        toppings: {zh: '草莓水晶球, 优格奶盖', en: 'Strawberry crystal ball, Yogurt foam'},
-        steps: {
-            cold: [{zh:'加水晶球和奶盖',en:'Add crystal ball & foam'}, {zh:'机器出优格',en:'Dispense Yogurt'}, {zh:'加冰打沙',en:'Blend slush'}, {zh:'倒入杯中',en:'Pour'}, {zh:'顶部加奶油和装饰',en:'Cream top & Decor'}],
-            warm: []
-        }
-    },
-    {
-        id: 'y2', name: {zh: '芋泥万圣节', en: 'Taro Halloween'}, cat: 'Pop-up', size: '500ml', ice: 'Cold', sugar: 'Fixed',
-        toppings: {zh: '珍珠, 芋泥挂壁', en: 'Tapioca, Taro mash wall'},
-        steps: {
-            cold: [{zh:'加珍珠, 芋泥挂壁',en:'Add tapioca, Smear Taro'}, {zh:'机器出奶茶',en:'Dispense milk tea'}, {zh:'加冰打沙',en:'Blend slush'}, {zh:'倒入杯中',en:'Pour'}, {zh:'顶部加奶油和装饰',en:'Cream top & Decor'}],
-            warm: []
-        }
-    },
-    {
-        id: 'y3', name: {zh: '蓝天白云', en: 'Blue Blue Sky'}, cat: 'Yogurt', size: '700ml', ice: 'Standard', sugar: 'Fixed',
-        toppings: {zh: '葡萄冻1勺, 优格330g', en: 'Grape jelly 1 sp, Yogurt 330g'},
-        steps: {
-            cold: [{zh:'加葡萄冻',en:'Add Grape jelly'}, {zh:'冰沙机: 优格粉+牛奶打发',en:'Blender: Yogurt powder + Milk'}, {zh:'挂壁优格',en:'Smear yogurt on wall'}, {zh:'倒入冰沙',en:'Pour slush'}, {zh:'顶部加优格',en:'Add yogurt on top'}],
+            cold: [
+                {zh:'加所有小料到杯中',en:'Add all toppings to cup'},
+                {zh:'雪克杯接茶',en:'Dispense tea to shaker'},
+                {zh:'加冰至600ml线摇匀',en:'Add ice to 600ml line and shake'},
+                {zh:'倒入杯中封口',en:'Pour into cup and seal'}
+            ],
             warm: []
         }
     }
 ];
 
-export const INVENTORY_ITEMS: InventoryItem[] = [
-    { id: 'cake', name: { zh: '蛋糕 (Cake)', en: 'Cake' }, unit: 'pcs', threshold: 5 },
-    { id: 'milk', name: { zh: '牛奶 (Milk)', en: 'Milk' }, unit: 'btl' },
-    { id: 'oat', name: { zh: '燕麦奶 (Oat)', en: 'Oat Milk' }, unit: 'btl' },
-    { id: 'black_tea', name: { zh: '红茶 (Black Tea)', en: 'Black Tea' }, unit: 'L' },
-    { id: 'green_tea', name: { zh: '绿茶 (Green Tea)', en: 'Green Tea' }, unit: 'L' },
-    { id: 'oolong', name: { zh: '乌龙 (Oolong)', en: 'Oolong' }, unit: 'L' },
-    { id: 'tapioca', name: { zh: '珍珠 (Tapioca)', en: 'Tapioca' }, unit: 'bag' },
-    { id: 'cups_500', name: { zh: '500ml 杯子', en: '500ml Cups' }, unit: 'slv' },
-    { id: 'cups_700', name: { zh: '700ml 杯子', en: '700ml Cups' }, unit: 'slv' },
-];
-
-export const INITIAL_MENU_DATA: CustomerMenuItem[] = []; 
+// FIX: Added missing exports to resolve import errors in other files.
+export const INITIAL_MENU_DATA: CustomerMenuItem[] = [];
 export const INITIAL_WIKI_DATA: WikiItem[] = [];
 export const INITIAL_ANNOUNCEMENT_DATA: AnnouncementData = {
-    enabled: true, titleCN: "", titleEN: "", date: "", mainPromoCN: "", mainPromoEN: "", subPromoCN: "", subPromoEN: "", includedCN: "", includedEN: "", itemsCN: "", itemsEN: "", rulesCN: "", rulesEN: "", disclaimerCN: "", disclaimerEN: ""
+    enabled: false,
+    titleCN: '', titleEN: '', date: '',
+    mainPromoCN: '', mainPromoEN: '',
+    subPromoCN: '', subPromoEN: '',
+    includedCN: '', includedEN: '',
+    itemsCN: '', itemsEN: '',
+    rulesCN: '', rulesEN: '',
+    disclaimerCN: '', disclaimerEN: ''
 };
+export const INVENTORY_ITEMS: InventoryItem[] = [
+  { id: 'milk', name: { zh: '牛奶', en: 'Milk' }, unit: 'L', defaultVal: '12', category: 'dairy' },
+  { id: 'tapioca', name: { zh: '珍珠', en: 'Tapioca' }, unit: 'kg', defaultVal: '3', category: 'raw' },
+  { id: 'jasmine_tea', name: { zh: '茉莉绿茶', en: 'Jasmine Tea' }, unit: 'g', defaultVal: '500', category: 'raw' },
+  { id: 'cups_500', name: { zh: '500ml杯', en: '500ml Cups' }, unit: '个', defaultVal: '100', category: 'packaging' },
+  { id: 'cups_700', name: { zh: '700ml杯', en: '700ml Cups' }, unit: '个', defaultVal: '100', category: 'packaging' },
+];

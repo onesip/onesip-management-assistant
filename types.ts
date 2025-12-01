@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 export type Lang = 'zh' | 'en';
@@ -82,17 +81,28 @@ export interface DrinkRecipe {
   };
 }
 
+// FIX: Create a shared type for clock-in/clock-out to prevent type mismatches.
+export type ClockType = 'clock-in' | 'clock-out';
+
 export interface LogEntry {
   id: number;
   shift: string;
   time: string;
   status?: string;
-  type?: 'clock-in' | 'clock-out' | 'checklist' | 'inventory' | 'training-complete';
+  type?: ClockType | 'checklist' | 'inventory' | 'training-complete' | 'attendance_deviation';
   name?: string; // Should match User.name
   userId?: string; // Link to User.id
   reason?: string; 
   duration?: number;
   kpi?: string;
+
+  // Fields for attendance deviation
+  deviationMinutes?: number;
+  deviationDirection?: 'early' | 'late';
+  deviationReason?: string;
+  scheduledTime?: string;
+  actualTime?: string;
+  shiftType?: ClockType;
 }
 
 export interface ChatMessage {
