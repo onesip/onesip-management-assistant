@@ -1873,28 +1873,24 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const hasShiftToday = (user: User, scheduleData: any): boolean => {
         if (!scheduleData?.days) {
-            console.log('[ATTENDANCE] Schedule data or days array is missing.');
             return false;
         }
         const now = new Date();
-        const todayDateStr = `${now.getMonth() + 1}-${now.getDate()}`;
-        const todaySchedule = scheduleData.days.find((day: ScheduleDay) => day.date === todayDateStr);
-    
-        // As per request, add debugging logs
-        console.log(`[ATTENDANCE] currentUserId: ${user.id} (${user.name})`);
-        console.log(`[ATTENDANCE] today date key: ${todayDateStr}`);
-        console.log('[ATTENDANCE] all schedule entries for today (raw):', todaySchedule ? { ...todaySchedule } : 'No schedule found for today.');
-    
-        if (!todaySchedule) {
-            return false;
-        }
-    
-        // Correctly check all three shifts, including the optional 'night' shift
-        const hasShift = todaySchedule.morning.includes(user.name) ||
-                         todaySchedule.evening.includes(user.name) ||
-                         (todaySchedule.night?.includes(user.name) ?? false);
+        const todayDateKey = `${now.getMonth() + 1}-${now.getDate()}`;
+        const todaySchedule = scheduleData.days.find((day: ScheduleDay) => day.date === todayDateKey);
+
+        const hasShift = todaySchedule ? (
+            todaySchedule.morning.includes(user.name) ||
+            todaySchedule.evening.includes(user.name) ||
+            (todaySchedule.night?.includes(user.name) ?? false)
+        ) : false;
         
-        console.log(`[ATTENDANCE] filtered check result for ${user.name}: ${hasShift}`);
+        // Debugging logs as requested for the next round of fixes
+        console.log('[ATTENDANCE][DEBUG] currentUserId:', user.id);
+        console.log('[ATTENDANCE][DEBUG] todayDateKey:', todayDateKey);
+        console.log('[ATTENDANCE][DEBUG] allSchedules:', scheduleData);
+        // "userSchedulesForToday_beforeHotfix" in this context is the found schedule for the day, before checking the user's name in it.
+        console.log('[ATTENDANCE][DEBUG] userSchedulesForToday_beforeHotfix (found schedule for today):', todaySchedule || 'NOT FOUND');
         
         return hasShift;
     };
@@ -2006,11 +2002,17 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
     
     const handleClockLog = (type: ClockType) => {
-        if (!hasShiftToday(currentUser, schedule)) {
-            // Updated alert message to be more informative as per the existing translation key.
-            alert(t.no_shift_today_alert);
-            return;
-        }
+        // TODO: 临时 hotfix —— 为了保证门店可以正常打卡，暂时不根据排班限制打卡。
+        // 后续再修复 schedule 匹配逻辑后，恢复“无排班禁止打卡”的规则。
+        // The hasShiftToday function is still called to log debug info, but its result is temporarily ignored for blocking.
+        hasShiftToday(currentUser, schedule); 
+    
+        // The original blocking logic is now bypassed for the hotfix.
+        // if (!hasShiftToday(currentUser, schedule)) {
+        //     alert(t.no_shift_today_alert);
+        //     return;
+        // }
+    
         if (type === 'clock-out') {
             alert(t.inventory_before_clock_out);
             setOnInventorySuccess(() => () => performClockLog('clock-out'));
