@@ -720,7 +720,6 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
 // --- DASHBOARDS ---
 
 const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    // ... (rest of editor dashboard is unchanged, omitted for brevity as per instructions to only return updated files)
     const { sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t } = data;
     const [view, setView] = useState<'training' | 'sop' | 'recipes'>('training');
     const [editingItem, setEditingItem] = useState<any>(null);
@@ -960,171 +959,215 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     );
 };
 
-const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (u: User) => void, onClose: () => void }) => {
-    const [formData, setFormData] = useState<Partial<User>>(user === 'new' ? { name: '', phone: '', role: 'staff', active: true } : { ...user });
+const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
+    const [weekStart, setWeekStart] = useState(getStartOfWeek(new Date(), 1));
+    const [availabilities, setAvailabilities] = useState<StaffAvailability[]>([]);
+    const [loading, setLoading] = useState(true);
 
-    const handleSave = () => {
-        if (!formData.name || !formData.role) return alert("Name and Role are required");
-        onSave({
-            id: user === 'new' ? `u_${Date.now()}` : (user as User).id,
-            ...formData
-        } as User);
-    };
+    const weekStartISO = formatDateISO(weekStart);
+    const days = Array.from({ length: 7 }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
 
-    return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-            <div className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-pop-in border border-white/10">
-                <h3 className="text-lg font-black text-text mb-4">{user === 'new' ? 'Add New Staff' : 'Edit Staff'}</h3>
-                <div className="space-y-3">
-                    <div>
-                        <label className="block text-xs font-bold text-text-light uppercase mb-1">Name</label>
-                        <input className="w-full bg-secondary p-2 rounded-lg border-transparent focus:bg-surface focus:ring-2 ring-primary transition-all" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-text-light uppercase mb-1">Phone</label>
-                        <input className="w-full bg-secondary p-2 rounded-lg border-transparent focus:bg-surface focus:ring-2 ring-primary transition-all" value={formData.phone || ''} onChange={e => setFormData({...formData, phone: e.target.value})} />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-text-light uppercase mb-1">Role</label>
-                        <select className="w-full bg-secondary p-2 rounded-lg border-transparent focus:bg-surface focus:ring-2 ring-primary transition-all" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
-                            <option value="staff">Staff</option>
-                            <option value="manager">Manager</option>
-                            <option value="boss">Boss</option>
-                            <option value="maintenance">Maintenance</option>
-                            <option value="editor">Editor</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-text-light uppercase mb-1">Password (Login Code)</label>
-                        <input className="w-full bg-secondary p-2 rounded-lg border-transparent focus:bg-surface focus:ring-2 ring-primary transition-all" value={formData.password || ''} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="Optional" />
-                    </div>
-                    <div className="flex items-center gap-2 pt-2">
-                         <input type="checkbox" checked={formData.active !== false} onChange={e => setFormData({...formData, active: e.target.checked})} className="w-5 h-5 rounded text-primary focus:ring-primary" />
-                         <span className="text-sm font-bold text-text">Active Employee</span>
-                    </div>
-                </div>
-                <div className="flex gap-3 mt-6">
-                    <button onClick={onClose} className="flex-1 py-3 bg-secondary rounded-xl font-bold text-text-light hover:bg-gray-200">Cancel</button>
-                    <button onClick={handleSave} className="flex-1 py-3 bg-primary text-white rounded-xl font-bold shadow-lg hover:bg-primary-dark">Save</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { t, schedule, setSchedule, logs, users, notices, setNotices, directMessages, setDirectMessages, inventoryHistory, inventoryList } = data;
-    const [view, setView] = useState<'schedule' | 'logs' | 'chat'>('schedule');
-    const [editingDay, setEditingDay] = useState<any>(null); // For schedule editing
-
-    // Schedule Editor logic
-    const handleSaveDaySchedule = (staff: string[], hours: {start: string, end: string}) => {
-        if (!editingDay) return;
-        const updatedDays = schedule.days.map((d: any) => {
-            if (d.date === editingDay.day.date) {
-                return {
-                    ...d,
-                    [editingDay.shift]: staff,
-                    hours: {
-                        ...d.hours,
-                        [editingDay.shift]: hours
-                    }
-                };
-            }
-            return d;
+    useEffect(() => {
+        setLoading(true);
+        const unsub = Cloud.subscribeToAvailabilitiesForWeek(weekStartISO, (data) => {
+            setAvailabilities(data);
+            setLoading(false);
         });
-        const newSchedule = { ...schedule, days: updatedDays };
-        setSchedule(newSchedule);
-        Cloud.saveSchedule(newSchedule);
-        setEditingDay(null);
-    };
-    
-    const openScheduleEditor = (day: any, shift: string) => {
-        setEditingDay({ day, shift, currentStaff: day[shift], currentHours: day.hours?.[shift] });
+        return () => unsub();
+    }, [weekStartISO]);
+
+    const availabilityMap = new Map(availabilities.map(a => [a.userId, a.slots]));
+
+    const changeWeek = (offset: number) => {
+        setWeekStart(prev => {
+            const newDate = new Date(prev);
+            newDate.setDate(newDate.getDate() + offset * 7);
+            return newDate;
+        });
     };
 
     return (
-        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-surface text-text font-sans pt-8 md:pt-0">
-             <div className="bg-surface p-4 shadow-sm flex justify-between items-center shrink-0 border-b">
-                <h1 className="text-xl font-black">{t.manager_title}</h1>
-                <button onClick={onExit} className="bg-gray-100 p-2 rounded hover:bg-gray-200"><Icon name="LogOut" /></button>
+        <div className="space-y-4">
+            <div className="bg-dark-surface p-3 rounded-xl border border-white/10 flex justify-between items-center">
+                <h3 className="font-bold text-dark-text">Staff Availability</h3>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => changeWeek(-1)} className="p-2 bg-white/10 rounded-lg"><Icon name="ChevronLeft" size={16} /></button>
+                    <span className="text-sm font-bold text-center w-28">{weekStartISO}</span>
+                    <button onClick={() => changeWeek(1)} className="p-2 bg-white/10 rounded-lg"><Icon name="ChevronRight" size={16} /></button>
+                </div>
             </div>
-            
-            <div className="flex bg-surface p-2 gap-2 overflow-x-auto shrink-0 border-b">
-                <button onClick={() => setView('schedule')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'schedule' ? 'bg-primary text-white' : 'text-text-light hover:bg-gray-100'}`}>Schedule</button>
-                <button onClick={() => setView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'logs' ? 'bg-primary text-white' : 'text-text-light hover:bg-gray-100'}`}>Logs</button>
-                <button onClick={() => setView('chat')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === 'chat' ? 'bg-primary text-white' : 'text-text-light hover:bg-gray-100'}`}>Chat/Notices</button>
+            {loading ? <div className="text-center p-8 text-dark-text-light">Loading...</div> : (
+            <div className="overflow-x-auto bg-dark-surface p-2 rounded-xl border border-white/10">
+                <table className="w-full text-xs text-center">
+                    <thead>
+                        <tr className="text-dark-text-light">
+                            <th className="p-2 text-left sticky left-0 bg-dark-surface">Staff</th>
+                            {days.map(d => <th key={d.toISOString()} className="p-2 font-normal">{d.toLocaleDateString('en-US', { weekday: 'short' })}<br/>{`${d.getMonth()+1}-${d.getDate()}`}</th>)}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/10">
+                        {users.filter(u=>u.active!==false).map(user => {
+                            if (!user) return null;
+                            const userSlots = availabilityMap.get(user.id);
+                            return (
+                                <tr key={user.id}>
+                                    <td className="p-2 font-bold text-left sticky left-0 bg-dark-surface">{user.name}</td>
+                                    {days.map(d => {
+                                        const dateISO = formatDateISO(d);
+                                        const slot = userSlots?.[dateISO];
+                                        return (
+                                            <td key={dateISO} className="p-2">
+                                                <div className="flex flex-col gap-1 items-center">
+                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] w-10 ${slot?.morning ? 'bg-green-500/20 text-green-300' : 'bg-white/5 text-dark-text-light opacity-50'}`}>AM</span>
+                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] w-10 ${slot?.evening ? 'bg-blue-500/20 text-blue-300' : 'bg-white/5 text-dark-text-light opacity-50'}`}>PM</span>
+                                                </div>
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
             </div>
-
-            <div className="flex-1 overflow-y-auto bg-secondary p-4">
-                {view === 'schedule' && (
-                    <div className="space-y-4">
-                        <p className="text-xs text-text-light text-center">{t.drag_hint}</p>
-                        {schedule.days?.map((day: any) => (
-                            <div key={day.date} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100">
-                                <h3 className="font-bold mb-3">{day.name} <span className="text-gray-400 font-normal">{day.date}</span></h3>
-                                <div className="space-y-3">
-                                    {['morning', 'evening', 'night'].map(shift => (
-                                        <div key={shift} className="flex flex-col gap-2">
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-xs font-bold uppercase text-text-light">{shift} ({day.hours?.[shift]?.start}-{day.hours?.[shift]?.end})</span>
-                                                <button onClick={() => openScheduleEditor(day, shift)} className="text-primary text-xs font-bold">Edit</button>
-                                            </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {day[shift]?.length > 0 ? day[shift].map((u: string) => (
-                                                    <span key={u} className="px-3 py-1 bg-gray-100 rounded-lg text-xs font-bold">{u}</span>
-                                                )) : <span className="text-xs text-gray-300 italic">Empty</span>}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {view === 'logs' && (
-                    <div className="space-y-3">
-                         {logs.slice(0, 50).map((log: LogEntry) => (
-                             <div key={log.id} className="bg-surface p-3 rounded-xl border border-gray-100 flex justify-between items-center">
-                                 <div>
-                                     <p className="font-bold text-sm">{log.name} <span className="text-gray-400 font-normal text-xs">• {log.type}</span></p>
-                                     <p className="text-xs text-text-light">{log.time}</p>
-                                     {log.reason && <p className="text-xs text-orange-500 mt-1">{log.reason}</p>}
-                                 </div>
-                                 {log.deviationMinutes && (
-                                     <div className="text-right">
-                                         <span className="text-xs font-bold text-red-500 block">{log.deviationMinutes}m {log.deviationDirection}</span>
-                                     </div>
-                                 )}
-                             </div>
-                         ))}
-                    </div>
-                )}
-
-                {view === 'chat' && (
-                    <ChatView t={t} currentUser={{id:'manager', name:'Manager', role: 'manager'}} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} allUsers={users} sopList={data.sopList} trainingLevels={data.trainingLevels} />
-                )}
-            </div>
-            
-            {editingDay && (
-                <ScheduleEditorModal 
-                    isOpen={!!editingDay} 
-                    day={editingDay.day} 
-                    shiftType={editingDay.shift}
-                    currentStaff={editingDay.currentStaff}
-                    currentHours={editingDay.currentHours}
-                    teamMembers={users.filter((u:User) => u.active !== false)}
-                    onClose={() => setEditingDay(null)}
-                    onSave={handleSaveDaySchedule}
-                />
             )}
         </div>
     );
 };
 
+
+const StaffManagementView = ({ users }: { users: User[] }) => {
+    const [editingUser, setEditingUser] = useState<User | 'new' | null>(null);
+    const [showInactive, setShowInactive] = useState(false);
+    const [deactivatingUser, setDeactivatingUser] = useState<User | null>(null);
+
+    const handleSaveUser = async (user: User) => {
+        await Cloud.saveUser(user);
+        setEditingUser(null);
+        alert('Staff details saved!');
+    };
+    
+    const handleDeactivate = async () => {
+        if (!deactivatingUser) return;
+        await Cloud.saveUser({ ...deactivatingUser, active: false });
+        setDeactivatingUser(null);
+        alert(`${deactivatingUser.name} has been deactivated.`);
+    };
+
+    const sortedUsers = [...users].sort((a, b) => (a.active === b.active) ? 0 : a.active ? -1 : 1);
+    const filteredUsers = showInactive ? sortedUsers : sortedUsers.filter(u => u.active !== false);
+
+    return (
+        <div className="p-4 space-y-4 text-dark-text">
+            <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold">Staff Management</h3>
+                <div className="flex items-center gap-4">
+                     <label className="flex items-center gap-2 text-xs text-dark-text-light cursor-pointer">
+                        <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} className="rounded bg-dark-surface border-white/20 text-dark-accent focus:ring-dark-accent" />
+                        Show Inactive
+                    </label>
+                    <button onClick={() => setEditingUser('new')} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all">
+                        <Icon name="Plus" size={16} /> Add New Staff
+                    </button>
+                </div>
+            </div>
+
+            <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
+                <table className="w-full text-xs">
+                    <thead className="bg-dark-bg text-dark-text-light uppercase">
+                        <tr>
+                            <th className="p-3 text-left">Name</th>
+                            <th className="p-3 text-left">Role</th>
+                            <th className="p-3 text-left">Phone</th>
+                            <th className="p-3 text-left">Password</th>
+                            <th className="p-3 text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filteredUsers.map(user => (
+                            <tr key={user.id} className={`border-t border-white/10 ${!user.active ? 'opacity-50' : ''}`}>
+                                <td className="p-3 font-bold">{user.name}</td>
+                                <td className="p-3 capitalize">{user.role}</td>
+                                <td className="p-3 font-mono">{user.phone || 'N/A'}</td>
+                                <td className="p-3">{user.password ? <span className="text-green-400 font-bold">Set</span> : <span className="text-red-400">Not Set</span>}</td>
+                                <td className="p-3">
+                                    <div className="flex gap-2 justify-center">
+                                        <button onClick={() => setEditingUser(user)} className="p-2 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20"><Icon name="Edit" size={14}/></button>
+                                        {user.active !== false && (
+                                            <button onClick={() => setDeactivatingUser(user)} className="p-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Icon name="Trash" size={14}/></button>
+                                        )}
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            
+            {editingUser && <StaffEditModal user={editingUser} onSave={handleSaveUser} onClose={() => setEditingUser(null)} />}
+            {deactivatingUser && <CustomConfirmModal isOpen={!!deactivatingUser} title={`Deactivate ${deactivatingUser.name}?`} message="This will mark the employee as inactive. Their historical data will be preserved, but they won't appear in schedules. Are you sure?" onConfirm={handleDeactivate} onCancel={() => setDeactivatingUser(null)} />}
+        </div>
+    );
+};
+
+const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (user: User) => void, onClose: () => void }) => {
+    const isNew = user === 'new';
+    const [formData, setFormData] = useState<Partial<User>>(() => isNew ? { id: `u_${Date.now()}`, name: '', role: 'staff', phone: '', password: '', active: true } : user);
+    const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+
+    const handleChange = (field: keyof User, value: string) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleSave = () => {
+        if (!formData.name) return alert('Name is required.');
+        if (password !== confirmPassword) return alert('Passwords do not match.');
+        
+        const finalData = { ...formData };
+        if (password) {
+            finalData.password = password;
+        }
+
+        onSave(finalData as User);
+    };
+
+    const roles: UserRole[] = ['staff', 'manager', 'editor', 'maintenance', 'boss'];
+
+    return (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-dark-surface rounded-2xl p-6 w-full max-w-md shadow-2xl animate-pop-in border border-white/10 text-dark-text">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-black">{isNew ? 'Add New Staff' : `Edit ${formData.name}`}</h3>
+                    <button onClick={onClose} className="p-1 rounded-full hover:bg-white/10"><Icon name="X" /></button>
+                </div>
+                
+                <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Name</label><input type="text" value={formData.name} onChange={e => handleChange('name', e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
+                        <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Role</label><select value={formData.role} onChange={e => handleChange('role', e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded capitalize"><option disabled>Select Role</option>{roles.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                    </div>
+                    <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Phone Number</label><input type="text" value={formData.phone} onChange={e => handleChange('phone', e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
+                    
+                    <div className="border-t border-white/10 pt-4 mt-4">
+                         <p className="text-xs text-dark-text-light mb-2">{isNew ? 'Set Login Password:' : 'Reset Login Password (optional):'}</p>
+                         <div className="grid grid-cols-2 gap-4">
+                            <div><label className="text-xs font-bold text-dark-text-light mb-1 block">New Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
+                            <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Confirm Password</label><input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
+                         </div>
+                    </div>
+                </div>
+
+                <div className="flex gap-3 mt-8">
+                    <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-white/10 font-bold hover:bg-white/20">Cancel</button>
+                    <button onClick={handleSave} className="flex-1 py-3 rounded-xl bg-dark-accent text-dark-bg font-bold shadow-lg hover:opacity-90">Save</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    // ... (Owner dashboard unchanged, omitted for brevity)
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users } = data;
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
@@ -1247,82 +1290,378 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
     );
 };
 
-const StaffManagementView = ({ users }: { users: User[] }) => {
-    // ... (Staff management view unchanged)
-    const [editingUser, setEditingUser] = useState<User | 'new' | null>(null);
-    const [showInactive, setShowInactive] = useState(false);
-    const [deactivatingUser, setDeactivatingUser] = useState<User | null>(null);
+const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
+    // ... (Existing code)
+    const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
+    const { schedule, setSchedule, notices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users } = data;
+    const [view, setView] = useState<'requests' | 'schedule' | 'planning' | 'availability' | 'chat' | 'logs' | 'financial'>('requests');
+    const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' } | null>(null);
+    const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
+    const [wages, setWages] = useState<Record<string, number>>(() => { const saved = localStorage.getItem('onesip_wages'); const def: any = {}; users.forEach((m:User) => def[m.name] = 12); return saved ? { ...def, ...JSON.parse(saved) } : def; });
+    
+    // --- NEW: Schedule Navigation State ---
+    const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+    const totalWeeks = schedule?.days ? Math.ceil(schedule.days.length / 7) : 0;
+    const activeStaff = users.filter((u: User) => u.active !== false);
+    // ------------------------------------
 
-    const handleSaveUser = async (user: User) => {
-        await Cloud.saveUser(user);
-        setEditingUser(null);
-        alert('Staff details saved!');
+    useEffect(() => {
+        if (schedule?.days?.length > 0) {
+            let needsUpdate = false;
+            const newDays = schedule.days.map((day: ScheduleDay) => {
+                const newMorning = day.morning.map(name => { if (name === 'Najata') { needsUpdate = true; return 'Najat'; } return name; });
+                const newEvening = day.evening.map(name => { if (name === 'Najata') { needsUpdate = true; return 'Najat'; } return name; });
+                const newNight = day.night?.map(name => { if (name === 'Najata') { needsUpdate = true; return 'Najat'; } return name; });
+                return { ...day, morning: newMorning, evening: newEvening, night: newNight };
+            });
+
+            if (needsUpdate) {
+                console.log("Performing one-time schedule name correction for 'Najata' -> 'Najat'");
+                const newSchedule = { ...schedule, days: newDays };
+                setSchedule(newSchedule);
+                Cloud.saveSchedule(newSchedule);
+            }
+        }
+    }, [schedule, setSchedule]);
+
+
+    const handleWageChange = (name: string, val: string) => { const num = parseFloat(val); const newWages = { ...wages, [name]: isNaN(num) ? 0 : num }; setWages(newWages); localStorage.setItem('onesip_wages', JSON.stringify(newWages)); };
+    const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem('onesip_budget_max', b.toString()); };
+
+    const calculateFinancials = () => {
+        const stats: Record<string, any> = {};
+        activeStaff.forEach((m:User) => { stats[m.name] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 }; });
+        if (schedule?.days) { schedule.days.forEach((day: any) => { day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ }); day.evening.forEach((p: string) => { if(stats[p]) stats[p].evening++ }); }); }
+        const userLogs: Record<string, LogEntry[]> = {};
+        if (logs) { logs.forEach((l: LogEntry) => { if (!l.name) return; if (!userLogs[l.name]) userLogs[l.name] = []; userLogs[l.name].push(l); }); }
+        Object.keys(userLogs).forEach(name => { if(!stats[name]) return; const sorted = userLogs[name].sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime()); let lastIn: number | null = null; sorted.forEach(log => { if (log.shift === 'clock-in') { lastIn = new Date(log.time).getTime(); } else if (log.shift === 'clock-out' && lastIn) { const diffHrs = (new Date(log.time).getTime() - lastIn) / (1000 * 60 * 60); if (diffHrs > 0 && diffHrs < 16) { stats[name].actualHours += diffHrs; } lastIn = null; } }); });
+        let totalEstCost = 0; let totalActualCost = 0;
+        Object.keys(stats).forEach(p => { const estH = (stats[p].morning * 5) + (stats[p].evening * 4.5); const wage = wages[p] || 12; stats[p].estHours = estH; stats[p].estCost = estH * wage; stats[p].actualCost = stats[p].actualHours * wage; totalEstCost += stats[p].estCost; totalActualCost += stats[p].actualCost; });
+        return { stats, totalEstCost, totalActualCost };
+    };
+    const { stats, totalEstCost, totalActualCost } = calculateFinancials();
+
+    const exportFinancialCSV = () => { let csv = "Name,Wage,Est.Hours,Est.Cost,Act.Hours,Act.Cost\n"; Object.keys(stats).forEach(name => { const s = stats[name]; csv += `${name},${Number(wages[name] || 0).toFixed(2)},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)}\n`; }); csv += `TOTALS,,${totalEstCost.toFixed(2)},,${totalActualCost.toFixed(2)}\n`; const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "financial_report.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
+    
+    const confirmSwap = (req: SwapRequest) => {
+        let scheduleUpdated = false;
+        const newSchedule = JSON.parse(JSON.stringify(schedule));
+        const findDay = (dateStr: string) => {
+            if (!dateStr) return undefined;
+            return newSchedule.days.find((d: any) => d.date === dateStr || d.date === dateStr.replace(/^0/, '').replace(/-0/, '-'));
+        };
+        const reqDay = findDay(req.requesterDate);
+        const targetDay = findDay(req.targetDate);
+
+        if (reqDay && targetDay) {
+            const remove = (day: any, shift: 'morning' | 'evening' | 'night', name: string) => {
+                const idx = day[shift].indexOf(name);
+                if (idx > -1) day[shift].splice(idx, 1);
+            };
+            const add = (day: any, shift: 'morning' | 'evening' | 'night', name: string) => {
+                if (!day[shift].includes(name)) day[shift].push(name);
+            };
+            remove(reqDay, req.requesterShift, req.requesterName);
+            remove(targetDay, req.targetShift, req.targetName);
+            add(targetDay, req.targetShift, req.requesterName);
+            add(reqDay, req.requesterShift, req.targetName);
+            setSchedule(newSchedule);
+            Cloud.saveSchedule(newSchedule);
+            scheduleUpdated = true;
+        }
+
+        // Always mark the request as processed and remove it from the UI.
+        const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === req.id ? { ...r, status: 'approved' } : r);
+        Cloud.updateSwapRequests(updatedReqs);
+        setSwapRequests(swapRequests.filter(r => r.id !== req.id));
+
+        if (scheduleUpdated) {
+            alert("✅ Swap Confirmed & Schedule Updated!");
+        } else {
+            alert(`⚠️ Request approved and removed, but the schedule could not be automatically updated due to corrupted data (dates: ${req.requesterDate}, ${req.targetDate}). Please update the schedule manually.`);
+        }
+    };
+
+    const clearRequests = () => { if(window.confirm("Delete ALL requests?")) { setSwapRequests([]); Cloud.updateSwapRequests([]); } };
+
+    const handleSaveSchedule = (newStaff: string[], newHours: {start:string, end:string}) => { 
+        if (!editingShift) return; 
+        const { dayIdx, shift } = editingShift; 
+        
+        const newSched = JSON.parse(JSON.stringify(schedule));
+        
+        if (!newSched.days || !newSched.days[dayIdx]) return;
+
+        newSched.days[dayIdx][shift] = newStaff; 
+        
+        if (!newSched.days[dayIdx].hours) {
+            newSched.days[dayIdx].hours = { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end:'19:00'} }; 
+        }
+        
+        newSched.days[dayIdx].hours[shift] = newHours; 
+        
+        setSchedule(newSched); 
+        Cloud.saveSchedule(newSched); 
+        setEditingShift(null); 
     };
     
-    const handleDeactivate = async () => {
-        if (!deactivatingUser) return;
-        await Cloud.saveUser({ ...deactivatingUser, active: false });
-        setDeactivatingUser(null);
-        alert(`${deactivatingUser.name} has been deactivated.`);
-    };
+    const pendingReqs = swapRequests?.filter((r: SwapRequest) => r.status === 'accepted_by_peer') || [];
 
-    const sortedUsers = [...users].sort((a, b) => (a.active === b.active) ? 0 : a.active ? -1 : 1);
-    const filteredUsers = showInactive ? sortedUsers : sortedUsers.filter(u => u.active !== false);
+    const getShiftCost = (staff: string[], start: string, end: string) => {
+        if (!staff || staff.length === 0) return 0;
+        const s = parseInt(start.split(':')[0]) + (parseInt(start.split(':')[1]||'0')/60);
+        const e = parseInt(end.split(':')[0]) + (parseInt(end.split(':')[1]||'0')/60);
+        const duration = Math.max(0, e - s);
+        return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
+    };
+    
+    const totalWeeklyPlanningCost = schedule.days?.reduce((acc: number, day: any) => {
+        const m = getShiftCost(day.morning, day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
+        const e = getShiftCost(day.evening, day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
+        const n = day.night ? getShiftCost(day.night, day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00') : 0;
+        return acc + m + e + n;
+    }, 0) || 0;
+
 
     return (
-        <div className="p-4 space-y-4 text-dark-text">
-            <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold">Staff Management</h3>
-                <div className="flex items-center gap-4">
-                     <label className="flex items-center gap-2 text-xs text-dark-text-light cursor-pointer">
-                        <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} className="rounded bg-dark-surface border-white/20 text-dark-accent focus:ring-dark-accent" />
-                        Show Inactive
-                    </label>
-                    <button onClick={() => setEditingUser('new')} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all">
-                        <Icon name="Plus" size={16} /> Add New Staff
-                    </button>
-                </div>
+        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
+            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
+                <div><h1 className="text-xl font-black tracking-tight text-white">{t.manager_title}</h1><p className="text-xs text-dark-text-light">User: {managerUser.name}</p></div>
+                <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
             </div>
-
-            <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
-                <table className="w-full text-xs">
-                    <thead className="bg-dark-bg text-dark-text-light uppercase">
-                        <tr>
-                            <th className="p-3 text-left">Name</th>
-                            <th className="p-3 text-left">Role</th>
-                            <th className="p-3 text-left">Phone</th>
-                            <th className="p-3 text-left">Password</th>
-                            <th className="p-3 text-center">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filteredUsers.map(user => (
-                            <tr key={user.id} className={`border-t border-white/10 ${!user.active ? 'opacity-50' : ''}`}>
-                                <td className="p-3 font-bold">{user.name}</td>
-                                <td className="p-3 capitalize">{user.role}</td>
-                                <td className="p-3 font-mono">{user.phone || 'N/A'}</td>
-                                <td className="p-3">{user.password ? <span className="text-green-400 font-bold">Set</span> : <span className="text-red-400">Not Set</span>}</td>
-                                <td className="p-3">
-                                    <div className="flex gap-2 justify-center">
-                                        <button onClick={() => setEditingUser(user)} className="p-2 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20"><Icon name="Edit" size={14}/></button>
-                                        {user.active !== false && (
-                                            <button onClick={() => setDeactivatingUser(user)} className="p-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Icon name="Trash" size={14}/></button>
+            <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
+                {['requests', 'schedule', 'planning', 'availability', 'chat', 'logs', 'financial'].map(v => (
+                    <button key={v} onClick={() => setView(v as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === v ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                        {v} {v==='requests' && pendingReqs.length > 0 && `(${pendingReqs.length})`}
+                    </button>
+                ))}
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+                {view === 'requests' && (
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10 relative z-10">
+                            <h3 className="font-bold text-dark-text">Pending Approvals</h3>
+                            <button 
+                                onClick={clearRequests} 
+                                className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-500/20 active:scale-95 transition-all"
+                            >
+                                Clear All
+                            </button>
+                        </div>
+                        {pendingReqs.length === 0 && <p className="text-dark-text-light text-center py-10 bg-dark-surface rounded-xl shadow-sm border border-white/10">No pending requests.</p>}
+                        {pendingReqs.map((req: SwapRequest) => (
+                            <div key={req.id} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
+                                <div className="flex justify-between items-center mb-3">
+                                    <div className="font-bold text-dark-text">{req.requesterName} <span className="text-dark-text-light text-xs">swaps with</span> {req.targetName}</div>
+                                    <span className="bg-green-500/10 text-green-400 text-xs px-2 py-1 rounded font-bold">AGREED</span>
+                                </div>
+                                <div className="bg-dark-bg p-3 rounded-lg text-sm text-dark-text-light mb-3 space-y-1">
+                                    <div className="flex justify-between"><span>{req.requesterName}:</span> <strong>{req.requesterDate} ({req.requesterShift})</strong></div>
+                                    <div className="flex justify-between"><span>{req.targetName}:</span> <strong>{req.targetDate} ({req.targetShift})</strong></div>
+                                </div>
+                                <button onClick={() => confirmSwap(req)} className="w-full bg-dark-accent text-dark-bg py-3 rounded-xl font-bold shadow-md active:scale-95 transition-all hover:opacity-90">Approve & Update Schedule</button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                 {view === 'availability' && <StaffAvailabilityView t={t} users={users} />}
+                {view === 'chat' && <ChatView t={t} currentUser={managerUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} onExit={() => setView('requests')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />}
+                {view === 'schedule' && (
+                    <div className="space-y-3 pb-10">
+                        <div className="bg-dark-surface p-4 rounded-xl border border-white/10 shadow-sm mb-4 sticky top-0 z-20">
+                            <div className="flex justify-between items-center">
+                                <h3 className="font-bold text-dark-text mb-2">
+                                    Week {currentWeekIndex + 1} of {totalWeeks}
+                                </h3>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setCurrentWeekIndex(Math.max(0, currentWeekIndex - 1))} disabled={currentWeekIndex === 0} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronLeft" size={16}/></button>
+                                    <button onClick={() => setCurrentWeekIndex(Math.min(totalWeeks - 1, currentWeekIndex + 1))} disabled={currentWeekIndex >= totalWeeks - 1} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronRight" size={16}/></button>
+                                </div>
+                            </div>
+                            <p className="text-xs text-dark-text-light">Tap on a shift to edit staff & times.</p>
+                        </div>
+                        {schedule.days?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, dayIndexInWeek: number) => {
+                            const absoluteDayIndex = currentWeekIndex * 7 + dayIndexInWeek;
+                            const isWeekend = ['Friday', 'Saturday', 'Sunday'].includes(day.name);
+                            return (
+                                <div key={absoluteDayIndex} className="bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10">
+                                    <div className="flex justify-between mb-2">
+                                        <span className="font-bold text-dark-text">{day.name}</span>
+                                        <span className="text-xs text-dark-text-light">{day.date}</span>
+                                    </div>
+                                    <div className={`grid ${isWeekend ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2'} gap-2`}>
+                                        <div onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'morning' })} className="p-2 bg-orange-500/10 rounded border border-orange-500/20 cursor-pointer hover:bg-orange-500/20 transition-all">
+                                            <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-orange-400 font-bold">MORNING</div><div className="text-[10px] text-dark-text-light">{day.hours?.morning?.start || '10:00'}-{day.hours?.morning?.end || '15:00'}</div></div>
+                                            <div className="text-xs text-dark-text-light font-medium">{day.morning.length > 0 ? day.morning.join(', ') : <span className="italic">Empty</span>}</div>
+                                        </div>
+                                        <div onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'evening' })} className="p-2 bg-blue-500/10 rounded border border-blue-500/20 cursor-pointer hover:bg-blue-500/20 transition-all">
+                                            <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-blue-400 font-bold">EVENING</div><div className="text-[10px] text-dark-text-light">{day.hours?.evening?.start || '14:30'}-{day.hours?.evening?.end || '19:00'}</div></div>
+                                            <div className="text-xs text-dark-text-light font-medium">{day.evening.length > 0 ? day.evening.join(', ') : <span className="italic">Empty</span>}</div>
+                                        </div>
+                                        {isWeekend && (
+                                            <div onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'night' })} className="p-2 bg-indigo-500/10 rounded border border-indigo-500/20 cursor-pointer hover:bg-indigo-500/20 transition-all">
+                                                <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-indigo-400 font-bold uppercase">Night</div><div className="text-[10px] text-dark-text-light">{day.hours?.night?.start || '18:00'}-{day.hours?.night?.end || '22:00'}</div></div>
+                                                <div className="text-xs text-dark-text-light font-medium">{day.night && day.night.length > 0 ? day.night.join(', ') : <span className="italic">Empty</span>}</div>
+                                            </div>
                                         )}
                                     </div>
-                                </td>
-                            </tr>
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+                {view === 'planning' && (
+                    <div className="space-y-4 pb-10">
+                        <div className="bg-dark-surface p-5 rounded-xl border border-white/10 mb-4 shadow-lg">
+                            <h3 className="font-bold text-dark-text mb-2 flex items-center gap-2 uppercase tracking-wider text-sm">
+                                <Icon name="Briefcase" size={16}/> Staff Planning & Cost
+                            </h3>
+                            <p className="text-xs text-dark-text-light mb-4">
+                                Live estimate based on current schedule and individual wage settings.
+                            </p>
+                            <div className="flex justify-between items-center bg-dark-bg p-4 rounded-xl border border-white/5">
+                                <span className="text-xs font-bold text-dark-text-light uppercase">Total Weekly Forecast</span>
+                                <span className="text-2xl font-black text-green-400">€{totalWeeklyPlanningCost.toFixed(0)}</span>
+                            </div>
+                        </div>
+
+                        {schedule.days?.slice(0, 7).map((day: ScheduleDay, idx: number) => { // Planning view only shows current week
+                            const mStart = day.hours?.morning?.start || '10:00';
+                            const mEnd = day.hours?.morning?.end || '15:00';
+                            const eStart = day.hours?.evening?.start || '14:30';
+                            const eEnd = day.hours?.evening?.end || '19:00';
+                            const nStart = day.hours?.night?.start || '18:00';
+                            const nEnd = day.hours?.night?.end || '22:00';
+
+                            const mCost = getShiftCost(day.morning, mStart, mEnd);
+                            const eCost = getShiftCost(day.evening, eStart, eEnd);
+                            const nCost = day.night ? getShiftCost(day.night, nStart, nEnd) : 0;
+                            
+                            const isWeekend = ['Friday', 'Saturday', 'Sunday'].includes(day.name);
+
+                            return (
+                                <div key={idx} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
+                                    <div className="flex justify-between items-center mb-3 border-b border-white/5 pb-2">
+                                        <div>
+                                            <span className="font-bold text-dark-text">{day.name}</span>
+                                            <span className="text-xs text-dark-text-light ml-2">{day.date}</span>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="block text-[10px] text-dark-text-light uppercase">Daily Cost</span>
+                                            <span className="font-bold text-white">€{(mCost + eCost + nCost).toFixed(0)}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'morning' })} className="mb-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-orange-500/30 cursor-pointer transition-all" >
+                                        <div className="flex justify-between items-center mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded font-bold">AM</span>
+                                                <span className="text-[10px] text-dark-text-light font-mono">{mStart}-{mEnd}</span>
+                                            </div>
+                                            <span className="text-xs font-mono text-dark-text-light">€{mCost.toFixed(0)}</span>
+                                        </div>
+                                        <div className="space-y-1">
+                                            {day.morning.length > 0 ? day.morning.map((name, i) => (
+                                                <div key={i} className="flex justify-between text-xs">
+                                                    <span className="text-dark-text font-medium">{name}</span>
+                                                    <span className="text-dark-text-light text-[10px] opacity-60">€{wages[name] || 12}/h</span>
+                                                </div>
+                                            )) : <span className="text-xs text-dark-text-light italic">Empty Shift</span>}
+                                        </div>
+                                    </div>
+
+                                    <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'evening' })} className="p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-blue-500/30 cursor-pointer transition-all" >
+                                        <div className="flex justify-between items-center mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-bold">PM</span>
+                                                <span className="text-[10px] text-dark-text-light font-mono">{eStart}-{eEnd}</span>
+                                            </div>
+                                            <span className="text-xs font-mono text-dark-text-light">€{eCost.toFixed(0)}</span>
+                                        </div>
+                                        <div className="space-y-1">
+                                            {day.evening.length > 0 ? day.evening.map((name, i) => (
+                                                <div key={i} className="flex justify-between text-xs">
+                                                    <span className="text-dark-text font-medium">{name}</span>
+                                                    <span className="text-dark-text-light text-[10px] opacity-60">€{wages[name] || 12}/h</span>
+                                                </div>
+                                            )) : <span className="text-xs text-dark-text-light italic">Empty Shift</span>}
+                                        </div>
+                                    </div>
+                                    
+                                    {isWeekend && (
+                                        <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'night' })} className="mt-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-indigo-500/30 cursor-pointer transition-all" >
+                                            <div className="flex justify-between items-center mb-2">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-bold">NIGHT</span>
+                                                    <span className="text-[10px] text-dark-text-light font-mono">{nStart}-{nEnd}</span>
+                                                </div>
+                                                <span className="text-xs font-mono text-dark-text-light">€{nCost.toFixed(0)}</span>
+                                            </div>
+                                            <div className="space-y-1">
+                                                {day.night && day.night.length > 0 ? day.night.map((name, i) => (
+                                                    <div key={i} className="flex justify-between text-xs">
+                                                        <span className="text-dark-text font-medium">{name}</span>
+                                                        <span className="text-dark-text-light text-[10px] opacity-60">€{wages[name] || 12}/h</span>
+                                                    </div>
+                                                )) : <span className="text-xs text-dark-text-light italic">Empty Shift</span>}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                {view === 'logs' && (
+                    <div className="space-y-2">
+                        {logs?.slice().reverse().map((log: LogEntry, i: number) => (
+                            <div key={i} className="bg-dark-surface p-3 rounded-lg shadow-sm text-sm border-l-4 border-dark-accent">
+                                <div className="flex justify-between mb-1"><span className="font-bold text-dark-text">{log.name}</span><span className="text-xs text-dark-text-light">{log.time}</span></div>
+                                <div className="flex justify-between items-center">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] ${log.type?.includes('in') ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{log.type}</span>
+                                    <span className="text-[10px] text-dark-text-light font-mono">{log.reason || 'No Location'}</span>
+                                </div>
+                            </div>
                         ))}
-                    </tbody>
-                </table>
+                    </div>
+                )}
+                {view === 'financial' && (
+                    <div className="space-y-4">
+                        <div className="bg-dark-surface p-5 rounded-2xl shadow-sm border border-white/10">
+                            <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2"><Icon name="Briefcase"/> Financial Dashboard</h3>
+                            <div className="mb-4"><label className="block text-xs font-bold text-dark-text-light mb-1">Monthly Budget Max (€)</label><input type="number" className="w-full border rounded p-2 text-lg font-bold bg-dark-bg border-white/10" value={budgetMax} onChange={e => handleBudgetChange(e.target.value)} /></div>
+                            <div className="grid grid-cols-2 gap-4 text-center mb-6">
+                                <div className="bg-dark-bg p-3 rounded-xl"><p className="text-xs text-dark-text-light font-bold uppercase">Est. Cost</p><p className="text-xl font-black text-white">€{totalEstCost.toFixed(0)}</p></div>
+                                <div className="bg-dark-bg p-3 rounded-xl"><p className="text-xs text-dark-text-light font-bold uppercase">Actual Cost</p><p className="text-xl font-black text-white">€{totalActualCost.toFixed(0)}</p></div>
+                            </div>
+                            <div className="mb-6">
+                                <div className="flex justify-between items-center mb-2"><span className="text-sm font-bold text-dark-text-light">Budget Usage</span><span className={`font-bold ${totalActualCost > budgetMax ? 'text-red-400' : 'text-green-400'}`}>{totalActualCost > budgetMax ? 'OVER BUDGET' : `${(budgetMax - totalActualCost).toFixed(0)} Left`}</span></div>
+                                <div className="w-full bg-dark-bg rounded-full h-2.5 overflow-hidden"><div className={`h-2.5 rounded-full ${totalActualCost > budgetMax ? 'bg-red-500' : 'bg-dark-accent'}`} style={{ width: `${Math.min(100, (totalActualCost/budgetMax)*100)}%` }}></div></div>
+                            </div>
+                            <div className="border border-white/10 rounded-xl overflow-hidden mb-4">
+                                <table className="w-full text-xs"><thead className="bg-dark-bg text-dark-text-light"><tr><th className="p-2 text-left">Staff</th><th className="p-2">Wage/Hr</th><th className="p-2">Act. Hrs</th><th className="p-2">Cost</th></tr></thead>
+                                    <tbody className="divide-y divide-white/10">{Object.keys(stats).map(name => (
+                                        <tr key={name}>
+                                            <td className="p-2 font-bold text-dark-text">{name}</td>
+                                            <td className="p-2 text-center">
+                                                <input type="number" step="0.01" className="w-12 text-center border rounded bg-dark-bg border-white/20 text-dark-text" value={wages[name] || ''} onChange={(e) => handleWageChange(name, e.target.value)}/>
+                                            </td>
+                                            <td className="p-2 text-center text-dark-text-light">{stats[name].actualHours.toFixed(1)}</td>
+                                            <td className="p-2 text-right font-mono text-dark-text">€{stats[name].actualCost.toFixed(0)}</td>
+                                        </tr>
+                                    ))}</tbody>
+                                </table>
+                            </div>
+                            <button onClick={exportFinancialCSV} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-md flex justify-center gap-2 transition-all hover:bg-green-700"><Icon name="List" /> Export Report (CSV)</button>
+                        </div>
+                    </div>
+                )}
             </div>
-            
-            {editingUser && <StaffEditModal user={editingUser} onSave={handleSaveUser} onClose={() => setEditingUser(null)} />}
-            {deactivatingUser && <CustomConfirmModal isOpen={!!deactivatingUser} title={`Deactivate ${deactivatingUser.name}?`} message="This will mark the employee as inactive. Their historical data will be preserved, but they won't appear in schedules. Are you sure?" onConfirm={handleDeactivate} onCancel={() => setDeactivatingUser(null)} />}
+            {editingShift && <ScheduleEditorModal isOpen={!!editingShift} day={schedule.days[editingShift.dayIdx]} shiftType={editingShift.shift} currentStaff={schedule.days[editingShift.dayIdx][editingShift.shift]} currentHours={schedule.days[editingShift.dayIdx].hours?.[editingShift.shift]} onClose={() => setEditingShift(null)} onSave={handleSaveSchedule} teamMembers={activeStaff} />}
         </div>
     );
 };
 
-// ... (StaffEditModal and StaffAvailabilityView unchanged)
 
 // --- STAFF APP ---
 
