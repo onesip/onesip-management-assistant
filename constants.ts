@@ -56,6 +56,9 @@ export const TRANSLATIONS: Record<string, any> = {
         owner_dashboard: "库存中控台 (Owner)",
         manage_presets: "管理预设值",
         report_history: "历史记录",
+        last_refill_title: "上一次补料记录",
+        no_refill_record: "还没有任何补料记录",
+        more_items: "还有 {n} 项...",
         
         // Editor
         editor_title: "内容编辑器",
@@ -166,6 +169,9 @@ export const TRANSLATIONS: Record<string, any> = {
         owner_dashboard: "Inventory Command (Owner)",
         manage_presets: "Manage Presets",
         report_history: "Report History",
+        last_refill_title: "Last Refill Summary",
+        no_refill_record: "No refill logs yet",
+        more_items: "{n} more...",
 
         // Editor
         editor_title: "Content Editor",
@@ -477,7 +483,7 @@ export const DRINK_RECIPES: DrinkRecipe[] = [
         id: 'm5', name: {zh: '小吊梨芦薈', en: 'Snow Pear Aloe Milk'}, cat: 'Milk Tea', size: '500ml', ice: 'Cold/Warm', sugar: 'No add',
         toppings: {zh: '马蹄爆爆珠1勺, 梨酱3粉勺', en: 'Waterchestnut boba 1 sp, Pear jam 3 ps'},
         steps: {
-            cold: [{zh:'加爆爆珠和3勺梨酱',en:'Add boba & 3 spoons pear jam'}, {zh:'机器出茶',en:'Machine dispense'}, {zh:'加冰封口',en:'Add ice & Seal'}],
+            cold: [{zh:'加爆爆珠和3勺梨酱',en:'Add boba & pear jam'}, {zh:'机器出茶',en:'Machine dispense'}, {zh:'加冰封口',en:'Add ice & Seal'}],
             warm: [{zh:'同冷饮步骤',en:'Same ingredients'}, {zh:'雪克杯接茶加热',en:'Dispense to shaker & Steam'}, {zh:'倒入纸杯封口',en:'Pour to paper cup & Seal'}]
         }
     },
