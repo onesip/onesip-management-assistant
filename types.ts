@@ -117,6 +117,14 @@ export interface LogEntry {
   manualEditReason?: string;
   manualEditedBy?: string;
   manualEditedAt?: string;
+
+  // FIX: Add fields for inventory logs to resolve type errors.
+  items?: { name: string; unit: string; amount: number | string; itemId?: string; }[];
+  note?: string;
+  manualInventoryEdited?: boolean;
+  manualInventoryEditedBy?: string;
+  manualInventoryEditedAt?: string;
+  manualInventoryEditReason?: string;
 }
 
 export interface ChatMessage {

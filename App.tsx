@@ -45,6 +45,90 @@ const formatDateISO = (date: Date) => date.toISOString().split('T')[0];
 
 // --- MODALS ---
 
+const EditInventoryLogModal = ({ isOpen, log, onClose, onSave, currentUser }: { isOpen: boolean, log: LogEntry | null, onClose: () => void, onSave: (log: LogEntry) => void, currentUser: User }) => {
+    const [items, setItems] = useState<any[]>([]);
+    const [note, setNote] = useState('');
+
+    useEffect(() => {
+        if (log) {
+            // Deep copy to avoid mutating state directly
+            setItems(JSON.parse(JSON.stringify(log.items || [])));
+            // FIX: Removed @ts-ignore as properties are now defined in LogEntry type.
+            setNote(log.manualInventoryEditReason || log.note || '');
+        }
+    }, [log]);
+
+    if (!isOpen || !log) return null;
+
+    const handleItemChange = (index: number, value: string) => {
+        const newItems = [...items];
+        const numValue = parseFloat(value);
+        newItems[index] = { ...newItems[index], amount: isNaN(numValue) ? '' : numValue };
+        setItems(newItems);
+    };
+
+    const handleSubmit = () => {
+        const hasInvalidAmount = items.some(item => typeof item.amount !== 'number');
+        if (hasInvalidAmount) {
+            alert('All item amounts must be valid numbers.');
+            return;
+        }
+
+        const updatedLog: LogEntry = {
+            ...log,
+            items: items,
+            // FIX: Removed @ts-ignore as properties are now defined in LogEntry type.
+            manualInventoryEdited: true,
+            manualInventoryEditedBy: currentUser.name,
+            manualInventoryEditedAt: new Date().toLocaleString(),
+            manualInventoryEditReason: note,
+        };
+        onSave(updatedLog);
+    };
+
+    return (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-dark-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-pop-in border border-white/10 text-dark-text max-h-[90vh] flex flex-col">
+                <h3 className="text-lg font-black text-dark-accent mb-2">Edit Material Log</h3>
+                <p className="text-xs text-dark-text-light mb-4">Log ID: {log.id}</p>
+                
+                <div className="flex-1 overflow-y-auto space-y-2 pr-2 -mr-2 no-scrollbar">
+                    {items.map((item, index) => (
+                        <div key={index} className="bg-dark-bg p-3 rounded-lg flex items-center gap-3">
+                            <div className="flex-1">
+                                <p className="text-sm font-bold">{item.name}</p>
+                                <p className="text-xs text-dark-text-light">{item.unit}</p>
+                            </div>
+                            <input
+                                type="number"
+                                value={item.amount}
+                                onChange={(e) => handleItemChange(index, e.target.value)}
+                                className="w-20 p-2 bg-dark-surface border border-white/10 rounded text-center font-bold"
+                                placeholder="Qty"
+                            />
+                        </div>
+                    ))}
+                </div>
+
+                <div className="mt-4">
+                    <label className="text-xs font-bold text-dark-text-light mb-1 block">Reason / Note for Edit</label>
+                    <textarea
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        className="w-full p-2 bg-dark-bg border border-white/10 rounded text-sm h-20"
+                        placeholder="e.g., Corrected typo from initial report"
+                    />
+                </div>
+
+                <div className="flex gap-3 mt-4">
+                    <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-white/10 font-bold hover:bg-white/20">Cancel</button>
+                    <button onClick={handleSubmit} className="flex-1 py-3 rounded-xl bg-dark-accent text-dark-bg font-bold shadow-lg hover:opacity-90">Save</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const InvalidateLogModal = ({ isOpen, log, onClose, onConfirm, currentUser }: { isOpen: boolean, log: LogEntry | null, onClose: () => void, onConfirm: (log: LogEntry, reason: string) => void, currentUser: User }) => {
     const [reason, setReason] = useState('');
     if (!isOpen || !log) return null;
@@ -1171,14 +1255,78 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     );
 };
 
+const OwnerInventoryLogsView = ({ logs, currentUser, onUpdateLogs }: { logs: LogEntry[], currentUser: User, onUpdateLogs: (logs: LogEntry[]) => void }) => {
+    const [editingLog, setEditingLog] = useState<LogEntry | null>(null);
+    const [invalidatingLog, setInvalidatingLog] = useState<LogEntry | null>(null);
+
+    // Filter for material/inventory logs, which are identified by having an 'items' array.
+    const materialLogs = (logs || [])
+        .filter(log => Array.isArray((log as any).items))
+        .slice()
+        .reverse();
+
+    const handleSave = (updatedLog: LogEntry) => {
+        const newLogs = logs.map(l => l.id === updatedLog.id ? updatedLog : l);
+        onUpdateLogs(newLogs);
+        setEditingLog(null);
+    };
+
+    const handleInvalidateConfirm = (logToUpdate: LogEntry) => {
+        const newLogs = logs.map(l => l.id === logToUpdate.id ? logToUpdate : l);
+        onUpdateLogs(newLogs);
+        setInvalidatingLog(null);
+    };
+
+    return (
+        <div className="p-4 space-y-3">
+            <h3 className="text-lg font-bold text-dark-text">Material Logs</h3>
+            {materialLogs.length === 0 && <p className="text-dark-text-light text-center py-10">No material logs found.</p>}
+            {materialLogs.map((log: any) => (
+                <div key={log.id} className={`bg-dark-surface p-3 rounded-xl border border-white/10 ${log.isDeleted ? 'opacity-50' : ''}`}>
+                    <div className="flex justify-between items-start mb-2">
+                        <div>
+                            <p className="text-sm font-bold">{log.name} <span className="text-xs text-dark-text-light font-normal">({log.type || 'refill'})</span></p>
+                            <p className="text-xs text-dark-text-light">{new Date(log.time).toLocaleString()}</p>
+                            {log.isDeleted && <span className="text-xs text-red-400 font-bold">[INVALIDATED]</span>}
+                            {log.manualInventoryEdited && <span className="text-xs text-yellow-400 font-bold">[EDITED]</span>}
+                        </div>
+                        {!log.isDeleted && (
+                            <div className="flex gap-2 shrink-0">
+                                <button onClick={() => setEditingLog(log)} className="bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-500/20">Edit</button>
+                                <button onClick={() => setInvalidatingLog(log)} className="bg-red-500/10 text-red-400 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-500/20">Invalidate</button>
+                            </div>
+                        )}
+                    </div>
+                    <div className="bg-dark-bg p-2 rounded-lg text-xs space-y-1">
+                        {(log.items || []).map((item: any, index: number) => (
+                            <div key={index} className="flex justify-between">
+                                <span>{item.name}</span>
+                                <span className="font-mono font-bold">+{item.amount}{item.unit}</span>
+                            </div>
+                        ))}
+                    </div>
+                     {log.isDeleted && <p className="text-xs mt-2 text-gray-400 border-t border-white/10 pt-2">Reason: {log.deleteReason}</p>}
+                     {log.manualInventoryEdited && <p className="text-xs mt-2 text-yellow-500 border-t border-white/10 pt-2">Edit Note: {log.manualInventoryEditReason}</p>}
+                </div>
+            ))}
+            <EditInventoryLogModal isOpen={!!editingLog} log={editingLog} onClose={() => setEditingLog(null)} onSave={handleSave} currentUser={currentUser} />
+            <InvalidateLogModal isOpen={!!invalidatingLog} log={invalidatingLog} onClose={() => setInvalidatingLog(null)} onConfirm={handleInvalidateConfirm} currentUser={currentUser} />
+        </div>
+    );
+};
+
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users } = data;
+    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs } = data;
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
-    const [ownerSubView, setOwnerSubView] = useState<'presets' | 'history' | 'staff'>('presets');
+    const [ownerSubView, setOwnerSubView] = useState<'logs' | 'presets' | 'history' | 'staff'>('logs');
     const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+    
+    const handleUpdateLogs = (allLogs: LogEntry[]) => {
+        Cloud.updateLogs(allLogs);
+    };
 
     const handleExportCsv = () => {
         const headers = "Date,Submitted By,Item Name,End Count,Waste Count\n";
@@ -1265,11 +1413,14 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 </div>
             </div>
             <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
-                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                    Manage Presets
+                <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Material Logs
                 </button>
                 <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
                     Report History
+                </button>
+                 <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Manage Presets
                 </button>
                  <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
                     Staff Mgmt
@@ -1289,6 +1440,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 )}
                 {ownerSubView === 'history' && <InventoryHistoryView />}
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
+                {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={handleUpdateLogs} />}
             </div>
         </div>
     );
