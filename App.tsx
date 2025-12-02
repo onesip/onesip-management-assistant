@@ -959,82 +959,128 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     );
 };
 
-const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
-    const [weekStart, setWeekStart] = useState(getStartOfWeek(new Date(), 1));
-    const [availabilities, setAvailabilities] = useState<StaffAvailability[]>([]);
-    const [loading, setLoading] = useState(true);
+const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
+    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users } = data;
+    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
+    const [view, setView] = useState<'main' | 'manager'>('main');
+    const [ownerSubView, setOwnerSubView] = useState<'presets' | 'history' | 'staff'>('presets');
+    const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
 
-    const weekStartISO = formatDateISO(weekStart);
-    const days = Array.from({ length: 7 }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
-    useEffect(() => {
-        setLoading(true);
-        const unsub = Cloud.subscribeToAvailabilitiesForWeek(weekStartISO, (data) => {
-            setAvailabilities(data);
-            setLoading(false);
-        });
-        return () => unsub();
-    }, [weekStartISO]);
+    const handleExportCsv = () => {
+        const headers = "Date,Submitted By,Item Name,End Count,Waste Count\n";
+        const csvRows = inventoryHistory.flatMap((report: InventoryReport) => 
+            Object.entries(report.data).map(([itemId, values]) => {
+                const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
+                const itemName = itemDef ? getLoc(itemDef.name) : itemId;
+                const cleanItemName = `"${itemName.replace(/"/g, '""')}"`; // Escape double quotes
+                
+                const reportDate = report.date ? new Date(report.date).toISOString().split('T')[0] : '';
+                return [
+                    `"${reportDate}"`,
+                    `"${report.submittedBy}"`,
+                    cleanItemName,
+                    values.end || '0',
+                    values.waste || '0'
+                ].join(',');
+            })
+        );
 
-    const availabilityMap = new Map(availabilities.map(a => [a.userId, a.slots]));
-
-    const changeWeek = (offset: number) => {
-        setWeekStart(prev => {
-            const newDate = new Date(prev);
-            newDate.setDate(newDate.getDate() + offset * 7);
-            return newDate;
-        });
+        const csvString = headers + csvRows.join('\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        const date = new Date().toISOString().split('T')[0];
+        link.setAttribute("download", `inventory_records_${date}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
+    if (view === 'manager') {
+        return <ManagerDashboard data={data} onExit={() => setView('main')} />;
+    }
+    
+    const InventoryHistoryView = () => (
+        <div className="p-4 space-y-3">
+            <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-dark-text">{t.report_history || 'Report History'}</h3>
+                <button onClick={handleExportCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-green-700 transition-all">
+                    <Icon name="List" size={16} /> Export CSV
+                </button>
+            </div>
+            {inventoryHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found.</p>}
+            {inventoryHistory.slice().reverse().map((report: InventoryReport) => (
+                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10">
+                    <div onClick={() => setExpandedReportId(expandedReportId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
+                        <div>
+                            <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'}</p>
+                            <p className="text-xs text-dark-text-light">by {report.submittedBy} • {Object.keys(report.data).length} items</p>
+                        </div>
+                        <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
+                    </div>
+                    {expandedReportId === report.id && (
+                        <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2">
+                            <div className="grid grid-cols-3 font-bold text-dark-text-light">
+                                <span>Item</span><span className="text-center">End</span><span className="text-center">Waste</span>
+                            </div>
+                            {Object.entries(report.data).map(([itemId, values]) => {
+                                const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
+                                return (
+                                    <div key={itemId} className="grid grid-cols-3 items-center">
+                                        <span>{itemDef ? getLoc(itemDef.name) : itemId}</span>
+                                        <span className="text-center font-mono">{values.end || '0'}</span>
+                                        <span className="text-center font-mono text-red-400">{values.waste || '0'}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+
     return (
-        <div className="space-y-4">
-            <div className="bg-dark-surface p-3 rounded-xl border border-white/10 flex justify-between items-center">
-                <h3 className="font-bold text-dark-text">Staff Availability</h3>
-                <div className="flex items-center gap-2">
-                    <button onClick={() => changeWeek(-1)} className="p-2 bg-white/10 rounded-lg"><Icon name="ChevronLeft" size={16} /></button>
-                    <span className="text-sm font-bold text-center w-28">{weekStartISO}</span>
-                    <button onClick={() => changeWeek(1)} className="p-2 bg-white/10 rounded-lg"><Icon name="ChevronRight" size={16} /></button>
+        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
+            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
+                <div><h1 className="text-xl font-black tracking-tight text-white">{t.owner_dashboard || 'Owner Dashboard'}</h1><p className="text-xs text-dark-text-light">User: {ownerUser.name}</p></div>
+                <div className="flex gap-2">
+                    <button onClick={() => setView('manager')} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all text-xs font-bold px-3">Manager Dashboard</button>
+                    <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
                 </div>
             </div>
-            {loading ? <div className="text-center p-8 text-dark-text-light">Loading...</div> : (
-            <div className="overflow-x-auto bg-dark-surface p-2 rounded-xl border border-white/10">
-                <table className="w-full text-xs text-center">
-                    <thead>
-                        <tr className="text-dark-text-light">
-                            <th className="p-2 text-left sticky left-0 bg-dark-surface">Staff</th>
-                            {days.map(d => <th key={d.toISOString()} className="p-2 font-normal">{d.toLocaleDateString('en-US', { weekday: 'short' })}<br/>{`${d.getMonth()+1}-${d.getDate()}`}</th>)}
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/10">
-                        {users.filter(u=>u.active!==false).map(user => {
-                            if (!user) return null;
-                            const userSlots = availabilityMap.get(user.id);
-                            return (
-                                <tr key={user.id}>
-                                    <td className="p-2 font-bold text-left sticky left-0 bg-dark-surface">{user.name}</td>
-                                    {days.map(d => {
-                                        const dateISO = formatDateISO(d);
-                                        const slot = userSlots?.[dateISO];
-                                        return (
-                                            <td key={dateISO} className="p-2">
-                                                <div className="flex flex-col gap-1 items-center">
-                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] w-10 ${slot?.morning ? 'bg-green-500/20 text-green-300' : 'bg-white/5 text-dark-text-light opacity-50'}`}>AM</span>
-                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] w-10 ${slot?.evening ? 'bg-blue-500/20 text-blue-300' : 'bg-white/5 text-dark-text-light opacity-50'}`}>PM</span>
-                                                </div>
-                                            </td>
-                                        );
-                                    })}
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+            <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
+                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Manage Presets
+                </button>
+                <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Report History
+                </button>
+                 <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Staff Mgmt
+                </button>
             </div>
-            )}
+            <div className="flex-1 overflow-y-auto">
+                {ownerSubView === 'presets' && (
+                    <InventoryView 
+                        lang={lang} 
+                        t={t} 
+                        inventoryList={inventoryList} 
+                        setInventoryList={setInventoryList} 
+                        isOwner={true} 
+                        onSubmit={() => {}}
+                        currentUser={ownerUser} 
+                    />
+                )}
+                {ownerSubView === 'history' && <InventoryHistoryView />}
+                {ownerSubView === 'staff' && <StaffManagementView users={users} />}
+            </div>
         </div>
     );
 };
-
 
 const StaffManagementView = ({ users }: { users: User[] }) => {
     const [editingUser, setEditingUser] = useState<User | 'new' | null>(null);
@@ -1167,134 +1213,89 @@ const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave:
     );
 };
 
-const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users } = data;
-    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
-    const [view, setView] = useState<'main' | 'manager'>('main');
-    const [ownerSubView, setOwnerSubView] = useState<'presets' | 'history' | 'staff'>('presets');
-    const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
 
-    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
+    const [weekStart, setWeekStart] = useState(getStartOfWeek(new Date(), 1));
+    const [availabilities, setAvailabilities] = useState<StaffAvailability[]>([]);
+    const [loading, setLoading] = useState(true);
 
-    const handleExportCsv = () => {
-        const headers = "Date,Submitted By,Item Name,End Count,Waste Count\n";
-        const csvRows = inventoryHistory.flatMap((report: InventoryReport) => 
-            Object.entries(report.data).map(([itemId, values]) => {
-                const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
-                const itemName = itemDef ? getLoc(itemDef.name) : itemId;
-                const cleanItemName = `"${itemName.replace(/"/g, '""')}"`; // Escape double quotes
-                
-                const reportDate = report.date ? new Date(report.date).toISOString().split('T')[0] : '';
-                return [
-                    `"${reportDate}"`,
-                    `"${report.submittedBy}"`,
-                    cleanItemName,
-                    values.end || '0',
-                    values.waste || '0'
-                ].join(',');
-            })
-        );
+    const weekStartISO = formatDateISO(weekStart);
+    const days = Array.from({ length: 7 }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
 
-        const csvString = headers + csvRows.join('\n');
-        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        const date = new Date().toISOString().split('T')[0];
-        link.setAttribute("download", `inventory_records_${date}.csv`);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+    useEffect(() => {
+        setLoading(true);
+        const unsub = Cloud.subscribeToAvailabilitiesForWeek(weekStartISO, (data) => {
+            setAvailabilities(data);
+            setLoading(false);
+        });
+        return () => unsub();
+    }, [weekStartISO]);
+
+    const availabilityMap = new Map(availabilities.map(a => [a.userId, a.slots]));
+
+    const changeWeek = (offset: number) => {
+        setWeekStart(prev => {
+            const newDate = new Date(prev);
+            newDate.setDate(newDate.getDate() + offset * 7);
+            return newDate;
+        });
     };
 
-    if (view === 'manager') {
-        return <ManagerDashboard data={data} onExit={() => setView('main')} />;
-    }
-    
-    const InventoryHistoryView = () => (
-        <div className="p-4 space-y-3">
-            <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold text-dark-text">{t.report_history || 'Report History'}</h3>
-                <button onClick={handleExportCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-green-700 transition-all">
-                    <Icon name="List" size={16} /> Export CSV
-                </button>
-            </div>
-            {inventoryHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found.</p>}
-            {inventoryHistory.slice().reverse().map((report: InventoryReport) => (
-                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10">
-                    <div onClick={() => setExpandedReportId(expandedReportId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
-                        <div>
-                            <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'}</p>
-                            <p className="text-xs text-dark-text-light">by {report.submittedBy} • {Object.keys(report.data).length} items</p>
-                        </div>
-                        <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
-                    </div>
-                    {expandedReportId === report.id && (
-                        <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2">
-                            <div className="grid grid-cols-3 font-bold text-dark-text-light">
-                                <span>Item</span><span className="text-center">End</span><span className="text-center">Waste</span>
-                            </div>
-                            {Object.entries(report.data).map(([itemId, values]) => {
-                                const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
-                                return (
-                                    <div key={itemId} className="grid grid-cols-3 items-center">
-                                        <span>{itemDef ? getLoc(itemDef.name) : itemId}</span>
-                                        <span className="text-center font-mono">{values.end || '0'}</span>
-                                        <span className="text-center font-mono text-red-400">{values.waste || '0'}</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-            ))}
-        </div>
-    );
-
     return (
-        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
-            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
-                <div><h1 className="text-xl font-black tracking-tight text-white">{t.owner_dashboard || 'Owner Dashboard'}</h1><p className="text-xs text-dark-text-light">User: {ownerUser.name}</p></div>
-                <div className="flex gap-2">
-                    <button onClick={() => setView('manager')} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all text-xs font-bold px-3">Manager Dashboard</button>
-                    <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
+        <div className="space-y-4">
+            <div className="bg-dark-surface p-3 rounded-xl border border-white/10 flex justify-between items-center">
+                <h3 className="font-bold text-dark-text">Staff Availability</h3>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => changeWeek(-1)} className="p-2 bg-white/10 rounded-lg"><Icon name="ChevronLeft" size={16} /></button>
+                    <span className="text-sm font-bold text-center w-28">{weekStartISO}</span>
+                    <button onClick={() => changeWeek(1)} className="p-2 bg-white/10 rounded-lg"><Icon name="ChevronRight" size={16} /></button>
                 </div>
             </div>
-            <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
-                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                    Manage Presets
-                </button>
-                <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                    Report History
-                </button>
-                 <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                    Staff Mgmt
-                </button>
+            {loading ? <div className="text-center p-8 text-dark-text-light">Loading...</div> : (
+            <div className="overflow-x-auto bg-dark-surface p-2 rounded-xl border border-white/10">
+                <table className="w-full text-xs text-center">
+                    <thead>
+                        <tr className="text-dark-text-light">
+                            <th className="p-2 text-left sticky left-0 bg-dark-surface">Staff</th>
+                            {days.map(d => <th key={d.toISOString()} className="p-2 font-normal">{d.toLocaleDateString('en-US', { weekday: 'short' })}<br/>{`${d.getMonth()+1}-${d.getDate()}`}</th>)}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/10">
+                        {users.filter(u=>u.active!==false).map(user => {
+                            if (!user) return null;
+                            const userSlots = availabilityMap.get(user.id);
+                            return (
+                                <tr key={user.id}>
+                                    <td className="p-2 font-bold text-left sticky left-0 bg-dark-surface">{user.name}</td>
+                                    {days.map(d => {
+                                        const dateISO = formatDateISO(d);
+                                        const slot = userSlots?.[dateISO];
+                                        return (
+                                            <td key={dateISO} className="p-2">
+                                                <div className="flex flex-col gap-1 items-center">
+                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] w-10 ${slot?.morning ? 'bg-green-500/20 text-green-300' : 'bg-white/5 text-dark-text-light opacity-50'}`}>AM</span>
+                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] w-10 ${slot?.evening ? 'bg-blue-500/20 text-blue-300' : 'bg-white/5 text-dark-text-light opacity-50'}`}>PM</span>
+                                                </div>
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
             </div>
-            <div className="flex-1 overflow-y-auto">
-                {ownerSubView === 'presets' && (
-                    <InventoryView 
-                        lang={lang} 
-                        t={t} 
-                        inventoryList={inventoryList} 
-                        setInventoryList={setInventoryList} 
-                        isOwner={true} 
-                        onSubmit={() => {}}
-                        currentUser={ownerUser} 
-                    />
-                )}
-                {ownerSubView === 'history' && <InventoryHistoryView />}
-                {ownerSubView === 'staff' && <StaffManagementView users={users} />}
-            </div>
+            )}
         </div>
     );
 };
+
 
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     // ... (Existing code)
     const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users } = data;
-    const [view, setView] = useState<'requests' | 'schedule' | 'planning' | 'availability' | 'chat' | 'logs' | 'financial'>('requests');
+    const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
     const [wages, setWages] = useState<Record<string, number>>(() => { const saved = localStorage.getItem('onesip_wages'); const def: any = {}; users.forEach((m:User) => def[m.name] = 12); return saved ? { ...def, ...JSON.parse(saved) } : def; });
@@ -1662,8 +1663,188 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     );
 };
 
-
 // --- STAFF APP ---
+
+const RefillDetailsModal = ({ isOpen, onClose, data, mode, t, lang }: any) => {
+    if (!isOpen) return null;
+
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+
+    const title = mode === 'manual' ? t.refill_details_title : t.preset_inventory_title;
+    
+    let items: { key: string; text: string }[] = [];
+    if (mode === 'manual' && data.items) {
+        items = data.items.map((item: any) => ({
+            key: item.itemId || Math.random(),
+            text: `${item.name} +${item.amount}${item.unit}`
+        }));
+    } else if (mode === 'preset' && data) {
+        items = data.map((item: InventoryItem) => ({
+            key: item.id,
+            text: `${getLoc(item.name)} · ${t.preset_value} ${item.defaultVal}${item.unit}`
+        }));
+    }
+
+    return (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl border flex flex-col max-h-[80vh]">
+                <h3 className="text-lg font-black text-text mb-4 shrink-0">{title}</h3>
+                <div className="flex-1 overflow-y-auto space-y-2 no-scrollbar pr-2 -mr-2">
+                    {items.map((item) => (
+                        <div key={item.key} className="bg-secondary p-3 rounded-lg text-sm text-text">
+                            {item.text}
+                        </div>
+                    ))}
+                </div>
+                <div className="mt-6 shrink-0">
+                    <button onClick={onClose} className="w-full py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200 transition-all">{t.close}</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const LastRefillCard = ({ logs, inventoryList, lang, t }: any) => {
+    const [modalOpen, setModalOpen] = useState(false);
+
+    const cardState = React.useMemo(() => {
+        console.log('[REFILL_CARD] raw logs:', logs);
+        console.log('[REFILL_CARD] inventoryList (for preset):', inventoryList);
+
+        const validRefills = (logs || [])
+            .filter((log: any) => {
+                const isRefillType =
+                    log.type === 'refill' ||
+                    log.type === 'inventory_refill' ||
+                    (!log.type && Array.isArray(log.items));
+
+                const hasItems = Array.isArray(log.items) && log.items.length > 0;
+                
+                const notDeleted = log.isDeleted !== true;
+                
+                console.log('[REFILL_CARD] check log:', {
+                  id: log.id,
+                  type: log.type,
+                  time: log.time,
+                  itemsLength: Array.isArray(log.items) ? log.items.length : 'not-an-array',
+                  isDeleted: log.isDeleted,
+                  passType: isRefillType,
+                  passHasItems: hasItems,
+                  passNotDeleted: notDeleted,
+                });
+
+                return isRefillType && hasItems && notDeleted;
+            })
+            .sort((a: any, b: any) => {
+                try {
+                    return new Date(b.time).getTime() - new Date(a.time).getTime();
+                } catch (e) {
+                    return 0;
+                }
+            });
+
+        console.log('[REFILL_CARD] validRefills after filter & sort:', validRefills);
+
+        const lastRefill = validRefills.length > 0 ? validRefills[0] : null;
+        console.log('[REFILL_CARD] lastRefill (latest valid):', lastRefill);
+
+        const hasManual = !!lastRefill;
+
+        const presetItems = inventoryList.filter((item: InventoryItem) => item.defaultVal);
+        const hasPreset = presetItems.length > 0;
+
+        console.log('[REFILL_CARD] Final decision -> hasManual:', hasManual, 'hasPreset:', hasPreset);
+
+        if (hasManual) {
+            console.log('[REFILL_CARD] Mode: manual');
+            return { mode: 'manual', data: lastRefill };
+        }
+
+        if (hasPreset) {
+            console.log('[REFILL_CARD] Mode: preset');
+            return { mode: 'preset', data: presetItems };
+        }
+        
+        console.log('[REFILL_CARD] Mode: empty');
+        return { mode: 'empty', data: null };
+    }, [logs, inventoryList]);
+
+    const handleCardClick = () => {
+        if (cardState.mode !== 'empty') {
+            setModalOpen(true);
+        }
+    };
+
+    const formattedDate = (isoString: string) => {
+        try {
+            const date = new Date(isoString);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}`;
+        } catch {
+            return isoString;
+        }
+    }
+
+    const renderCardContent = () => {
+        switch (cardState.mode) {
+            case 'manual':
+                return (
+                    <div>
+                        <p className="text-sm font-medium text-text-light">{t.refilled_by_on.replace('{name}', cardState.data.name).replace('{time}', formattedDate(cardState.data.time))}</p>
+                        <p className="text-xs text-text-light mt-1">{t.total_items_refilled.replace('{count}', cardState.data.items.length)}</p>
+                    </div>
+                );
+            case 'preset':
+                return (
+                    <div>
+                        <p className="text-sm font-medium text-text-light">{t.using_preset_inventory}</p>
+                        <p className="text-xs text-text-light mt-1">{t.managing_preset_items.replace('{count}', cardState.data.length)}</p>
+                    </div>
+                );
+            case 'empty':
+            default:
+                return (
+                    <p className="text-sm font-medium text-text-light italic">{t.no_refill_or_preset}</p>
+                );
+        }
+    };
+
+    const isClickable = cardState.mode !== 'empty';
+
+    return (
+        <>
+            <div 
+                onClick={handleCardClick}
+                className={`bg-surface p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between ${isClickable ? 'active:scale-95 transition-transform cursor-pointer' : 'cursor-default'}`}
+            >
+                <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-green-100 text-green-600 rounded-2xl flex items-center justify-center">
+                        <Icon name="Refresh" size={28} />
+                    </div>
+                    <div>
+                        <span className="font-bold text-lg text-text">{t.last_refill_title}</span>
+                        <div className="mt-1">
+                            {renderCardContent()}
+                        </div>
+                    </div>
+                </div>
+                {isClickable && <Icon name="ChevronRight" className="text-gray-300" />}
+            </div>
+            <RefillDetailsModal 
+                isOpen={modalOpen} 
+                onClose={() => setModalOpen(false)} 
+                data={cardState.data}
+                mode={cardState.mode}
+                t={t}
+                lang={lang}
+            />
+        </>
+    );
+};
 
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests, directMessages, users } = data;
@@ -1885,9 +2066,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             (todaySchedule.night?.includes(user.name) ?? false)
         ) : false;
         
+        // Debugging logs as requested for the next round of fixes
         console.log('[ATTENDANCE][DEBUG] currentUserId:', user.id);
         console.log('[ATTENDANCE][DEBUG] todayDateKey:', todayDateKey);
         console.log('[ATTENDANCE][DEBUG] allSchedules:', scheduleData);
+        // "userSchedulesForToday_beforeHotfix" in this context is the found schedule for the day, before checking the user's name in it.
         console.log('[ATTENDANCE][DEBUG] userSchedulesForToday_beforeHotfix (found schedule for today):', todaySchedule || 'NOT FOUND');
         
         return hasShift;
@@ -1933,7 +2116,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setClockBtnText({ in: t.clock_in, out: t.clock_out });
     };
 
-    const performClockLog = (type: ClockType) => {
+    const performClocking = (type: ClockType) => {
         setClockBtnText(p => ({ ...p, [type === 'clock-in' ? 'in' : 'out']: '📡...' }));
         
         const processClocking = (locTag: string) => {
@@ -2001,14 +2184,22 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     
     const handleClockLog = (type: ClockType) => {
         // TODO: 临时 hotfix —— 为了保证门店可以正常打卡，暂时不根据排班限制打卡。
+        // 后续再修复 schedule 匹配逻辑后，恢复“无排班禁止打卡”的规则。
+        // The hasShiftToday function is still called to log debug info, but its result is temporarily ignored for blocking.
         hasShiftToday(currentUser, schedule); 
-        
+    
+        // The original blocking logic is now bypassed for the hotfix.
+        // if (!hasShiftToday(currentUser, schedule)) {
+        //     alert(t.no_shift_today_alert);
+        //     return;
+        // }
+    
         if (type === 'clock-out') {
             alert(t.inventory_before_clock_out);
-            setOnInventorySuccess(() => () => performClockLog('clock-out'));
+            setOnInventorySuccess(() => () => performClocking('clock-out'));
             setView('inventory');
         } else {
-            performClockLog('clock-in');
+            performClocking('clock-in');
         }
     };
 
@@ -2162,11 +2353,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             );
         }
         if (view === 'home') {
-            // LOGIC FOR LAST REFILL
-            const lastReport = data.inventoryHistory?.length > 0 
-                ? [...data.inventoryHistory].sort((a: InventoryReport, b: InventoryReport) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-                : null;
-
             return (
                 <div className="h-full overflow-y-auto bg-secondary pb-24 text-text font-sans animate-fade-in-up">
                     <header className="p-6 pb-2 flex justify-between items-start bg-surface sticky top-0 z-10 border-b border-gray-100">
@@ -2183,6 +2369,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             <div className="relative z-10"><div className="inline-block bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider mb-4">{t.next_shift}</div><h2 className="text-3xl font-bold mb-2">{nextShift ? nextShift.name : 'No Shift'}</h2><p className="text-teal-100 font-medium flex items-center gap-2"><Icon name="Calendar" size={16} /> {nextShift ? `${nextShift.date} • ${nextShift.shift}` : t.no_shift}</p></div>
                             <Icon name="Calendar" size={120} className="absolute -right-4 -bottom-8 text-white opacity-10 rotate-12" />
                         </div>
+
+                        <LastRefillCard logs={logs} inventoryList={data.inventoryList} lang={lang} t={t} />
+
                         <div onClick={() => setView('inventory')} className="bg-surface p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-95 transition-transform cursor-pointer">
                             <div className="flex items-center gap-4"><div className="w-14 h-14 bg-primary-light text-primary rounded-2xl flex items-center justify-center"><Icon name="Package" size={28} /></div><span className="font-bold text-lg text-text">{t.inventory_title}</span></div>
                             <Icon name="ChevronRight" className="text-gray-300" />
@@ -2191,39 +2380,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             <div className="flex items-center gap-4"><div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center"><Icon name="Calendar" size={28} /></div><span className="font-bold text-lg text-text">{t.next_week_availability}</span></div>
                             <Icon name="ChevronRight" className="text-gray-300" />
                         </div>
-                        
-                        {/* LAST REFILL MODULE */}
-                        <div className="bg-surface p-5 rounded-3xl shadow-sm border border-gray-100">
-                            <div className="flex justify-between items-center mb-3">
-                                <h3 className="font-bold text-lg text-text">{t.last_refill_title}</h3>
-                                {lastReport && <span className="text-[10px] bg-secondary px-2 py-1 rounded text-text-light">{new Date(lastReport.date).toLocaleDateString()} {new Date(lastReport.date).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>}
-                            </div>
-                            
-                            {lastReport ? (
-                                <div>
-                                    <p className="text-xs text-text-light mb-3 flex items-center gap-1">
-                                        <Icon name="User" size={12} /> {lastReport.submittedBy}
-                                    </p>
-                                    <div className="space-y-2">
-                                        {Object.entries(lastReport.data).slice(0, 5).map(([id, val]: any, idx) => {
-                                            const itemDef = data.inventoryList.find((i:any) => i.id === id);
-                                            return (
-                                                <div key={idx} className="flex justify-between text-sm border-b border-gray-50 pb-1 last:border-0">
-                                                    <span className="font-medium text-text">{itemDef ? getLoc(itemDef.name) : id}</span>
-                                                    <span className="font-bold text-primary">{val.end || '0'} {itemDef?.unit}</span>
-                                                </div>
-                                            );
-                                        })}
-                                        {Object.keys(lastReport.data).length > 5 && (
-                                            <p className="text-xs text-text-light italic pt-1 text-center">{t.more_items.replace('{n}', Object.keys(lastReport.data).length - 5)}</p>
-                                        )}
-                                    </div>
-                                </div>
-                            ) : (
-                                <p className="text-sm text-text-light text-center py-4 italic">{t.no_refill_record}</p>
-                            )}
-                        </div>
-
                         <div className="grid grid-cols-2 gap-4">
                             <button onClick={() => handleClockLog('clock-in')} className="bg-primary hover:bg-primary-dark text-white p-6 rounded-3xl shadow-lg shadow-primary-light flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"><Icon name="Play" size={32} /><span className="font-bold">{clockBtnText.in}</span></button>
                             <button onClick={() => handleClockLog('clock-out')} className="bg-text-light hover:bg-text text-white p-6 rounded-3xl shadow-lg shadow-gray-200 flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"><Icon name="Square" size={32} /><span className="font-bold">{clockBtnText.out}</span></button>
@@ -2321,7 +2477,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 };
 
 const LoginScreen = ({ t, onLogin, users }: { t: any, onLogin: (id: string, keepLogin: boolean) => void, users: User[] }) => {
-    // ... (Login screen unchanged)
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [rememberPwd, setRememberPwd] = useState(false);
@@ -2419,7 +2574,6 @@ const LoginScreen = ({ t, onLogin, users }: { t: any, onLogin: (id: string, keep
 
 // --- APP COMPONENT ---
 const App = () => {
-    // ... (App component unchanged)
     const [user, setUser] = useState<User | null>(() => {
         const saved = localStorage.getItem('onesip_user') || sessionStorage.getItem('onesip_user');
         return saved ? JSON.parse(saved) : null;

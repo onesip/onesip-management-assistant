@@ -27,6 +27,7 @@ export const TRANSLATIONS: Record<string, any> = {
         edit: "编辑",
         add_new: "添加新项",
         download_csv: "导出 Excel (CSV)",
+        close: "关闭",
         
         // Login
         login_title: "ONESIP 员工登录",
@@ -59,6 +60,16 @@ export const TRANSLATIONS: Record<string, any> = {
         last_refill_title: "上一次补料记录",
         no_refill_record: "还没有任何补料记录",
         more_items: "还有 {n} 项...",
+        refill_details_title: "上一次补料详情",
+        refilled_by_on: "由 {name} 在 {time} 补料",
+        total_items_refilled: "共补料 {count} 项",
+        staff_label: "员工",
+        time_label: "时间",
+        using_preset_inventory: "当前为预设库存，无手动补料记录",
+        managing_preset_items: "按预设共管理 {count} 项库存",
+        preset_inventory_title: "当前预设库存",
+        no_refill_or_preset: "还没有任何补料记录或预设库存",
+        preset_value: "预设",
         
         // Editor
         editor_title: "内容编辑器",
@@ -140,6 +151,7 @@ export const TRANSLATIONS: Record<string, any> = {
         edit: "Edit",
         add_new: "Add New",
         download_csv: "Download CSV",
+        close: "Close",
 
         // Login
         login_title: "ONESIP Staff Login",
@@ -172,6 +184,16 @@ export const TRANSLATIONS: Record<string, any> = {
         last_refill_title: "Last Refill Summary",
         no_refill_record: "No refill logs yet",
         more_items: "{n} more...",
+        refill_details_title: "Last Refill Details",
+        refilled_by_on: "By {name} on {time}",
+        total_items_refilled: "{count} items refilled",
+        staff_label: "Staff",
+        time_label: "Time",
+        using_preset_inventory: "Using preset inventory, no manual refill yet",
+        managing_preset_items: "Managing {count} preset items",
+        preset_inventory_title: "Current Preset Inventory",
+        no_refill_or_preset: "No refill logs or preset inventory yet",
+        preset_value: "preset",
 
         // Editor
         editor_title: "Content Editor",
