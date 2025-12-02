@@ -7,6 +7,8 @@ import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, Inve
 import * as Cloud from './services/cloud';
 import { getChatResponse } from './services/geminiService';
 import { useNotification } from './components/GlobalNotification';
+// FIX: Removed direct firebase imports as they are now handled in the cloud service.
+
 
 // --- CONSTANTS ---
 const STORE_COORDS = { lat: 51.9207886, lng: 4.4863897 };
@@ -42,6 +44,216 @@ const getStartOfWeek = (date: Date, weekOffset = 0) => {
 const formatDateISO = (date: Date) => date.toISOString().split('T')[0];
 
 // --- MODALS ---
+
+const InvalidateLogModal = ({ isOpen, log, onClose, onConfirm, currentUser }: { isOpen: boolean, log: LogEntry | null, onClose: () => void, onConfirm: (log: LogEntry, reason: string) => void, currentUser: User }) => {
+    const [reason, setReason] = useState('');
+    if (!isOpen || !log) return null;
+
+    const handleSubmit = () => {
+        if (!reason.trim()) {
+            alert('Reason is required.');
+            return;
+        }
+        const updatedLog: LogEntry = {
+            ...log,
+            isDeleted: true,
+            deleteReason: reason,
+            deletedBy: currentUser.name,
+            deletedAt: new Date().toLocaleString()
+        };
+        onConfirm(updatedLog, reason);
+        setReason('');
+    };
+
+    return (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-dark-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-pop-in border border-white/10 text-dark-text">
+                <h3 className="text-lg font-black text-red-400 mb-2">Invalidate Log</h3>
+                <p className="text-sm text-dark-text-light mb-4">Are you sure you want to invalidate this log entry? This action cannot be undone.</p>
+                <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    className="w-full p-2 bg-dark-bg border border-white/10 rounded text-sm h-24"
+                    placeholder="Reason for invalidation..."
+                    autoFocus
+                />
+                <div className="flex gap-3 mt-4">
+                    <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-white/10 font-bold hover:bg-white/20">Cancel</button>
+                    <button onClick={handleSubmit} disabled={!reason.trim()} className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold shadow-lg hover:bg-red-600 disabled:bg-gray-500 disabled:cursor-not-allowed">Confirm Invalidation</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const AdjustHoursModal = ({ isOpen, logPair, onClose, onSave, currentUser }: { isOpen: boolean, logPair: { inLog: LogEntry, outLog: LogEntry } | null, onClose: () => void, onSave: (updatedInLog: LogEntry, updatedOutLog: LogEntry) => void, currentUser: User }) => {
+    const [inTime, setInTime] = useState('');
+    const [outTime, setOutTime] = useState('');
+    const [reason, setReason] = useState('');
+
+    useEffect(() => {
+        if (logPair) {
+            const inDate = new Date(logPair.inLog.time);
+            const outDate = new Date(logPair.outLog.time);
+            setInTime(`${inDate.getHours().toString().padStart(2, '0')}:${inDate.getMinutes().toString().padStart(2, '0')}`);
+            setOutTime(`${outDate.getHours().toString().padStart(2, '0')}:${outDate.getMinutes().toString().padStart(2, '0')}`);
+            setReason('');
+        }
+    }, [logPair]);
+
+    if (!isOpen || !logPair) return null;
+
+    const handleSave = () => {
+        if (!reason.trim()) {
+            alert('Reason is required.');
+            return;
+        }
+        const originalInDate = new Date(logPair.inLog.time);
+        const originalOutDate = new Date(logPair.outLog.time);
+        
+        const [inH, inM] = inTime.split(':').map(Number);
+        originalInDate.setHours(inH, inM);
+
+        const [outH, outM] = outTime.split(':').map(Number);
+        originalOutDate.setHours(outH, outM);
+        
+        if (originalOutDate <= originalInDate) {
+            alert('Clock-out time must be after clock-in time.');
+            return;
+        }
+
+        const commonAuditFields = {
+            manualEditReason: reason,
+            manualEditedBy: currentUser.name,
+            manualEditedAt: new Date().toLocaleString()
+        };
+
+        const updatedInLog = { ...logPair.inLog, time: originalInDate.toLocaleString(), ...commonAuditFields };
+        const updatedOutLog = { ...logPair.outLog, time: originalOutDate.toLocaleString(), ...commonAuditFields };
+
+        onSave(updatedInLog, updatedOutLog);
+    };
+
+    return (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-dark-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-pop-in border border-white/10 text-dark-text">
+                <h3 className="text-lg font-black text-dark-accent mb-4">Adjust Hours for {logPair.inLog.name}</h3>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label className="text-xs font-bold text-dark-text-light mb-1 block">Clock In Time</label>
+                        <input type="time" value={inTime} onChange={e => setInTime(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-dark-text-light mb-1 block">Clock Out Time</label>
+                        <input type="time" value={outTime} onChange={e => setOutTime(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" />
+                    </div>
+                </div>
+                 <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    className="w-full p-2 bg-dark-bg border border-white/10 rounded text-sm h-24"
+                    placeholder="Reason for adjustment..."
+                    autoFocus
+                />
+                <div className="flex gap-3 mt-4">
+                    <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-white/10 font-bold hover:bg-white/20">Cancel</button>
+                    <button onClick={handleSave} disabled={!reason.trim()} className="flex-1 py-3 rounded-xl bg-dark-accent text-dark-bg font-bold shadow-lg hover:opacity-90 disabled:bg-gray-500">Save</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ManualAddModal = ({ isOpen, onClose, onSave, users, currentUser }: { isOpen: boolean, onClose: () => void, onSave: (inLog: LogEntry, outLog: LogEntry) => void, users: User[], currentUser: User }) => {
+    const [staffId, setStaffId] = useState('');
+    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [inTime, setInTime] = useState('10:00');
+    const [outTime, setOutTime] = useState('15:00');
+    const [reason, setReason] = useState('');
+
+    if (!isOpen) return null;
+
+    const handleSave = () => {
+        if (!staffId || !date || !inTime || !outTime || !reason.trim()) {
+            alert('All fields are required.');
+            return;
+        }
+        const selectedUser = users.find(u => u.id === staffId);
+        if (!selectedUser) {
+            alert('Invalid user selected.');
+            return;
+        }
+
+        const clockInDateTime = new Date(`${date}T${inTime}`);
+        const clockOutDateTime = new Date(`${date}T${outTime}`);
+
+        if (clockOutDateTime <= clockInDateTime) {
+            alert('Clock-out time must be after clock-in time.');
+            return;
+        }
+        if (new Date(date) > new Date()) {
+            alert('Date cannot be in the future.');
+            return;
+        }
+
+        const commonFields = {
+            name: selectedUser.name,
+            userId: selectedUser.id,
+            isManual: true,
+            manualCreatedBy: currentUser.name,
+            manualCreatedAt: new Date().toLocaleString(),
+            manualReason: reason,
+        };
+
+        const inLog: LogEntry = {
+            ...commonFields,
+            id: Date.now(),
+            shift: 'clock-in',
+            type: 'clock-in',
+            time: clockInDateTime.toLocaleString(),
+        };
+
+        const outLog: LogEntry = {
+            ...commonFields,
+            id: Date.now() + 1,
+            shift: 'clock-out',
+            type: 'clock-out',
+            time: clockOutDateTime.toLocaleString(),
+        };
+        
+        onSave(inLog, outLog);
+    };
+
+    return (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-dark-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-pop-in border border-white/10 text-dark-text">
+                <h3 className="text-lg font-black text-dark-accent mb-4">Add Manual Attendance</h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-dark-text-light mb-1 block">Staff</label>
+                        <select value={staffId} onChange={e => setStaffId(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded">
+                            <option value="">Select Staff...</option>
+                            {users.filter(u => u.active !== false).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-dark-text-light mb-1 block">Date</label>
+                        <input type="date" value={date} max={new Date().toISOString().split('T')[0]} onChange={e => setDate(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" />
+                    </div>
+                     <div className="grid grid-cols-2 gap-4">
+                        <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Clock In</label><input type="time" value={inTime} onChange={e => setInTime(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
+                        <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Clock Out</label><input type="time" value={outTime} onChange={e => setOutTime(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
+                    </div>
+                    <textarea value={reason} onChange={e => setReason(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded text-sm h-24" placeholder="Reason for manual entry..." />
+                </div>
+                <div className="flex gap-3 mt-4">
+                    <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-white/10 font-bold hover:bg-white/20">Cancel</button>
+                    <button onClick={handleSave} className="flex-1 py-3 rounded-xl bg-dark-accent text-dark-bg font-bold shadow-lg hover:opacity-90">Save Record</button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const DeviationReasonModal = ({ isOpen, onClose, onSubmit, details, t }: any) => {
     const [reason, setReason] = useState('');
@@ -1294,17 +1506,75 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     // ... (Existing code)
     const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
-    const { schedule, setSchedule, notices, logs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users } = data;
+    const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users } = data;
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
     const [wages, setWages] = useState<Record<string, number>>(() => { const saved = localStorage.getItem('onesip_wages'); const def: any = {}; users.forEach((m:User) => def[m.name] = 12); return saved ? { ...def, ...JSON.parse(saved) } : def; });
+    const [isAddingManualLog, setIsAddingManualLog] = useState(false);
+    const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
+    const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
     
     // --- NEW: Schedule Navigation State ---
     const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
     const totalWeeks = schedule?.days ? Math.ceil(schedule.days.length / 7) : 0;
     const activeStaff = users.filter((u: User) => u.active !== false);
     // ------------------------------------
+
+     const handleUpdateLogs = async (updatedLogs: LogEntry[]) => {
+        try {
+            // FIX: Refactored to use centralized cloud service function, resolving firebase import errors in this component.
+            await Cloud.updateLogs(updatedLogs);
+            // The snapshot listener will update the state automatically.
+        } catch (error) {
+            console.error("Failed to update logs:", error);
+            alert("Error: Could not save log changes.");
+        }
+    };
+    
+    const handleInvalidateConfirm = (logToUpdate: LogEntry) => {
+        const updatedLogs = logs.map((l: LogEntry) => l.id === logToUpdate.id ? logToUpdate : l);
+        handleUpdateLogs(updatedLogs);
+        setLogToInvalidate(null);
+    };
+
+    const handleOpenAdjustModal = (logToAdjust: LogEntry) => {
+        if (logToAdjust.type !== 'clock-in' && logToAdjust.type !== 'clock-out') return;
+
+        const userLogs = logs
+            .filter((l: LogEntry) => l.userId === logToAdjust.userId && (l.type === 'clock-in' || l.type === 'clock-out'))
+            .sort((a: LogEntry, b: LogEntry) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+        const index = userLogs.findIndex((l: LogEntry) => l.id === logToAdjust.id);
+        if (index === -1) return;
+
+        if (logToAdjust.type === 'clock-in') {
+            const outLog = userLogs.find((l: LogEntry, i: number) => i > index && l.type === 'clock-out');
+            if (outLog) setLogPairToAdjust({ inLog: logToAdjust, outLog });
+            else alert('Could not find a corresponding clock-out for this entry.');
+        } else { // clock-out
+            const inLog = userLogs.slice(0, index).reverse().find((l: LogEntry) => l.type === 'clock-in');
+            if (inLog) setLogPairToAdjust({ inLog, outLog: logToAdjust });
+            else alert('Could not find a corresponding clock-in for this entry.');
+        }
+    };
+
+    const handleSaveAdjustedHours = (updatedInLog: LogEntry, updatedOutLog: LogEntry) => {
+        const updatedLogs = logs.map((l: LogEntry) => {
+            if (l.id === updatedInLog.id) return updatedInLog;
+            if (l.id === updatedOutLog.id) return updatedOutLog;
+            return l;
+        });
+        handleUpdateLogs(updatedLogs);
+        setLogPairToAdjust(null);
+    };
+
+    const handleSaveManualLog = (inLog: LogEntry, outLog: LogEntry) => {
+        Cloud.saveLog(inLog);
+        Cloud.saveLog(outLog);
+        setIsAddingManualLog(false);
+        alert('Manual attendance record added.');
+    };
 
     useEffect(() => {
         if (schedule?.days?.length > 0) {
@@ -1422,6 +1692,8 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const n = day.night ? getShiftCost(day.night, day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00') : 0;
         return acc + m + e + n;
     }, 0) || 0;
+
+    const visibleLogs = logs?.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
 
 
     return (
@@ -1614,16 +1886,42 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     </div>
                 )}
                 {view === 'logs' && (
-                    <div className="space-y-2">
-                        {logs?.slice().reverse().map((log: LogEntry, i: number) => (
-                            <div key={i} className="bg-dark-surface p-3 rounded-lg shadow-sm text-sm border-l-4 border-dark-accent">
-                                <div className="flex justify-between mb-1"><span className="font-bold text-dark-text">{log.name}</span><span className="text-xs text-dark-text-light">{log.time}</span></div>
-                                <div className="flex justify-between items-center">
-                                    <span className={`px-2 py-0.5 rounded text-[10px] ${log.type?.includes('in') ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{log.type}</span>
-                                    <span className="text-[10px] text-dark-text-light font-mono">{log.reason || 'No Location'}</span>
+                     <div className="space-y-2">
+                        <div className="flex justify-end mb-4">
+                            <button onClick={() => setIsAddingManualLog(true)} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all">
+                                <Icon name="Plus" size={16} /> Add Manual Attendance
+                            </button>
+                        </div>
+                        {visibleLogs.map((log: LogEntry) => {
+                            const isAttendance = log.type === 'clock-in' || log.type === 'clock-out';
+                            const isInventory = log.type === 'inventory';
+
+                            return (
+                                <div key={log.id} className={`bg-dark-surface p-3 rounded-lg shadow-sm text-sm border-l-4 ${log.isDeleted ? 'border-gray-500 opacity-60' : 'border-dark-accent'}`}>
+                                    <div className="flex justify-between mb-1">
+                                        <span className="font-bold text-dark-text">{log.name}</span>
+                                        <span className="text-xs text-dark-text-light">{new Date(log.time).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <span className={`px-2 py-0.5 rounded text-[10px] ${log.type?.includes('in') ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{log.type}</span>
+                                            {log.isDeleted && <span className="ml-2 text-[10px] font-bold text-gray-400">[INVALIDATED]</span>}
+                                            {log.isManual && <span className="ml-2 text-[10px] font-bold text-yellow-400">[MANUAL]</span>}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-dark-text-light font-mono">{log.reason || 'No Location'}</span>
+                                            {!log.isDeleted && (
+                                                <>
+                                                    {isAttendance && <button onClick={() => handleOpenAdjustModal(log)} title="Adjust Hours" className="p-1.5 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20"><Icon name="Edit" size={12}/></button>}
+                                                    {(isAttendance || isInventory) && <button onClick={() => setLogToInvalidate(log)} title="Invalidate Log" className="p-1.5 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Icon name="Trash" size={12}/></button>}
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                     {log.isDeleted && <p className="text-xs mt-2 text-gray-400 border-t border-white/10 pt-2">Reason: {log.deleteReason}</p>}
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
                 {view === 'financial' && (
@@ -1659,6 +1957,9 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 )}
             </div>
             {editingShift && <ScheduleEditorModal isOpen={!!editingShift} day={schedule.days[editingShift.dayIdx]} shiftType={editingShift.shift} currentStaff={schedule.days[editingShift.dayIdx][editingShift.shift]} currentHours={schedule.days[editingShift.dayIdx].hours?.[editingShift.shift]} onClose={() => setEditingShift(null)} onSave={handleSaveSchedule} teamMembers={activeStaff} />}
+            <ManualAddModal isOpen={isAddingManualLog} onClose={() => setIsAddingManualLog(false)} onSave={handleSaveManualLog} users={users} currentUser={managerUser} />
+            <InvalidateLogModal isOpen={!!logToInvalidate} log={logToInvalidate} onClose={() => setLogToInvalidate(null)} onConfirm={handleInvalidateConfirm} currentUser={managerUser} />
+            <AdjustHoursModal isOpen={!!logPairToAdjust} logPair={logPairToAdjust} onClose={() => setLogPairToAdjust(null)} onSave={handleSaveAdjustedHours} currentUser={managerUser} />
         </div>
     );
 };

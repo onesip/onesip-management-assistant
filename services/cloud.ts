@@ -1,4 +1,6 @@
 
+// @ts-ignore
+// FIX: Added @ts-ignore to suppress potential module resolution errors in specific build environments.
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, getDoc, serverTimestamp, collection, getDocs } from 'firebase/firestore';
 import { INITIAL_MENU_DATA, INITIAL_ANNOUNCEMENT_DATA, INITIAL_WIKI_DATA, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES, USERS } from '../constants';
@@ -158,6 +160,12 @@ export const saveLog = async (logEntry: any) => {
         // Create if not exists
         await setDoc(doc(db, 'data', 'logs'), { entries: [logEntry] });
     });
+};
+
+// FIX: Add function to update the entire log array, used for invalidating/editing entries.
+export const updateLogs = async (logs: any[]) => {
+    if (!db) return;
+    await setDoc(doc(db, 'data', 'logs'), { entries: logs });
 };
 
 // --- CHAT & NOTICES ---

@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 export type Lang = 'zh' | 'en';
@@ -103,6 +104,19 @@ export interface LogEntry {
   scheduledTime?: string;
   actualTime?: string;
   shiftType?: ClockType;
+
+  // FIX: Add fields for log invalidation and manual edits to resolve type errors.
+  isDeleted?: boolean;
+  deleteReason?: string;
+  deletedBy?: string;
+  deletedAt?: string;
+  isManual?: boolean;
+  manualCreatedBy?: string;
+  manualCreatedAt?: string;
+  manualReason?: string;
+  manualEditReason?: string;
+  manualEditedBy?: string;
+  manualEditedAt?: string;
 }
 
 export interface ChatMessage {
