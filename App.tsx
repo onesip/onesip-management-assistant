@@ -1709,52 +1709,53 @@ const LastRefillCard = ({ logs, inventoryList, lang, t }: any) => {
 
     const cardState = React.useMemo(() => {
         console.log('[REFILL_CARD] raw logs:', logs);
-        console.log('[REFILL_CARD] inventoryList (for preset):', inventoryList);
+        const preset = inventoryList;
+        console.log('[REFILL_CARD] preset (from inventoryList):', preset);
 
-        const validRefills = (logs || [])
+        // 1. Find all "refill-like" candidates
+        const refillCandidates = (logs || [])
             .filter((log: any) => {
-                const isRefillType =
-                    log.type === 'refill' ||
-                    log.type === 'inventory_refill' ||
-                    (!log.type && Array.isArray(log.items));
-
-                const hasItems = Array.isArray(log.items) && log.items.length > 0;
-                
+                const hasItemsArray = Array.isArray(log.items);
+                const itemsLength = hasItemsArray ? log.items.length : 0;
                 const notDeleted = log.isDeleted !== true;
-                
+
                 console.log('[REFILL_CARD] check log:', {
-                  id: log.id,
-                  type: log.type,
-                  time: log.time,
-                  itemsLength: Array.isArray(log.items) ? log.items.length : 'not-an-array',
-                  isDeleted: log.isDeleted,
-                  passType: isRefillType,
-                  passHasItems: hasItems,
-                  passNotDeleted: notDeleted,
+                    id: log.id,
+                    type: log.type,
+                    storeId: log.storeId,
+                    hasItemsArray,
+                    itemsLength,
+                    isDeleted: log.isDeleted,
                 });
 
-                return isRefillType && hasItems && notDeleted;
+                return hasItemsArray && itemsLength > 0 && notDeleted;
             })
+            // 2. Sort by time descending (Newest first)
             .sort((a: any, b: any) => {
                 try {
                     return new Date(b.time).getTime() - new Date(a.time).getTime();
                 } catch (e) {
+                    console.warn('[REFILL_CARD] Could not parse date for sorting:', a.time, b.time);
                     return 0;
                 }
             });
 
-        console.log('[REFILL_CARD] validRefills after filter & sort:', validRefills);
+        console.log('[REFILL_CARD] refillCandidates:', refillCandidates.length > 0 ? refillCandidates : 'None found');
 
-        const lastRefill = validRefills.length > 0 ? validRefills[0] : null;
-        console.log('[REFILL_CARD] lastRefill (latest valid):', lastRefill);
+        // 3. Take only the latest one
+        const lastRefill = refillCandidates.length > 0 ? refillCandidates[0] : null;
+
+        console.log('[REFILL_CARD] lastRefill:', lastRefill);
 
         const hasManual = !!lastRefill;
 
-        const presetItems = inventoryList.filter((item: InventoryItem) => item.defaultVal);
+        // 4. Check for presets
+        const presetItems = (preset || []).filter((item: InventoryItem) => item.defaultVal);
         const hasPreset = presetItems.length > 0;
 
-        console.log('[REFILL_CARD] Final decision -> hasManual:', hasManual, 'hasPreset:', hasPreset);
+        console.log('[REFILL_CARD] hasManual:', hasManual, 'hasPreset:', hasPreset);
 
+        // 5. Return mode based on priority: Manual > Preset > Empty
         if (hasManual) {
             console.log('[REFILL_CARD] Mode: manual');
             return { mode: 'manual', data: lastRefill };
