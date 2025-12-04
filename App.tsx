@@ -2157,71 +2157,56 @@ const RefillDetailsModal = ({ isOpen, onClose, data, mode, t, lang }: any) => {
     );
 };
 
-const LastRefillCard = ({ logs, inventoryList, lang, t }: any) => {
+const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
     const [modalOpen, setModalOpen] = useState(false);
 
     const cardState = React.useMemo(() => {
-        console.log('[REFILL_CARD] raw logs:', logs);
+        const reports = inventoryHistory || [];
+        
+        // Sort reports by date string, newest first.
+        const sortedReports: InventoryReport[] = reports.slice().sort((a: InventoryReport, b: InventoryReport) => {
+            try {
+                return new Date(b.date).getTime() - new Date(a.date).getTime();
+            } catch {
+                return 0;
+            }
+        });
+
+        const lastReport = sortedReports.length > 0 ? sortedReports[0] : null;
+        
         const preset = inventoryList;
-        console.log('[REFILL_CARD] preset (from inventoryList):', preset);
-
-        // 1. Find all "refill-like" candidates
-        const refillCandidates = (logs || [])
-            .filter((log: any) => {
-                const hasItemsArray = Array.isArray(log.items);
-                const itemsLength = hasItemsArray ? log.items.length : 0;
-                const notDeleted = log.isDeleted !== true;
-
-                console.log('[REFILL_CARD] check log:', {
-                    id: log.id,
-                    type: log.type,
-                    storeId: log.storeId,
-                    hasItemsArray,
-                    itemsLength,
-                    isDeleted: log.isDeleted,
-                });
-
-                return hasItemsArray && itemsLength > 0 && notDeleted;
-            })
-            // 2. Sort by time descending (Newest first)
-            .sort((a: any, b: any) => {
-                try {
-                    return new Date(b.time).getTime() - new Date(a.time).getTime();
-                } catch (e) {
-                    console.warn('[REFILL_CARD] Could not parse date for sorting:', a.time, b.time);
-                    return 0;
-                }
-            });
-
-        console.log('[REFILL_CARD] refillCandidates:', refillCandidates.length > 0 ? refillCandidates : 'None found');
-
-        // 3. Take only the latest one
-        const lastRefill = refillCandidates.length > 0 ? refillCandidates[0] : null;
-
-        console.log('[REFILL_CARD] lastRefill:', lastRefill);
-
-        const hasManual = !!lastRefill;
-
-        // 4. Check for presets
         const presetItems = (preset || []).filter((item: InventoryItem) => item.defaultVal);
         const hasPreset = presetItems.length > 0;
 
-        console.log('[REFILL_CARD] hasManual:', hasManual, 'hasPreset:', hasPreset);
+        if (lastReport) {
+            // Transform the report data into the structure expected by the UI.
+            const reportItems = Object.entries(lastReport.data).map(([itemId, values]) => {
+                const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
+                const name = itemDef ? (itemDef.name[lang] || itemDef.name['zh']) : itemId;
+                return {
+                    name: name,
+                    amount: values.end, // Using end count as 'amount'
+                    unit: itemDef?.unit || '',
+                    itemId: itemId,
+                };
+            });
 
-        // 5. Return mode based on priority: Manual > Preset > Empty
-        if (hasManual) {
-            console.log('[REFILL_CARD] Mode: manual');
-            return { mode: 'manual', data: lastRefill };
+            return {
+                mode: 'manual', 
+                data: {
+                    name: lastReport.submittedBy,
+                    time: lastReport.date,
+                    items: reportItems,
+                }
+            };
         }
 
         if (hasPreset) {
-            console.log('[REFILL_CARD] Mode: preset');
             return { mode: 'preset', data: presetItems };
         }
         
-        console.log('[REFILL_CARD] Mode: empty');
         return { mode: 'empty', data: null };
-    }, [logs, inventoryList]);
+    }, [inventoryHistory, inventoryList, lang]);
 
     const handleCardClick = () => {
         if (cardState.mode !== 'empty') {
@@ -2824,7 +2809,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             <Icon name="Calendar" size={120} className="absolute -right-4 -bottom-8 text-white opacity-10 rotate-12" />
                         </div>
 
-                        <LastRefillCard logs={logs} inventoryList={data.inventoryList} lang={lang} t={t} />
+                        <LastRefillCard inventoryHistory={data.inventoryHistory} inventoryList={data.inventoryList} lang={lang} t={t} />
 
                         <div onClick={() => setView('inventory')} className="bg-surface p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-95 transition-transform cursor-pointer">
                             <div className="flex items-center gap-4"><div className="w-14 h-14 bg-primary-light text-primary rounded-2xl flex items-center justify-center"><Icon name="Package" size={28} /></div><span className="font-bold text-lg text-text">{t.inventory_title}</span></div>
