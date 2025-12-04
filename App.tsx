@@ -416,7 +416,7 @@ const CloudSetupModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => 
     );
 };
 
-const CustomConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }: { isOpen: boolean, title: string, message: React.ReactNode, onConfirm: () => void, onCancel: () => void }) => {
+const CustomConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText = "Confirm", cancelText = "Cancel" }: { isOpen: boolean, title: string, message: React.ReactNode, onConfirm: () => void, onCancel: () => void, confirmText?: string, cancelText?: string }) => {
     if (!isOpen) return null;
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
@@ -424,8 +424,8 @@ const CustomConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }: { i
                 <h3 className="text-lg font-black text-text mb-3">{title}</h3>
                 <div className="text-text-light text-sm mb-6 leading-relaxed">{message}</div>
                 <div className="flex gap-3">
-                    <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200 transition-all">Cancel</button>
-                    <button onClick={onConfirm} className="flex-1 py-3 rounded-xl bg-primary text-white font-bold hover:bg-primary-dark shadow-lg shadow-primary-light transition-all">Confirm</button>
+                    <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200 transition-all">{cancelText}</button>
+                    <button onClick={onConfirm} className="flex-1 py-3 rounded-xl bg-primary text-white font-bold hover:bg-primary-dark shadow-lg shadow-primary-light transition-all">{confirmText}</button>
                 </div>
             </div>
         </div>
@@ -2446,14 +2446,82 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
     const [confirmationStatus, setConfirmationStatus] = useState<'loading' | 'unconfirmed' | 'confirmed' | 'not_applicable'>('loading');
     
+    // --- State for new notification modals ---
+    const [showScheduleConfirmModal, setShowScheduleConfirmModal] = useState(false);
+    const [showSwapRequestModal, setShowSwapRequestModal] = useState(false);
+    const [swapRequestCount, setSwapRequestCount] = useState(0);
+    const [newPendingSwaps, setNewPendingSwaps] = useState<SwapRequest[]>([]);
+
     // Swap Request State
     const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
     const [currentSwap, setCurrentSwap] = useState<{ date: string, shift: 'morning'|'evening'|'night' } | null>(null);
     const [targetEmployeeId, setTargetEmployeeId] = useState('');
     const [reason, setReason] = useState('');
 
-    // FIX: Define the 'getLoc' helper function to resolve translation object properties based on the current language.
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+
+    // --- Effect for one-time notification popups ---
+    useEffect(() => {
+        if (view !== 'home' || !currentUser || !schedule?.days || !swapRequests) {
+            return;
+        }
+
+        const runChecks = async () => {
+            // --- 1. Schedule Confirmation Check ---
+            const start = new Date();
+            const end = new Date();
+            end.setDate(start.getDate() + 13);
+            const startISO = formatDateISO(start);
+            const endISO = formatDateISO(end);
+            const scheduleNotificationKey = `scheduleConfirmNotified::${currentUser.id}::${startISO}::${endISO}`;
+
+            if (!localStorage.getItem(scheduleNotificationKey)) {
+                const startMs = new Date(start).setHours(0, 0, 0, 0);
+                const endMs = new Date(end).setHours(23, 59, 59, 999);
+
+                const hasShiftsInWindow = schedule.days.some((day: ScheduleDay) => {
+                    const dayDate = new Date(`${new Date().getFullYear()}-${day.date}`);
+                    if (isNaN(dayDate.getTime())) return false;
+                    const scheduleMs = dayDate.getTime();
+                    if (scheduleMs >= startMs && scheduleMs <= endMs) {
+                        return [...day.morning, ...day.evening, ...(day.night || [])].includes(currentUser.name);
+                    }
+                    return false;
+                });
+
+                if (hasShiftsInWindow) {
+                    const existingConfirmation = await Cloud.getScheduleConfirmation(currentUser.id, startISO, endISO);
+                    if (!existingConfirmation) {
+                        setShowScheduleConfirmModal(true);
+                    } else {
+                        localStorage.setItem(scheduleNotificationKey, 'true');
+                    }
+                } else {
+                    localStorage.setItem(scheduleNotificationKey, 'true');
+                }
+            }
+
+            // --- 2. Swap Request Check ---
+            const swapNotifiedKey = `swapNotifiedIds::${currentUser.id}`;
+            const notifiedIds = new Set<string>(JSON.parse(localStorage.getItem(swapNotifiedKey) || '[]'));
+            const newPendingRequests = swapRequests.filter((req: SwapRequest) => 
+                req.targetId === currentUser.id && 
+                req.status === 'pending' &&
+                !notifiedIds.has(req.id)
+            );
+
+            if (newPendingRequests.length > 0) {
+                setNewPendingSwaps(newPendingRequests);
+                setSwapRequestCount(newPendingRequests.length);
+                setShowSwapRequestModal(true);
+            }
+        };
+        
+        const timer = setTimeout(runChecks, 1000);
+        return () => clearTimeout(timer);
+
+    }, [view, currentUser, schedule, swapRequests]);
+
 
     useEffect(() => {
         const checkAvailability = async () => {
@@ -3211,6 +3279,57 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 <NavButton targetView="recipes" iconName="BookOpen" label={t.recipes} />
                 <NavButton targetView="sop" iconName="ShieldCheck" label={t.sop} />
             </nav>
+            {/* --- NOTIFICATION MODALS --- */}
+            {showScheduleConfirmModal && (
+                <CustomConfirmModal
+                    isOpen={true}
+                    title="排班确认提醒"
+                    message="你未来两周有排班安排，请确认。"
+                    confirmText="去排班页面"
+                    cancelText="稍后"
+                    onConfirm={() => {
+                        const start = new Date();
+                        const end = new Date();
+                        end.setDate(start.getDate() + 13);
+                        const notificationKey = `scheduleConfirmNotified::${currentUser.id}::${formatDateISO(start)}::${formatDateISO(end)}`;
+                        localStorage.setItem(notificationKey, 'true');
+                        setView('team');
+                        setShowScheduleConfirmModal(false);
+                    }}
+                    onCancel={() => {
+                        const start = new Date();
+                        const end = new Date();
+                        end.setDate(start.getDate() + 13);
+                        const notificationKey = `scheduleConfirmNotified::${currentUser.id}::${formatDateISO(start)}::${formatDateISO(end)}`;
+                        localStorage.setItem(notificationKey, 'true');
+                        setShowScheduleConfirmModal(false);
+                    }}
+                />
+            )}
+            {showSwapRequestModal && (
+                <CustomConfirmModal
+                    isOpen={true}
+                    title="有待处理的换班申请"
+                    message={`你有 ${swapRequestCount} 条新的换班申请，请尽快处理。`}
+                    confirmText="去处理"
+                    cancelText="稍后"
+                    onConfirm={() => {
+                        const notifiedKey = `swapNotifiedIds::${currentUser.id}`;
+                        const notifiedIds = new Set<string>(JSON.parse(localStorage.getItem(notifiedKey) || '[]'));
+                        newPendingSwaps.forEach(req => notifiedIds.add(req.id));
+                        localStorage.setItem(notifiedKey, JSON.stringify(Array.from(notifiedIds)));
+                        setView('swapRequests');
+                        setShowSwapRequestModal(false);
+                    }}
+                    onCancel={() => {
+                        const notifiedKey = `swapNotifiedIds::${currentUser.id}`;
+                        const notifiedIds = new Set<string>(JSON.parse(localStorage.getItem(notifiedKey) || '[]'));
+                        newPendingSwaps.forEach(req => notifiedIds.add(req.id));
+                        localStorage.setItem(notifiedKey, JSON.stringify(Array.from(notifiedIds)));
+                        setShowSwapRequestModal(false);
+                    }}
+                />
+            )}
         </div>
     );
 };
