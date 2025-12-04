@@ -612,6 +612,83 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
 
 // --- SCREENS & VIEWS ---
 
+const SwapRequestModal = ({
+    isOpen,
+    onClose,
+    onSubmit,
+    currentSwap,
+    currentUser,
+    allUsers,
+    targetEmployeeId,
+    setTargetEmployeeId,
+    reason,
+    setReason
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onSubmit: () => void;
+    currentSwap: { date: string; shift: string } | null;
+    currentUser: User;
+    allUsers: User[];
+    targetEmployeeId: string;
+    setTargetEmployeeId: (id: string) => void;
+    reason: string;
+    setReason: (reason: string) => void;
+}) => {
+    if (!isOpen || !currentSwap) return null;
+
+    const colleagues = allUsers.filter(u => u.id !== currentUser.id && u.active !== false);
+
+    return (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl border">
+                <h3 className="text-lg font-black text-text mb-2">Request Shift Swap</h3>
+                <p className="text-sm text-text-light mb-4">You are requesting to swap your shift on:</p>
+                
+                <div className="bg-secondary p-3 rounded-lg border text-center mb-4">
+                    <p className="font-bold text-primary">{currentSwap.date} ({currentSwap.shift})</p>
+                </div>
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-text-light mb-1 block">Swap with colleague:</label>
+                        <select 
+                            value={targetEmployeeId} 
+                            onChange={e => setTargetEmployeeId(e.target.value)}
+                            className="w-full p-3 bg-secondary border rounded-lg text-sm focus:ring-2 focus:ring-primary-light outline-none"
+                        >
+                            <option value="">Select a colleague...</option>
+                            {colleagues.map(user => (
+                                <option key={user.id} value={user.id}>{user.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-text-light mb-1 block">Reason (Optional):</label>
+                        <textarea
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            className="w-full p-2 border rounded-lg h-20 text-sm focus:ring-2 focus:ring-primary-light outline-none bg-secondary"
+                            placeholder="e.g., Personal appointment"
+                        />
+                    </div>
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                    <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200">Cancel</button>
+                    <button 
+                        onClick={onSubmit} 
+                        disabled={!targetEmployeeId}
+                        className="flex-1 py-3 rounded-xl bg-primary text-white font-bold hover:bg-primary-dark disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    >
+                        Send Request
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const LoginScreen = ({ users, onLogin, t, lang, setLang }: any) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -2925,6 +3002,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setTargetEmployeeId('');
     };
 
+    const handleCloseSwapModal = () => {
+        setIsSwapModalOpen(false);
+        setTargetEmployeeId('');
+        setReason('');
+    };
+
 
     const ConfirmationBanner = () => {
         if (confirmationStatus === 'loading' || confirmationStatus === 'not_applicable') return null;
@@ -3260,6 +3343,18 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 onClose={() => setShowAvailabilityModal(false)} 
                 t={t} 
                 currentUser={currentUser} 
+            />
+             <SwapRequestModal
+                isOpen={isSwapModalOpen}
+                onClose={handleCloseSwapModal}
+                onSubmit={handleSendSwapRequest}
+                currentSwap={currentSwap}
+                currentUser={currentUser}
+                allUsers={users}
+                targetEmployeeId={targetEmployeeId}
+                setTargetEmployeeId={setTargetEmployeeId}
+                reason={reason}
+                setReason={setReason}
             />
         </div>
     );
