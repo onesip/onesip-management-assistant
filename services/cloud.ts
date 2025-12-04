@@ -1,4 +1,3 @@
-
 // @ts-ignore
 // FIX: Added @ts-ignore to suppress potential module resolution errors in specific build environments.
 import { initializeApp } from 'firebase/app';
@@ -297,6 +296,11 @@ export const saveInventoryReport = async (report: any) => {
     if (!db) return;
     await updateDoc(doc(db, 'data', 'inventory_history'), { reports: arrayUnion(report) })
          .catch(() => setDoc(doc(db, 'data', 'inventory_history'), { reports: [report] }));
+};
+
+export const updateInventoryHistory = async (reports: any[]) => {
+    if (!db) return;
+    await setDoc(doc(db, 'data', 'inventory_history'), { reports });
 };
 
 // --- CONTENT (SOP/Training/Recipes) ---

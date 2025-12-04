@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 // FIX: Import 'Type' for defining a response schema for structured JSON output.
 import { GoogleGenAI, Type } from "@google/genai";
@@ -1535,15 +1534,30 @@ const OwnerInventoryLogsView = ({ logs, currentUser, onUpdateLogs }: { logs: Log
 
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs } = data;
+    const { showNotification } = useNotification();
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
     const [ownerSubView, setOwnerSubView] = useState<'logs' | 'presets' | 'history' | 'staff'>('logs');
     const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
+    const [reportToDelete, setReportToDelete] = useState<InventoryReport | null>(null);
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     
     const handleUpdateLogs = (allLogs: LogEntry[]) => {
         Cloud.updateLogs(allLogs);
+    };
+
+    const handleDeleteReport = async () => {
+        if (!reportToDelete) return;
+        const newHistory = inventoryHistory.filter((r: InventoryReport) => r.id !== reportToDelete.id);
+        try {
+            await Cloud.updateInventoryHistory(newHistory);
+            showNotification({ type: 'message', title: "删除成功", message: "该条补料记录已被删除。" });
+        } catch (e) {
+            console.error("Failed to delete report:", e);
+            showNotification({ type: 'announcement', title: "删除失败", message: "无法从数据库删除该记录。" });
+        }
+        setReportToDelete(null);
     };
 
     const handleExportCsv = () => {
@@ -1599,7 +1613,19 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                             <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'}</p>
                             <p className="text-xs text-dark-text-light">by {report.submittedBy} • {Object.keys(report.data).length} items</p>
                         </div>
-                        <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setReportToDelete(report);
+                                }}
+                                className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 transition-all"
+                                title="Delete Report"
+                            >
+                                <Icon name="Trash" size={16} />
+                            </button>
+                            <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
+                        </div>
                     </div>
                     {expandedReportId === report.id && (
                         <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2">
@@ -1664,6 +1690,13 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={handleUpdateLogs} />}
             </div>
+            <CustomConfirmModal
+                isOpen={!!reportToDelete}
+                title="删除补料记录"
+                message={<>确定要删除这次补料记录吗？<br/>(由 <strong>{reportToDelete?.submittedBy}</strong> 在 <strong>{reportToDelete?.date ? new Date(reportToDelete.date).toLocaleDateString() : ''}</strong> 提交)<br/>删除后将无法恢复。</>}
+                onConfirm={handleDeleteReport}
+                onCancel={() => setReportToDelete(null)}
+            />
         </div>
     );
 };
@@ -3158,192 +3191,102 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             );
         }
-        if (view === 'home') {
-            return (
-                <div className="h-full overflow-y-auto bg-secondary pb-24 text-text font-sans animate-fade-in-up">
-                    <header className="p-6 pb-2 flex justify-between items-start bg-surface sticky top-0 z-10 border-b border-gray-100">
-                        <div><h1 className="text-3xl font-black text-text tracking-tight">ONESIP</h1><p className="text-sm text-text-light font-medium mt-1">{t.hello} {currentUser.name}</p></div>
-                        <div className="flex items-center gap-3">
-                            <button onClick={openAdmin} className="bg-text text-surface text-[10px] font-bold px-3 py-1.5 rounded-full flex items-center gap-1 shadow hover:bg-black transition-all"><Icon name="Shield" size={12} /> Admin</button>
-                            <button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-100 text-text-light text-xs font-bold px-3 py-1.5 rounded-full border"> {lang === 'zh' ? 'EN' : '中'} </button>
-                            <button onClick={onLogout} className="w-8 h-8 rounded-full border border-gray-200 flex items-center justify-center text-destructive bg-surface shadow-sm"><Icon name="LogOut" size={14}/></button>
-                        </div>
-                    </header>
-
-                    <div className="p-6 space-y-6">
-                        <div className="bg-gradient-to-br from-primary to-teal-600 rounded-3xl p-6 text-white shadow-xl shadow-primary-light relative overflow-hidden">
-                            <div className="relative z-10"><div className="inline-block bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider mb-4">{t.next_shift}</div><h2 className="text-3xl font-bold mb-2">{nextShift ? nextShift.name : 'No Shift'}</h2><p className="text-teal-100 font-medium flex items-center gap-2"><Icon name="Calendar" size={16} /> {nextShift ? `${nextShift.date} • ${nextShift.shift}` : t.no_shift}</p></div>
-                            <Icon name="Calendar" size={120} className="absolute -right-4 -bottom-8 text-white opacity-10 rotate-12" />
-                        </div>
-                        
-                        <div onClick={() => setView('swapRequests')} className="bg-surface p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-95 transition-transform cursor-pointer">
-                            <div className="flex items-center gap-4"><div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center"><Icon name="Refresh" size={28} /></div><span className="font-bold text-lg text-text">Swap Requests</span></div>
-                            <Icon name="ChevronRight" className="text-gray-300" />
-                        </div>
-
-                        <LastRefillCard inventoryHistory={data.inventoryHistory} inventoryList={data.inventoryList} lang={lang} t={t} />
-
-                        <div onClick={() => setView('inventory')} className="bg-surface p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-95 transition-transform cursor-pointer">
-                            <div className="flex items-center gap-4"><div className="w-14 h-14 bg-primary-light text-primary rounded-2xl flex items-center justify-center"><Icon name="Package" size={28} /></div><span className="font-bold text-lg text-text">{t.inventory_title}</span></div>
-                            <Icon name="ChevronRight" className="text-gray-300" />
-                        </div>
-                         <div onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-95 transition-transform cursor-pointer">
-                            <div className="flex items-center gap-4"><div className="w-14 h-14 bg-yellow-100 text-yellow-600 rounded-2xl flex items-center justify-center"><Icon name="Calendar" size={28} /></div><span className="font-bold text-lg text-text">{t.next_week_availability}</span></div>
-                            <Icon name="ChevronRight" className="text-gray-300" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <button onClick={() => handleClockLog('clock-in')} className="bg-primary hover:bg-primary-dark text-white p-6 rounded-3xl shadow-lg shadow-primary-light flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"><Icon name="Play" size={32} /><span className="font-bold">{clockBtnText.in}</span></button>
-                            <button onClick={() => handleClockLog('clock-out')} className="bg-text-light hover:bg-text text-white p-6 rounded-3xl shadow-lg shadow-gray-200 flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"><Icon name="Square" size={32} /><span className="font-bold">{clockBtnText.out}</span></button>
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-        if (view === 'swapRequests') {
-            const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id || r.targetId === currentUser.id)
-                .sort((a: SwapRequest, b: SwapRequest) => b.timestamp - a.timestamp);
-            return (
-                <div className="h-full flex flex-col text-text animate-fade-in-up">
-                    <div className="p-4 border-b flex items-center gap-3 bg-surface sticky top-0 z-10">
-                        <button onClick={() => setView('home')} className="p-2 -ml-2 rounded-full hover:bg-secondary"><Icon name="ArrowLeft" /></button>
-                        <h2 className="text-xl font-black">Swap Requests</h2>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 bg-secondary space-y-3 pb-24">
-                        {myRequests.length === 0 && <p className="text-center text-text-light py-10">No swap requests found.</p>}
-                        {myRequests.map((req: SwapRequest) => (
-                            <div key={req.id} className="bg-surface p-4 rounded-xl shadow-sm border">
-                                <p className="text-sm mb-2">{req.requesterId === currentUser.id ? "You requested to swap with" : `${req.requesterName} requested to swap with you.`} <strong>{req.requesterId === currentUser.id ? req.targetName : req.requesterName}</strong>.</p>
-                                <div className="bg-secondary p-3 rounded-lg text-xs space-y-1 mb-3">
-                                    <p><strong>{req.requesterName}'s Shift:</strong> {req.requesterDate} ({req.requesterShift})</p>
-                                    <p><strong>{req.targetName}'s Shift:</strong> {req.targetDate ? `${req.targetDate} (${req.targetShift})` : 'Cover shift (one-way)'}</p>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-xs font-bold capitalize">{req.status.replace('_by_peer', '')}</span>
-                                    {req.targetId === currentUser.id && req.status === 'pending' && (
-                                        <div className="flex gap-2">
-                                            <button onClick={() => handleSwapAction(req.id, 'rejected')} className="bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-bold text-xs">Reject</button>
-                                            <button onClick={() => handleSwapAction(req.id, 'accepted_by_peer')} className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-bold text-xs">Accept</button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-        }
-        if (view === 'chat') return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />;
-        if (view === 'inventory') return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} isForced={!!onInventorySuccess} onCancel={cancelInventoryClockOut} />;
-        if (view === 'contact') return <ContactView t={t} lang={lang} />;
+        if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} allUsers={users} sopList={data.sopList} trainingLevels={data.trainingLevels} />; }
+        if (view === 'contact') { return <ContactView t={t} lang={lang} />; }
         if (view === 'recipes') {
-            const filteredRecipes = data.recipes.filter((recipe: DrinkRecipe) => {
-                if (!recipeSearchQuery) return true;
-                const query = recipeSearchQuery.toLowerCase().trim();
-                const nameEn = recipe.name?.en?.toLowerCase() || '';
-                const nameZh = recipe.name?.zh || '';
-                const cat = recipe.cat?.toLowerCase() || '';
-                return nameEn.includes(query) || nameZh.includes(query) || cat.includes(query);
-            });
-
+             const filteredRecipes = DRINK_RECIPES.filter(r => (r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery)));
+             return <div className="h-full overflow-y-auto p-4 pb-24 bg-secondary animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2><div className="sticky top-0 bg-secondary py-2 z-10 -mt-2"><div className="relative"><Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/><input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm"/></div></div>{filteredRecipes.map(r => <DrinkCard key={r.id} drink={r} lang={lang} t={t} />)}</div>;
+        }
+        if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
+        if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
+        if (view === 'inventory') { return <InventoryView lang={lang} t={t} inventoryList={data.inventoryList} setInventoryList={data.setInventoryList} onSubmit={handleInventorySubmit} currentUser={currentUser} isForced={!!onInventorySuccess} onCancel={cancelInventoryClockOut} />; }
+        if (view === 'checklist') {
+            const checklist = CHECKLIST_TEMPLATES[currentShift];
+            return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
+        }
+        if (view === 'availability') { return <AvailabilityModal isOpen={true} onClose={() => setView('home')} t={t} currentUser={currentUser} />; }
+        if (view === 'swapRequests') {
+            const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
+            const incomingRequests = swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
             return (
-                 <div className="h-full flex flex-col text-text animate-fade-in-up pb-24">
-                    <div className="bg-surface p-4 border-b sticky top-0 z-10">
-                        <h2 className="text-xl font-black mb-3">{t.recipe_title}</h2>
-                        <div className="relative">
-                            <Icon name="Search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-light" />
-                            <input 
-                                type="text"
-                                value={recipeSearchQuery}
-                                onChange={e => setRecipeSearchQuery(e.target.value)}
-                                placeholder="Search recipes... / 搜索配方..."
-                                className="w-full p-3 pl-10 bg-secondary rounded-lg border border-gray-200 focus:ring-2 focus:ring-primary-light focus:border-primary outline-none transition-all"
-                            />
-                        </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 bg-secondary">
-                         {filteredRecipes.length > 0 ? (
-                            filteredRecipes.map((d: DrinkRecipe) => <DrinkCard key={d.id} drink={d} lang={lang} t={t} />)
-                        ) : (
-                            <div className="text-center py-12 text-text-light">
-                                <Icon name="Search" size={32} className="mx-auto mb-3 opacity-50"/>
-                                <p className="font-bold">No recipes found</p>
-                                <p className="text-sm">Try a different keyword.</p>
+                <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
+                    <h2 className="text-2xl font-black mb-4">Shift Swap Center</h2>
+                    
+                    <div className="mb-6">
+                        <h3 className="font-bold mb-2 text-text">Incoming Requests</h3>
+                        {incomingRequests.length > 0 ? incomingRequests.map((req: SwapRequest) => (
+                            <div key={req.id} className="bg-surface p-4 rounded-xl border mb-2">
+                                <p className="text-sm mb-2"><strong className="text-primary">{req.requesterName}</strong> wants to swap their shift:</p>
+                                <div className="bg-secondary p-2 rounded-lg text-center font-mono text-sm mb-3">{req.requesterDate} ({req.requesterShift})</div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => handleSwapAction(req.id, 'rejected')} className="flex-1 bg-red-100 text-red-600 font-bold py-2 rounded-lg text-sm">Reject</button>
+                                    <button onClick={() => handleSwapAction(req.id, 'accepted_by_peer')} className="flex-1 bg-green-100 text-green-700 font-bold py-2 rounded-lg text-sm">Accept</button>
+                                </div>
                             </div>
-                        )}
+                        )) : <p className="text-sm text-text-light italic">No incoming requests.</p>}
+                    </div>
+
+                    <div>
+                        <h3 className="font-bold mb-2 text-text">My Sent Requests</h3>
+                        {myRequests.length > 0 ? myRequests.map((req: SwapRequest) => {
+                             const statusColors: any = { pending: 'text-yellow-600', rejected: 'text-red-600', accepted_by_peer: 'text-green-600', approved: 'text-blue-600' };
+                             return (<div key={req.id} className="bg-surface p-3 rounded-xl border mb-2 text-sm">
+                                <p>To <strong className="text-primary">{req.targetName}</strong> for <span className="font-mono">{req.requesterDate} ({req.requesterShift})</span></p>
+                                <p>Status: <strong className={`${statusColors[req.status] || 'text-gray-500'} capitalize`}>{req.status.replace('_by_peer', ' (Peer)')}</strong></p>
+                            </div>)
+                        }) : <p className="text-sm text-text-light italic">You haven't sent any requests.</p>}
                     </div>
                 </div>
             );
-        }
-        if (view === 'training') return <TrainingView data={data} onComplete={() => {}} />;
-        if (view === 'sop') return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />;
-        if (view === 'checklist') {
-            const ChecklistView = ({ template, lang, t, onBack }: any) => {
-                if (!template) return <div>Template not found. <button onClick={onBack}>Back</button></div>;
-                return (
-                    <div className="h-full flex flex-col bg-secondary p-4 pb-24 animate-fade-in-up">
-                        <div className="flex items-center gap-2 mb-4">
-                            <button onClick={onBack} className="p-2 -ml-2"><Icon name="ArrowLeft" /></button>
-                            <div>
-                                <h2 className="text-xl font-bold">{template.title[lang]}</h2>
-                                <p className="text-sm text-text-light">{template.subtitle[lang]}</p>
-                            </div>
-                        </div>
-                        <div className="space-y-3">
-                            {template.items.map((item: any) => (
-                                <div key={item.id} className="bg-surface p-4 rounded-xl shadow-sm border">
-                                    <label className="flex items-center">
-                                        <input type="checkbox" className="w-5 h-5 rounded-md text-primary focus:ring-primary" />
-                                        <div className="ml-3">
-                                            <p className="font-bold text-text">{item.text[lang]}</p>
-                                            <p className="text-xs text-text-light">{item.desc[lang]}</p>
-                                        </div>
-                                    </label>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                );
-            };
-            return <ChecklistView template={CHECKLIST_TEMPLATES[currentShift as keyof typeof CHECKLIST_TEMPLATES]} lang={lang} t={t} onBack={() => setView('sop')} />;
         }
         return null;
     };
     
-    const NavButton = ({ targetView, iconName, label, hasNotification = false }: { targetView: StaffViewMode, iconName: string, label: string, hasNotification?: boolean }) => (
-        <button onClick={() => setView(targetView)} className={`flex flex-col items-center justify-center gap-1.5 p-2 rounded-lg relative transition-colors ${view === targetView ? 'text-primary' : 'text-text-light hover:text-primary'}`}>
-            <Icon name={iconName} size={24} />
-            <span className="text-[10px] font-bold">{label}</span>
-            {hasNotification && <div className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-surface"></div>}
-        </button>
-    );
+    const homeView = (
+        <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
+            <div className="flex justify-between items-start mb-6">
+                <div>
+                    <h1 className="text-2xl font-black">{t.hello} {currentUser.name}</h1>
+                    <p className="text-text-light text-sm">{t.ready}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button>
+                    <button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button>
+                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+                <button onClick={() => handleClockLog('clock-in')} className="bg-green-100 text-green-700 font-bold py-5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-transform"><Icon name="LogIn" /><span>{clockBtnText.in}</span></button>
+                <button onClick={() => handleClockLog('clock-out')} className="bg-red-100 text-red-700 font-bold py-5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-transform"><Icon name="LogOut" /><span>{clockBtnText.out}</span></button>
+            </div>
+            <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
+                <p className="text-xs text-text-light font-bold uppercase mb-2">{t.next_shift}</p>
+                {nextShift ? (
+                    <p className="font-bold text-text text-lg">{nextShift.date} ({nextShift.name}) <span className="text-primary">{nextShift.shift}</span></p>
+                ) : <p className="text-sm text-text-light italic">{t.no_shift}</p>}
+            </div>
+            
+            <LastRefillCard inventoryHistory={data.inventoryHistory} inventoryList={data.inventoryList} lang={lang} t={t} />
 
+            <div className="mt-4">
+                <h3 className="font-bold text-text mb-2">My Modules</h3>
+                <div className="grid grid-cols-2 gap-3">
+                    <button onClick={() => setView('team')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left"><Icon name="Users" className="mb-1 text-primary"/> <p className="font-bold">My Schedule</p></button>
+                    <button onClick={() => setView('swapRequests')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left"><Icon name="Refresh" className="mb-1 text-primary"/> <p className="font-bold">Shift Swaps</p></button>
+                    <button onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left"><Icon name="Calendar" className="mb-1 text-primary"/> <p className="font-bold">Availability</p></button>
+                    <button onClick={() => setView('sop')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left"><Icon name="Book" className="mb-1 text-primary"/> <p className="font-bold">SOP Library</p></button>
+                </div>
+            </div>
+
+        </div>
+    );
+    
     return (
-        <div className="h-[100dvh] bg-secondary flex flex-col">
-            <main className="flex-1 overflow-hidden relative">
-                {renderView()}
-            </main>
-            <nav className="bg-surface border-t border-gray-100 p-2 grid grid-cols-5 gap-1 shrink-0">
-                <NavButton targetView="home" iconName="Grid" label={t.home} />
-                <NavButton targetView="team" iconName="Users" label={t.team_title} />
-                <NavButton targetView="chat" iconName="MessageSquare" label={t.chat} hasNotification={hasUnreadChat} />
-                <NavButton targetView="recipes" iconName="BookOpen" label={t.recipes} />
-                <NavButton targetView="sop" iconName="ShieldCheck" label={t.sop} />
-            </nav>
-            <AvailabilityReminderModal 
-                isOpen={showAvailabilityReminder} 
-                onCancel={() => setShowAvailabilityReminder(false)} 
-                onConfirm={() => { 
-                    setShowAvailabilityReminder(false); 
-                    setShowAvailabilityModal(true); 
-                }} 
-                t={t} 
-            />
-            <AvailabilityModal 
-                isOpen={showAvailabilityModal} 
-                onClose={() => setShowAvailabilityModal(false)} 
-                t={t} 
-                currentUser={currentUser} 
-            />
+        <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative">
+            {view === 'home' ? homeView : renderView()}
+            {currentUser && <StaffBottomNav activeView={view} setActiveView={setView} t={t} hasUnreadChat={hasUnreadChat} />}
+            <AvailabilityReminderModal isOpen={showAvailabilityReminder} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} onCancel={() => setShowAvailabilityReminder(false)} t={t} />
+            {currentUser && <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />}
+            <DeviationReasonModal isOpen={!!deviationData} onClose={() => { setDeviationData(null); setClockBtnText({ in: t.clock_in, out: t.clock_out }); }} onSubmit={(reason: string) => { recordLog(deviationData.type, deviationData.locTag, { reason, details: deviationData.details }); setDeviationData(null); }} details={deviationData?.details} t={t} />
              <SwapRequestModal
                 isOpen={isSwapModalOpen}
                 onClose={handleCloseSwapModal}
@@ -3360,124 +3303,151 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     );
 };
 
-// --- MAIN APP COMPONENT ---
+const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activeView: string, setActiveView: (v: StaffViewMode) => void, t: any, hasUnreadChat: boolean }) => {
+    const navItems = [
+        { key: 'home', icon: 'Grid', label: t.home },
+        { key: 'training', icon: 'Award', label: t.training },
+        { key: 'recipes', icon: 'Coffee', label: t.recipes },
+        { key: 'inventory', icon: 'Package', label: t.stock },
+        { key: 'chat', icon: 'MessageSquare', label: t.chat },
+    ];
+    return (
+        <div className="absolute bottom-0 left-0 right-0 h-20 bg-surface/80 backdrop-blur-lg border-t border-gray-100 flex justify-around items-center max-w-md mx-auto">
+            {navItems.map(item => (
+                <button key={item.key} onClick={() => setActiveView(item.key as StaffViewMode)} className={`flex flex-col items-center gap-1 w-16 transition-all relative ${activeView === item.key ? 'text-primary' : 'text-text-light hover:text-primary'}`}>
+                    <Icon name={item.icon} size={22} />
+                    <span className="text-[10px] font-bold">{item.label}</span>
+                    {item.key === 'chat' && hasUnreadChat && <div className="absolute top-0 right-3.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-surface"></div>}
+                </button>
+            ))}
+        </div>
+    );
+};
 
-function App() {
-    // --- STATE & LIFECYCLE ---
-    const [lang, setLang] = useState<Lang>('en');
+
+// --- MAIN APP ---
+const App = () => {
+    const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('onesip_lang') as Lang) || 'zh');
     const [currentUser, setCurrentUser] = useState<User | null>(null);
-    const [isCloudEnabled, setIsCloudEnabled] = useState(false);
+    const [adminMode, setAdminMode] = useState<'manager' | 'owner' | 'editor' | null>(null);
+    const [adminModalOpen, setAdminModalOpen] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
     const [showCloudSetup, setShowCloudSetup] = useState(false);
     
-    // Auth & Roles
-    const [isManager, setIsManager] = useState(false);
-    const [isOwner, setIsOwner] = useState(false);
-    const [isEditor, setIsEditor] = useState(false);
-    const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
-
-    // Data states
+    // --- Data States ---
     const [users, setUsers] = useState<User[]>(STATIC_USERS);
-    const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [schedule, setSchedule] = useState<any>({});
-    const [notices, setNotices] = useState<Notice[]>([]);
-    const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
-    const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
     const [inventoryList, setInventoryList] = useState<InventoryItem[]>(INVENTORY_ITEMS);
     const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
+    const [schedule, setSchedule] = useState<any>({ days: [] });
+    const [notices, setNotices] = useState<Notice[]>([]);
+    const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
+    const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
+    const [sales, setSales] = useState<SalesRecord[]>([]);
     const [sopList, setSopList] = useState<SopItem[]>(SOP_DATABASE);
     const [trainingLevels, setTrainingLevels] = useState<TrainingLevel[]>(TRAINING_LEVELS);
     const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
-    const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
+
+    const t = TRANSLATIONS[lang];
 
     useEffect(() => {
-        // Check for Firebase config and set cloud status
-        if (process.env.API_KEY) {
-            setIsCloudEnabled(true);
-            Cloud.seedInitialData();
-
-            const unsubUsers = Cloud.subscribeToUsers(setUsers);
-            const unsubLogs = Cloud.subscribeToLogs(setLogs);
-            const unsubSchedule = Cloud.subscribeToSchedule(setSchedule);
-            const unsubChat = Cloud.subscribeToChat((msgs, ntcs) => { setDirectMessages(msgs); setNotices(ntcs); });
-            const unsubSwaps = Cloud.subscribeToSwaps(setSwapRequests);
-            const unsubInvList = Cloud.subscribeToInventory(setInventoryList);
-            const unsubInvHist = Cloud.subscribeToInventoryHistory(setInventoryHistory);
-            const unsubContent = Cloud.subscribeToContent(data => {
-                if (data.sops) setSopList(data.sops);
-                if (data.training) setTrainingLevels(data.training);
-                if (data.recipes) setRecipes(data.recipes);
-            });
-
-            return () => {
-                unsubUsers();
-                unsubLogs();
-                unsubSchedule();
-                unsubChat();
-                unsubSwaps();
-                unsubInvList();
-                unsubInvHist();
-                unsubContent();
-            };
-        } else {
-            console.warn("Cloud features disabled. No Firebase config.");
-            setShowCloudSetup(true);
-        }
-    }, []);
-
-    useEffect(() => {
-        // Attempt to log in user from local storage
-        const savedUser = localStorage.getItem('onesip_user');
-        if (savedUser) {
+        const init = async () => {
             try {
-                setCurrentUser(JSON.parse(savedUser));
-            } catch (e) {
-                console.error("Failed to parse saved user", e);
-                localStorage.removeItem('onesip_user');
+                // Check for API_KEY, if missing, show setup modal.
+                if (!process.env.API_KEY) {
+                     setShowCloudSetup(true);
+                } else {
+                    await Cloud.seedInitialData();
+                }
+
+                // Subscriptions
+                Cloud.subscribeToInventory(setInventoryList);
+                Cloud.subscribeToInventoryHistory(setInventoryHistory);
+                Cloud.subscribeToSchedule(setSchedule);
+                Cloud.subscribeToChat((msgs, ntcs) => { setDirectMessages(msgs); setNotices(ntcs); });
+                Cloud.subscribeToLogs(setLogs);
+                Cloud.subscribeToSwaps(setSwapRequests);
+                Cloud.subscribeToSales(setSales);
+                Cloud.subscribeToContent(data => { if (data.sops) setSopList(data.sops); if (data.training) setTrainingLevels(data.training); if(data.recipes) setRecipes(data.recipes); });
+                Cloud.subscribeToUsers(setUsers);
+
+                const savedUser = localStorage.getItem('onesip_user');
+                if (savedUser) {
+                    const user: User = JSON.parse(savedUser);
+                    // Verify user still exists and is active
+                    const activeUser = users.find(u => u.id === user.id && u.active !== false);
+                    if (activeUser) {
+                        setCurrentUser(activeUser);
+                    } else {
+                         localStorage.removeItem('onesip_user');
+                    }
+                }
+            } catch (error) {
+                console.error("Initialization error:", error);
+            } finally {
+                setIsLoading(false);
             }
-        }
-    }, []);
+        };
+        init();
+    }, []); // Removed `users` from dependency array to prevent re-login loop
     
-    const handleAdminLogin = (role: 'manager' | 'owner' | 'editor') => {
-        if (role === 'manager') setIsManager(true);
-        if (role === 'owner') setIsOwner(true);
-        if (role === 'editor') setIsEditor(true);
-        setIsAdminLoginOpen(false);
+    const handleLogin = (user: User, keepLoggedIn: boolean) => {
+        setCurrentUser(user);
+        if (keepLoggedIn) {
+            localStorage.setItem('onesip_user', JSON.stringify(user));
+        } else {
+             localStorage.removeItem('onesip_user');
+        }
     };
 
-    if (isEditor) {
-        return <EditorDashboard data={{ sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t }} onExit={() => { setCurrentUser(null); setIsEditor(false); }} />;
+    const handleLogout = () => {
+        setCurrentUser(null);
+        localStorage.removeItem('onesip_user');
+        localStorage.removeItem('onesip_remembered_password');
+    };
+
+    const appData = { 
+        lang, setLang, t, 
+        inventoryList, setInventoryList, inventoryHistory, 
+        schedule, setSchedule, notices, logs, setLogs,
+        directMessages, setDirectMessages,
+        swapRequests, setSwapRequests,
+        sales, setSales,
+        sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes,
+        users,
+    };
+    
+    if (isLoading) {
+        return <div className="min-h-screen bg-secondary flex items-center justify-center"><div className="text-primary font-bold">Loading...</div></div>;
     }
 
-    if (isOwner) {
-        return <OwnerDashboard data={{ lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs }} onExit={() => { setCurrentUser(null); setIsOwner(false); }} />;
+    if (adminMode === 'manager') {
+        return <ManagerDashboard data={appData} onExit={() => setAdminMode(null)} />;
     }
-
-    if (isManager) {
-        return <ManagerDashboard data={{ lang, t, schedule, setSchedule, notices, logs, setLogs, directMessages, setDirectMessages, swapRequests, setSwapRequests, users }} onExit={() => { setCurrentUser(null); setIsManager(false); }} />;
+    if (adminMode === 'owner') {
+        return <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />;
+    }
+    if (adminMode === 'editor') {
+        return <EditorDashboard data={appData} onExit={() => setAdminMode(null)} />;
     }
 
     if (!currentUser) {
-        return <LoginScreen users={users} onLogin={(user: User, keepLoggedIn: boolean) => {
-            setCurrentUser(user);
-            if (keepLoggedIn) {
-                localStorage.setItem('onesip_user', JSON.stringify(user));
-            }
-        }} t={t} lang={lang} setLang={setLang} />;
+        return <LoginScreen users={users} onLogin={handleLogin} t={t} lang={lang} setLang={setLang} />;
     }
-
+    
     return (
         <>
             <StaffApp 
                 onSwitchMode={() => {}} 
-                data={{ lang, setLang, schedule, notices, logs, setLogs, t, inventoryList, setInventoryList, inventoryHistory, sopList, recipes, trainingLevels, directMessages, setDirectMessages, swapRequests, setSwapRequests, users }} 
-                onLogout={() => { setCurrentUser(null); localStorage.removeItem('onesip_user'); }} 
-                currentUser={currentUser} 
-                openAdmin={() => setIsAdminLoginOpen(true)} 
+                data={appData} 
+                onLogout={handleLogout} 
+                currentUser={currentUser}
+                openAdmin={() => setAdminModalOpen(true)}
             />
-            <AdminLoginModal isOpen={isAdminLoginOpen} onClose={() => setIsAdminLoginOpen(false)} onLogin={handleAdminLogin} />
+            <AdminLoginModal isOpen={adminModalOpen} onClose={() => setAdminModalOpen(false)} onLogin={(role) => { setAdminMode(role); setAdminModalOpen(false); }} />
             <CloudSetupModal isOpen={showCloudSetup} onClose={() => setShowCloudSetup(false)} />
         </>
     );
-}
+};
 
 export default App;
