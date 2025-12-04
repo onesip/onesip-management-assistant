@@ -73,6 +73,29 @@ const formattedDate = (isoString: string | number) => {
 
 // --- MODALS ---
 
+const ActionReminderModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText, cancelText }: { isOpen: boolean, title: string, message: React.ReactNode, onConfirm: () => void, onCancel: () => void, confirmText: string, cancelText: string }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl transform scale-100 transition-all border border-gray-200">
+                <div className="flex items-start gap-4 mb-3">
+                    <div className="w-10 h-10 bg-primary-light text-primary rounded-full flex items-center justify-center shrink-0 mt-1">
+                        <Icon name="Bell" size={20} />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-black text-text">{title}</h3>
+                    </div>
+                </div>
+                <div className="text-text-light text-sm mb-6 leading-relaxed ml-14">{message}</div>
+                <div className="flex gap-3">
+                    <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200 transition-all">{cancelText}</button>
+                    <button onClick={onConfirm} className="flex-1 py-3 rounded-xl bg-primary text-white font-bold hover:bg-primary-dark shadow-lg shadow-primary-light transition-all">{confirmText}</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const EditInventoryLogModal = ({ isOpen, log, onClose, onSave, currentUser }: { isOpen: boolean, log: LogEntry | null, onClose: () => void, onSave: (log: LogEntry) => void, currentUser: User }) => {
     const [items, setItems] = useState<any[]>([]);
     const [note, setNote] = useState('');
@@ -1441,7 +1464,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     };
 
     return (
-        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
+        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
            <div className="p-4 bg-dark-surface border-b border-white/10 flex justify-between items-center shrink-0">
                <h2 className="text-xl font-bold tracking-wider text-dark-accent">{t.editor_title}</h2>
                <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="X" /></button>
@@ -1659,7 +1682,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
     );
 
     return (
-        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
+        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
             <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
                 <div><h1 className="text-xl font-black tracking-tight text-white">{t.owner_dashboard || 'Owner Dashboard'}</h1><p className="text-xs text-dark-text-light">User: {ownerUser.name}</p></div>
                 <div className="flex gap-2">
@@ -2146,7 +2169,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
 
     return (
-        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-8 md:pt-0">
+        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
             <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
                 <div><h1 className="text-xl font-black tracking-tight text-white">{t.manager_title}</h1><p className="text-xs text-dark-text-light">User: {managerUser.name}</p></div>
                 <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
@@ -2579,6 +2602,14 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [targetEmployeeId, setTargetEmployeeId] = useState('');
     const [reason, setReason] = useState('');
 
+    // Reminder Modal States
+    const [isScheduleReminderOpen, setIsScheduleReminderOpen] = useState(false);
+    const [isSwapReminderOpen, setIsSwapReminderOpen] = useState(false);
+    const [pendingSwapCount, setPendingSwapCount] = useState(0);
+    const scheduleReminderShown = useRef(false);
+    const swapReminderShown = useRef(false);
+
+
     // FIX: Define the 'getLoc' helper function to resolve translation object properties based on the current language.
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
@@ -2768,6 +2799,64 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }, 60 * 1000);
         return () => clearInterval(timer);
     }, [currentUser, schedule, logs, showNotification]);
+
+    useEffect(() => {
+        // Do not show popups if another modal is already active.
+        if (view !== 'home' || deviationData || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) {
+            return;
+        }
+
+        const runChecks = async () => {
+            // 1. Check for pending swap requests
+            if (!swapReminderShown.current) {
+                const pendingSwaps = (swapRequests || []).filter(
+                    (r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending'
+                );
+                if (pendingSwaps.length > 0) {
+                    setPendingSwapCount(pendingSwaps.length);
+                    setIsSwapReminderOpen(true);
+                    swapReminderShown.current = true;
+                    return; // Show one reminder at a time
+                }
+            }
+
+            // 2. If no swap reminders, check for schedule confirmation
+            if (!scheduleReminderShown.current) {
+                if (!schedule?.days) return;
+
+                const start = new Date();
+                const end = new Date();
+                end.setDate(start.getDate() + 13);
+                const startISO = formatDateISO(start);
+                const endISO = formatDateISO(end);
+
+                const startMs = new Date(start).setHours(0, 0, 0, 0);
+                const endMs = new Date(end).setHours(23, 59, 59, 999);
+                
+                const hasShiftsInWindow = schedule.days.some((day: ScheduleDay) => {
+                    const dayDate = new Date(`${new Date().getFullYear()}-${day.date}`);
+                    if(isNaN(dayDate.getTime())) return false;
+                    const scheduleMs = dayDate.getTime();
+                    if (scheduleMs >= startMs && scheduleMs <= endMs) {
+                        return [...day.morning, ...day.evening, ...(day.night || [])].includes(currentUser.name);
+                    }
+                    return false;
+                });
+
+                if (hasShiftsInWindow) {
+                    const confirmation = await Cloud.getScheduleConfirmation(currentUser.id, startISO, endISO);
+                    if (!confirmation) {
+                        setIsScheduleReminderOpen(true);
+                        scheduleReminderShown.current = true;
+                    }
+                }
+            }
+        };
+
+        const timer = setTimeout(runChecks, 1500); // Delay to let UI settle
+        return () => clearTimeout(timer);
+    }, [currentUser, swapRequests, schedule, view, deviationData, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder]);
+
 
     const findNextShift = () => {
         if (!schedule?.days) return null;
@@ -3306,7 +3395,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     );
     
     return (
-        <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative">
+        <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative pt-[calc(env(safe-area-inset-top)_+_1rem)]">
             {view === 'home' ? homeView : renderView()}
             {currentUser && <StaffBottomNav activeView={view} setActiveView={setView} t={t} hasUnreadChat={hasUnreadChat} />}
             <AvailabilityReminderModal isOpen={showAvailabilityReminder} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} onCancel={() => setShowAvailabilityReminder(false)} t={t} />
@@ -3323,6 +3412,30 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 setTargetEmployeeId={setTargetEmployeeId}
                 reason={reason}
                 setReason={setReason}
+            />
+            <ActionReminderModal
+                isOpen={isScheduleReminderOpen}
+                title="排班确认提醒"
+                message="你未来两周有排班安排，请尽快确认。"
+                confirmText="去排班页面"
+                cancelText="稍后"
+                onConfirm={() => {
+                    setView('team');
+                    setIsScheduleReminderOpen(false);
+                }}
+                onCancel={() => setIsScheduleReminderOpen(false)}
+            />
+             <ActionReminderModal
+                isOpen={isSwapReminderOpen}
+                title="换班申请提醒"
+                message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`}
+                confirmText="去处理"
+                cancelText="稍后"
+                onConfirm={() => {
+                    setView('swapRequests');
+                    setIsSwapReminderOpen(false);
+                }}
+                onCancel={() => setIsSwapReminderOpen(false)}
             />
         </div>
     );
