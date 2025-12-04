@@ -1104,9 +1104,16 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             <div className="p-4 border-b flex justify-between items-center bg-surface sticky top-0 z-10">
                 <h2 className="text-2xl font-black">{t.chat}</h2>
                 {onExit && (
-                    <button onClick={onExit} className="bg-destructive-light text-destructive border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-red-200 transition-all">
-                        <Icon name="LogOut" size={14}/> Exit
-                    </button>
+                    isManager 
+                    ? (
+                        <button onClick={onExit} className="bg-destructive-light text-destructive border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-red-200 transition-all">
+                            <Icon name="LogOut" size={14}/> Exit
+                        </button>
+                    ) : (
+                         <button onClick={onExit} className="bg-gray-100 text-text-light p-2 rounded-full hover:bg-gray-200">
+                            <Icon name="X" size={20} />
+                        </button>
+                    )
                 )}
             </div>
             
@@ -3191,7 +3198,17 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             );
         }
-        if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} allUsers={users} sopList={data.sopList} trainingLevels={data.trainingLevels} />; }
+        if (view === 'chat') { return <ChatView 
+            t={t} 
+            currentUser={currentUser} 
+            messages={directMessages} 
+            setMessages={data.setDirectMessages} 
+            notices={notices} 
+            allUsers={users} 
+            sopList={data.sopList} 
+            trainingLevels={data.trainingLevels}
+            onExit={() => setView('home')} 
+        />; }
         if (view === 'contact') { return <ContactView t={t} lang={lang} />; }
         if (view === 'recipes') {
              const filteredRecipes = DRINK_RECIPES.filter(r => (r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery)));
