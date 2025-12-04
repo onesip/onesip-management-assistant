@@ -3267,6 +3267,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     <p className="text-text-light text-sm">{t.ready}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light font-bold text-sm">
+                        {lang === 'zh' ? 'En' : '中'}
+                    </button>
                     <button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button>
                     <button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button>
                 </div>
