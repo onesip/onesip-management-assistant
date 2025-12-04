@@ -132,7 +132,7 @@ export const TRANSLATIONS: Record<string, any> = {
         sop: "SOPs",
         recipes: "Recipes",
         schedule: "Schedule",
-        contact: "Contacts",
+        contacts: "Contacts",
         stock: "Inventory",
         logs: "Logs",
         ai: "AI",

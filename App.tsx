@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
+// FIX: Import 'Type' for defining a response schema for structured JSON output.
+import { GoogleGenAI, Type } from "@google/genai";
 import { Icon } from './components/Icons';
 import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, USERS as STATIC_USERS } from './constants';
 import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState, UserRole, ClockType } from './types';
@@ -43,7 +44,7 @@ const getStartOfWeek = (date: Date, weekOffset = 0) => {
 
 const formatDateISO = (date: Date) => date.toISOString().split('T')[0];
 
-const formattedDate = (isoString: string) => {
+const formattedDate = (isoString: string | number) => {
     if (!isoString) return 'No Date';
     try {
         const date = new Date(isoString);
@@ -57,7 +58,7 @@ const formattedDate = (isoString: string) => {
         const minutes = String(date.getMinutes()).padStart(2, '0');
         return `${year}/${month}/${day} ${hours}:${minutes}`;
     } catch {
-        return isoString; // Fallback
+        return String(isoString); // Fallback
     }
 }
 
@@ -538,7 +539,7 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
     const [isLoading, setIsLoading] = useState(true);
     const nextWeekStart = getStartOfWeek(new Date(), 1);
     const nextWeekStartISO = formatDateISO(nextWeekStart);
-    const days = Array.from({ length: 7 }).map((_, i) => { const d = new Date(nextWeekStart); d.setDate(d.getDate() + i); return d; });
+    const days = Array.from({ length: 14 }).map((_, i) => { const d = new Date(nextWeekStart); d.setDate(d.getDate() + i); return d; });
 
     useEffect(() => {
         if (isOpen) {
@@ -600,6 +601,95 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
 };
 
 // --- SCREENS & VIEWS ---
+
+const LoginScreen = ({ users, onLogin, t, lang, setLang }: any) => {
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [rememberPassword, setRememberPassword] = useState(false);
+    const [keepLoggedIn, setKeepLoggedIn] = useState(true);
+
+    useEffect(() => {
+        const rememberedPassword = localStorage.getItem('onesip_remembered_password');
+        if (rememberedPassword) {
+            setPassword(rememberedPassword);
+            setRememberPassword(true);
+        }
+    }, []);
+
+    const handleLogin = () => {
+        if (!password) {
+            setError(t.enter_code);
+            return;
+        }
+        const user = users.find((u: User) => u.password === password);
+
+        if (user) {
+            onLogin(user, keepLoggedIn);
+            if (rememberPassword) {
+                localStorage.setItem('onesip_remembered_password', password);
+            } else {
+                localStorage.removeItem('onesip_remembered_password');
+            }
+        } else {
+            setError(t.invalid_code);
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-secondary flex flex-col items-center justify-center p-4">
+            <div className="w-full max-w-sm">
+                <div className="text-center mb-8">
+                    <h1 className="text-4xl font-black text-primary tracking-tight">ONESIP</h1>
+                    <p className="text-text-light">{t.login_title}</p>
+                </div>
+                <div className="bg-surface rounded-2xl shadow-lg p-8 space-y-6">
+                    {error && <p className="text-destructive text-sm text-center font-bold">{error}</p>}
+                    <div>
+                        <label className="text-sm font-bold text-text-light mb-2 block">{t.enter_code}</label>
+                        <input
+                            type="password"
+                            value={password}
+                            onChange={(e) => { setPassword(e.target.value); setError(''); }}
+                            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                            className="w-full p-4 border rounded-lg bg-secondary text-center text-xl tracking-widest font-mono"
+                            placeholder="••••••"
+                            autoFocus
+                        />
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                        <label className="flex items-center gap-2 text-text-light cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={rememberPassword}
+                                onChange={(e) => setRememberPassword(e.target.checked)}
+                                className="w-4 h-4 rounded text-primary focus:ring-primary border-gray-300"
+                            />
+                            {t.remember_password}
+                        </label>
+                        <label className="flex items-center gap-2 text-text-light cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={keepLoggedIn}
+                                onChange={(e) => setKeepLoggedIn(e.target.checked)}
+                                className="w-4 h-4 rounded text-primary focus:ring-primary border-gray-300"
+                            />
+                            {t.keep_logged_in}
+                        </label>
+                    </div>
+                    <button
+                        onClick={handleLogin}
+                        className="w-full bg-primary text-white font-bold py-4 rounded-xl shadow-lg shadow-primary-light hover:bg-primary-dark transition-all active:scale-95"
+                    >
+                        {t.login_btn}
+                    </button>
+                </div>
+                <div className="text-center mt-6">
+                     <button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 text-text-light text-xs font-bold px-4 py-2 rounded-full border"> {lang === 'zh' ? 'Switch to English' : '切换到中文'} </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel }: any) => {
     // Staff state
@@ -1039,6 +1129,26 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     const [editingItem, setEditingItem] = useState<any>(null);
     const [isProcessingPdf, setIsProcessingPdf] = useState(false);
     
+    // FIX: Define a response schema for structured JSON output from Gemini.
+    const recipeSchema = {
+        type: Type.OBJECT,
+        properties: {
+            name: { type: Type.OBJECT, properties: { en: { type: Type.STRING }, zh: { type: Type.STRING } } },
+            cat: { type: Type.STRING },
+            size: { type: Type.STRING },
+            ice: { type: Type.STRING },
+            sugar: { type: Type.STRING },
+            toppings: { type: Type.OBJECT, properties: { en: { type: Type.STRING }, zh: { type: Type.STRING } } },
+            steps: {
+                type: Type.OBJECT,
+                properties: {
+                    cold: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { en: { type: Type.STRING }, zh: { type: Type.STRING } } } },
+                    warm: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { en: { type: Type.STRING }, zh: { type: Type.STRING } } } }
+                }
+            }
+        }
+    };
+
     const createNewItem = () => { const id = Date.now().toString(); if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]} }; return {}; };
     const handleSave = () => { if (!editingItem) return; let updatedList; let setList; if (view === 'sop') { updatedList = sopList.some((i:any) => i.id === editingItem.id) ? sopList.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...sopList, editingItem]; setList = setSopList; Cloud.saveContent('sops', updatedList); } else if (view === 'training') { updatedList = trainingLevels.some((i:any) => i.id === editingItem.id) ? trainingLevels.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...trainingLevels, editingItem]; setList = setTrainingLevels; Cloud.saveContent('training', updatedList); } else { updatedList = recipes.some((i:any) => i.id === editingItem.id) ? recipes.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...recipes, editingItem]; setList = setRecipes; Cloud.saveContent('recipes', updatedList); } if (setList) { setList(updatedList); } setEditingItem(null); };
     const handleDelete = (id: string) => { if(!window.confirm("Delete this item?")) return; if (view === 'sop') { const list = sopList.filter((i:any) => i.id !== id); setSopList(list); Cloud.saveContent('sops', list); } else if (view === 'training') { const list = trainingLevels.filter((i:any) => i.id !== id); setTrainingLevels(list); Cloud.saveContent('training', list); } else { const list = recipes.filter((i:any) => i.id !== id); setRecipes(list); Cloud.saveContent('recipes', list); } };
@@ -1075,24 +1185,27 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                 - If a section (like warm steps) is missing, return an empty array for it.
                 - Infer missing details reasonably but prioritize accuracy from the PDF.`;
 
+                // FIX: Upgraded model and implemented structured JSON output for reliability.
                 const response = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
-                    contents: [
-                        {
-                            role: 'user',
-                            parts: [
-                                { text: prompt },
-                                { inlineData: { mimeType: 'application/pdf', data: base64Data } }
-                            ]
-                        }
-                    ]
+                    model: 'gemini-3-pro-preview',
+                    contents: {
+                        parts: [
+                            { text: prompt },
+                            { inlineData: { mimeType: 'application/pdf', data: base64Data } }
+                        ]
+                    },
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: recipeSchema,
+                    }
                 });
 
                 const text = response.text;
                 if (text) {
-                    const jsonMatch = text.match(/\{[\s\S]*\}/);
-                    if (jsonMatch) {
-                        const extracted = JSON.parse(jsonMatch[0]);
+                    // FIX: Improved JSON parsing to handle clean output from Gemini's JSON mode.
+                    try {
+                        const jsonStr = text.trim().replace(/^```json\s*/, '').replace(/```$/, '');
+                        const extracted = JSON.parse(jsonStr);
                         
                         // "Fill empty fields only" logic
                         setEditingItem((prev: DrinkRecipe) => {
@@ -1120,9 +1233,9 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                         });
 
                         alert("✅ Recipe auto-filled from PDF!\n已从 PDF 识别英文内容并生成中文翻译草稿。");
-                    } else {
-                        alert("Could not parse recipe from PDF. Please check the console.");
-                        console.error("Gemini Response (no JSON found):", text);
+                    } catch (parseError) {
+                         alert("Could not parse recipe from PDF. Please check the console.");
+                        console.error("Gemini Response (JSON parse failed):", text, parseError);
                     }
                 }
             };
@@ -1350,6 +1463,8 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         const headers = "Date,Submitted By,Item Name,End Count,Waste Count\n";
         const csvRows = inventoryHistory.flatMap((report: InventoryReport) => 
             Object.entries(report.data).map(([itemId, values]) => {
+                // FIX: Add type assertion for 'values' to resolve 'unknown' type error.
+                const typedValues = values as { end: string; waste: string };
                 const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
                 const itemName = itemDef ? getLoc(itemDef.name) : itemId;
                 const cleanItemName = `"${itemName.replace(/"/g, '""')}"`; // Escape double quotes
@@ -1359,8 +1474,8 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                     `"${reportDate}"`,
                     `"${report.submittedBy}"`,
                     cleanItemName,
-                    values.end || '0',
-                    values.waste || '0'
+                    typedValues.end || '0',
+                    typedValues.waste || '0'
                 ].join(',');
             })
         );
@@ -1405,12 +1520,14 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                                 <span>Item</span><span className="text-center">End</span><span className="text-center">Waste</span>
                             </div>
                             {Object.entries(report.data).map(([itemId, values]) => {
+                                // FIX: Add type assertion for 'values' to resolve 'unknown' type error.
+                                const typedValues = values as { end: string; waste: string };
                                 const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
                                 return (
                                     <div key={itemId} className="grid grid-cols-3 items-center">
                                         <span>{itemDef ? getLoc(itemDef.name) : itemId}</span>
-                                        <span className="text-center font-mono">{values.end || '0'}</span>
-                                        <span className="text-center font-mono text-red-400">{values.waste || '0'}</span>
+                                        <span className="text-center font-mono">{typedValues.end || '0'}</span>
+                                        <span className="text-center font-mono text-red-400">{typedValues.waste || '0'}</span>
                                     </div>
                                 );
                             })}
@@ -1602,7 +1719,7 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
     const [loading, setLoading] = useState(true);
 
     const weekStartISO = formatDateISO(weekStart);
-    const days = Array.from({ length: 7 }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
+    const days = Array.from({ length: 14 }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
 
     useEffect(() => {
         setLoading(true);
@@ -1674,6 +1791,7 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
 
 
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
+    const { showNotification } = useNotification();
     const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users } = data;
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability'>('requests');
@@ -1760,7 +1878,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         }
     }, [schedule, setSchedule]);
 
-
     const handleWageChange = (name: string, val: string) => { const num = parseFloat(val); const newWages = { ...wages, [name]: isNaN(num) ? 0 : num }; setWages(newWages); localStorage.setItem('onesip_wages', JSON.stringify(newWages)); };
     const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem('onesip_budget_max', b.toString()); };
 
@@ -1779,51 +1896,80 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
     const exportFinancialCSV = () => { let csv = "Name,Wage,Est.Hours,Est.Cost,Act.Hours,Act.Cost\n"; Object.keys(stats).forEach(name => { const s = stats[name]; csv += `${name},${Number(wages[name] || 0).toFixed(2)},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)}\n`; }); csv += `TOTALS,,${totalEstCost.toFixed(2)},,${totalActualCost.toFixed(2)}\n`; const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "financial_report.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
     
-    const confirmSwap = (req: SwapRequest) => {
-        let scheduleUpdated = false;
-        const newSchedule = JSON.parse(JSON.stringify(schedule));
-        const findDay = (dateStr: string) => {
-            if (!dateStr) return undefined;
-            return newSchedule.days.find((d: ScheduleDay) => d.date === dateStr || d.date === dateStr.replace(/^0/, '').replace(/-0/, '-'));
-        };
-        const reqDay = findDay(req.requesterDate);
-        const targetDay = findDay(req.targetDate);
+    const handleApplySwap = async (reqId: string) => {
+        const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
 
-        if (reqDay && targetDay) {
-            const remove = (day: ScheduleDay, shift: 'morning' | 'evening' | 'night', name: string) => {
-                const shiftStaff = day[shift] as string[] | undefined;
-                if (shiftStaff) {
-                    const idx = shiftStaff.indexOf(name);
-                    if (idx > -1) shiftStaff.splice(idx, 1);
-                }
-            };
-            const add = (day: ScheduleDay, shift: 'morning' | 'evening' | 'night', name: string) => {
-                const shiftStaff = day[shift] as string[] | undefined;
-                if (shiftStaff && !shiftStaff.includes(name)) {
-                    shiftStaff.push(name);
-                }
-            };
-            remove(reqDay, req.requesterShift, req.requesterName);
-            remove(targetDay, req.targetShift, req.targetName);
-            add(targetDay, req.targetShift, req.requesterName);
-            add(reqDay, req.requesterShift, req.targetName);
-            setSchedule(newSchedule);
-            Cloud.saveSchedule(newSchedule);
-            scheduleUpdated = true;
+        if (!req) { showNotification({ type: 'announcement', title: "Error", message: "Swap request not found." }); return; }
+        if (req.status !== 'accepted_by_peer') { showNotification({ type: 'announcement', title: "Action Not Allowed", message: "Only accepted requests can be applied." }); return; }
+        if (req.appliedToSchedule === true) { showNotification({ type: 'announcement', title: "Already Applied", message: "This swap has already been applied." }); return; }
+
+        const { requesterName, targetName, requesterDate, requesterShift, targetDate, targetShift } = req;
+        const isTwoWay = targetDate && targetShift;
+
+        const newSchedule = JSON.parse(JSON.stringify(schedule));
+        
+        const fromDayIndex = newSchedule.days.findIndex((d: ScheduleDay) => d.date === requesterDate);
+        if (fromDayIndex === -1) { showNotification({ type: 'announcement', title: "Error", message: `Could not find schedule for date: ${requesterDate}` }); return; }
+        
+        const fromDay = newSchedule.days[fromDayIndex];
+        if (!fromDay[requesterShift] || !Array.isArray(fromDay[requesterShift]) || !fromDay[requesterShift].includes(requesterName)) {
+            showNotification({ type: 'announcement', title: "Error", message: `${requesterName} is not in the schedule for ${requesterDate} (${requesterShift}).` }); return;
         }
 
-        const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === req.id ? { ...r, status: 'approved' } : r);
-        Cloud.updateSwapRequests(updatedReqs);
-        setSwapRequests(swapRequests.filter(r => r.id !== req.id));
+        if (isTwoWay) {
+            const toDayIndex = newSchedule.days.findIndex((d: ScheduleDay) => d.date === targetDate);
+            if (toDayIndex === -1) { showNotification({ type: 'announcement', title: "Error", message: `Could not find schedule for date: ${targetDate}` }); return; }
+            
+            const toDay = newSchedule.days[toDayIndex];
+            if (!toDay[targetShift!] || !Array.isArray(toDay[targetShift!]) || !toDay[targetShift!].includes(targetName)) {
+                showNotification({ type: 'announcement', title: "Error", message: `${targetName} is not in the schedule for ${targetDate} (${targetShift}).` }); return;
+            }
 
-        if (scheduleUpdated) {
-            alert("✅ Swap Confirmed & Schedule Updated!");
-        } else {
-            alert(`⚠️ Request approved and removed, but the schedule could not be automatically updated due to corrupted data (dates: ${req.requesterDate}, ${req.targetDate}). Please update the schedule manually.`);
+            const fromSlotSim = fromDay[requesterShift].filter((name: string) => name !== requesterName).concat([targetName]);
+            if (new Set(fromSlotSim).size !== fromSlotSim.length) {
+                showNotification({ type: 'announcement', title: "Conflict", message: `Applying would cause a duplicate booking for ${targetName} on ${requesterDate}.` }); return;
+            }
+
+            const toSlotSim = toDay[targetShift!].filter((name: string) => name !== targetName).concat([requesterName]);
+            if (new Set(toSlotSim).size !== toSlotSim.length) {
+                showNotification({ type: 'announcement', title: "Conflict", message: `Applying would cause a duplicate booking for ${requesterName} on ${targetDate}.` }); return;
+            }
+
+            // Apply two-way swap
+            const fromIdx = newSchedule.days[fromDayIndex][requesterShift].indexOf(requesterName);
+            newSchedule.days[fromDayIndex][requesterShift][fromIdx] = targetName;
+            
+            const toIdx = newSchedule.days[toDayIndex][targetShift!].indexOf(targetName);
+            newSchedule.days[toDayIndex][targetShift!][toIdx] = requesterName;
+        } else { // One-way swap
+            const fromSlotSim = fromDay[requesterShift].filter((name: string) => name !== requesterName);
+            if (!fromSlotSim.includes(targetName)) fromSlotSim.push(targetName);
+            if (new Set(fromSlotSim).size !== fromSlotSim.length) {
+                showNotification({ type: 'announcement', title: "Conflict", message: `${targetName} is already scheduled for that shift.` }); return;
+            }
+
+            // Apply one-way swap
+            const fromIdx = newSchedule.days[fromDayIndex][requesterShift].indexOf(requesterName);
+            newSchedule.days[fromDayIndex][requesterShift].splice(fromIdx, 1);
+            if (!newSchedule.days[fromDayIndex][requesterShift].includes(targetName)) {
+                newSchedule.days[fromDayIndex][requesterShift].push(targetName);
+            }
+        }
+
+        try {
+            await Cloud.saveSchedule(newSchedule);
+            const updatedSwapRequests = swapRequests.map((r: SwapRequest) => r.id === req.id ? { ...r, appliedToSchedule: true } : r);
+            await Cloud.updateSwapRequests(updatedSwapRequests);
+
+            setSchedule(newSchedule);
+            setSwapRequests(updatedSwapRequests);
+            showNotification({type: 'message', title: "Success", message: "Schedule updated successfully."});
+        } catch (e) {
+            console.error("Failed to apply swap:", e);
+            showNotification({type: 'announcement', title: "Save Error", message: "Could not save changes to the database."});
         }
     };
 
-    const clearRequests = () => { if(window.confirm("Delete ALL requests?")) { setSwapRequests([]); Cloud.updateSwapRequests([]); } };
 
     const handleSaveSchedule = (newStaff: string[], newHours: {start:string, end:string}) => { 
         if (!editingShift) return; 
@@ -1846,7 +1992,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         setEditingShift(null); 
     };
     
-    const pendingReqs = swapRequests?.filter((r: SwapRequest) => r.status === 'accepted_by_peer') || [];
+    const allReqs = swapRequests?.slice().sort((a: SwapRequest, b: SwapRequest) => b.timestamp - a.timestamp) || [];
 
     const getShiftCost = (staff: string[], start: string, end: string) => {
         if (!staff || staff.length === 0) return 0;
@@ -1881,36 +2027,55 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
                 {['requests', 'schedule', 'planning', 'availability', 'chat', 'logs', 'financial'].map(v => (
                     <button key={v} onClick={() => setView(v as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === v ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                        {v} {v==='requests' && pendingReqs.length > 0 && `(${pendingReqs.length})`}
+                        {v} {v === 'requests' && allReqs.filter(r => r.status === 'accepted_by_peer' && !r.appliedToSchedule).length > 0 && `(${allReqs.filter(r => r.status === 'accepted_by_peer' && !r.appliedToSchedule).length})`}
                     </button>
                 ))}
             </div>
             <div className="flex-1 overflow-y-auto p-4">
                 {view === 'requests' && (
                     <div className="space-y-4">
-                        <div className="flex justify-between items-center bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10 relative z-10">
-                            <h3 className="font-bold text-dark-text">Pending Approvals</h3>
-                            <button 
-                                onClick={clearRequests} 
-                                className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-500/20 active:scale-95 transition-all"
-                            >
-                                Clear All
-                            </button>
+                        <div className="bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10">
+                            <h3 className="font-bold text-dark-text">Swap Requests Log</h3>
                         </div>
-                        {pendingReqs.length === 0 && <p className="text-dark-text-light text-center py-10 bg-dark-surface rounded-xl shadow-sm border border-white/10">No pending requests.</p>}
-                        {pendingReqs.map((req: SwapRequest) => (
-                            <div key={req.id} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
-                                <div className="flex justify-between items-center mb-3">
-                                    <div className="font-bold text-dark-text">{req.requesterName} <span className="text-dark-text-light text-xs">swaps with</span> {req.targetName}</div>
-                                    <span className="bg-green-500/10 text-green-400 text-xs px-2 py-1 rounded font-bold">AGREED</span>
+                        {allReqs.length === 0 && <p className="text-dark-text-light text-center py-10 bg-dark-surface rounded-xl border border-white/10">No swap requests found.</p>}
+                        {allReqs.map((req: SwapRequest) => {
+                            const statusColors = {
+                                pending: 'bg-yellow-500/10 text-yellow-400',
+                                rejected: 'bg-red-500/10 text-red-400',
+                                cancelled: 'bg-gray-500/10 text-gray-400',
+                                accepted_by_peer: 'bg-green-500/10 text-green-400',
+                                approved: 'bg-blue-500/10 text-blue-400',
+                            };
+                            return (
+                                <div key={req.id} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div>
+                                            <p className="text-sm text-dark-text-light"><strong className="text-white">{req.requesterName}</strong> wants to swap with <strong className="text-white">{req.targetName}</strong></p>
+                                            <p className="text-xs text-gray-400 mt-1">Requested: {formattedDate(req.timestamp)}</p>
+                                        </div>
+                                        <span className={`text-xs px-2 py-1 rounded font-bold capitalize ${statusColors[req.status] || 'bg-gray-500/10 text-gray-400'}`}>{req.status.replace('_by_peer', '')}</span>
+                                    </div>
+                                    <div className="bg-dark-bg p-3 rounded-lg text-sm text-dark-text-light mb-4 space-y-2">
+                                        <div className="flex justify-between"><span>{req.requesterName}'s shift:</span> <strong className="font-mono text-white">{req.requesterDate} ({req.requesterShift})</strong></div>
+                                        <div className="flex justify-between"><span>{req.targetName}'s shift:</span> <strong className="font-mono text-white">{req.targetDate ? `${req.targetDate} (${req.targetShift})` : 'N/A (Covering shift)'}</strong></div>
+                                    </div>
+                                    {req.reason && <p className="text-xs italic text-gray-400 border-t border-white/10 pt-2 mt-2">Reason: {req.reason}</p>}
+                                    
+                                    <div className="mt-4">
+                                    {req.status === 'accepted_by_peer' && !req.appliedToSchedule && (
+                                        <button onClick={() => handleApplySwap(req.id)} className="w-full bg-dark-accent text-dark-bg py-2.5 rounded-lg font-bold shadow-md active:scale-95 transition-all hover:opacity-90">
+                                            Apply to Schedule
+                                        </button>
+                                    )}
+                                    {req.status === 'accepted_by_peer' && req.appliedToSchedule === true && (
+                                        <div className="text-center text-xs font-bold text-green-400 border border-green-500/20 bg-green-500/10 py-2 rounded-lg">
+                                            Applied to Schedule
+                                        </div>
+                                    )}
+                                    </div>
                                 </div>
-                                <div className="bg-dark-bg p-3 rounded-lg text-sm text-dark-text-light mb-3 space-y-1">
-                                    <div className="flex justify-between"><span>{req.requesterName}:</span> <strong>{req.requesterDate} ({req.requesterShift})</strong></div>
-                                    <div className="flex justify-between"><span>{req.targetName}:</span> <strong>{req.targetDate} ({req.targetShift})</strong></div>
-                                </div>
-                                <button onClick={() => confirmSwap(req)} className="w-full bg-dark-accent text-dark-bg py-3 rounded-xl font-bold shadow-md active:scale-95 transition-all hover:opacity-90">Approve & Update Schedule</button>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
                  {view === 'availability' && <StaffAvailabilityView t={t} users={users} />}
@@ -2196,7 +2361,7 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
             const name = itemDef ? (itemDef.name[lang] || itemDef.name['zh']) : itemId;
             return {
                 name: name,
-                amount: values.end,
+                amount: (values as any).end,
                 unit: itemDef?.unit || '',
                 itemId: itemId,
             };
@@ -2269,16 +2434,26 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests, directMessages, users } = data;
+    const { showNotification } = useNotification();
     const [view, setView] = useState<StaffViewMode>('home');
     const [clockBtnText, setClockBtnText] = useState({ in: t.clock_in, out: t.clock_out });
     const [currentShift, setCurrentShift] = useState<string>('opening'); 
     const [onInventorySuccess, setOnInventorySuccess] = useState<(() => void) | null>(null);
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
-    const { showNotification } = useNotification();
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
     const [deviationData, setDeviationData] = useState<any | null>(null);
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
+    const [confirmationStatus, setConfirmationStatus] = useState<'loading' | 'unconfirmed' | 'confirmed' | 'not_applicable'>('loading');
+    
+    // Swap Request State
+    const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
+    const [currentSwap, setCurrentSwap] = useState<{ date: string, shift: 'morning'|'evening'|'night' } | null>(null);
+    const [targetEmployeeId, setTargetEmployeeId] = useState('');
+    const [reason, setReason] = useState('');
+
+    // FIX: Define the 'getLoc' helper function to resolve translation object properties based on the current language.
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
     useEffect(() => {
         const checkAvailability = async () => {
@@ -2298,13 +2473,60 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return () => clearTimeout(timer);
     }, [currentUser.id]);
 
+    useEffect(() => {
+        if (view !== 'team') {
+            if (confirmationStatus !== 'loading') setConfirmationStatus('loading');
+            return;
+        }
+    
+        const start = new Date();
+        const end = new Date();
+        end.setDate(start.getDate() + 13);
+        const startISO = formatDateISO(start);
+        const endISO = formatDateISO(end);
+    
+        const hasShiftsInWindow = (() => {
+            if (!schedule?.days) return false;
+            
+            const startDate = new Date(start);
+            const endDate = new Date(end);
+            
+            const startMs = startDate.setHours(0, 0, 0, 0);
+            const endMs = endDate.setHours(23, 59, 59, 999);
+    
+            return schedule.days.some((day: ScheduleDay) => {
+                const dayDate = new Date(new Date().getFullYear() + '-' + day.date);
+                if(isNaN(dayDate.getTime())) return false;
+                
+                const scheduleMs = dayDate.getTime();
+                
+                if (scheduleMs >= startMs && scheduleMs <= endMs) {
+                    return [...day.morning, ...day.evening, ...(day.night || [])].includes(currentUser.name);
+                }
+                return false;
+            });
+        })();
+        
+        if (!hasShiftsInWindow) {
+            setConfirmationStatus('not_applicable');
+            return;
+        }
+    
+        const checkConfirmation = async () => {
+            const existing = await Cloud.getScheduleConfirmation(currentUser.id, startISO, endISO);
+            setConfirmationStatus(existing ? 'confirmed' : 'unconfirmed');
+        };
+    
+        checkConfirmation();
+    
+    }, [view, schedule, currentUser.id, currentUser.name]);
+
     // Handles chat notifications and unread status
     useEffect(() => {
         const notifiedKey = `notifiedMessages_${currentUser.id}`;
         const notifiedIds = new Set<string>(JSON.parse(localStorage.getItem(notifiedKey) || '[]'));
 
         if (view === 'chat') {
-            // When chat is open, mark all incoming messages for the user as "notified"
             let updated = false;
             directMessages.forEach((msg: DirectMessage) => {
                 if (msg.toId === currentUser.id && !notifiedIds.has(msg.id)) {
@@ -2316,11 +2538,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             if (updated) {
                 localStorage.setItem(notifiedKey, JSON.stringify(Array.from(notifiedIds)));
             }
-            setHasUnreadChat(false); // When view is chat, bubble is always hidden
-            return; // No popups while chat is open
+            setHasUnreadChat(false);
+            return;
         }
 
-        // When chat is not open, check for new messages to notify about
         if (!directMessages || directMessages.length === 0) {
             setHasUnreadChat(false);
             return;
@@ -2333,7 +2554,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setHasUnreadChat(messagesToNotify.length > 0);
 
         if (messagesToNotify.length > 0) {
-            // Get the single most recent message to show in the notification
             const latestMessageToNotify = messagesToNotify.reduce((latest, current) => 
                 new Date(current.timestamp) > new Date(latest.timestamp) ? current : latest
             );
@@ -2346,14 +2566,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 dedupeKey: `chat::${latestMessageToNotify.id}`,
             });
 
-            // Mark all pending messages as notified to prevent a storm of popups
             const newNotifiedIds = new Set(notifiedIds);
             messagesToNotify.forEach(msg => newNotifiedIds.add(msg.id));
             localStorage.setItem(notifiedKey, JSON.stringify(Array.from(newNotifiedIds)));
         }
     }, [directMessages, view, currentUser.id, users, showNotification]);
     
-    // This useEffect handles ONLY announcements. It is intentionally separate.
     useEffect(() => {
         if (!notices || notices.length === 0) return;
         const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
@@ -2392,7 +2610,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     useEffect(() => {
         if (!schedule?.days) return;
-
         const timer = setInterval(() => {
             const now = new Date();
             const todayDateStr = `${now.getMonth() + 1}-${now.getDate()}`;
@@ -2412,12 +2629,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     
                     if (diffMinutes >= -15 && diffMinutes <= 15) {
                         const dedupeKey = `${notificationType}-${todayDateStr}-${shiftType}-${Math.floor(now.getTime() / (5 * 60 * 1000))}`;
-                        showNotification({
-                            type: notificationType,
-                            title: title,
-                            message: message,
-                            dedupeKey: dedupeKey,
-                        });
+                        showNotification({ type: notificationType, title: title, message: message, dedupeKey: dedupeKey, });
                     }
                 }
             };
@@ -2426,45 +2638,50 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             if(todaySchedule.hours?.evening) checkShift('evening', todaySchedule.hours.evening, hasClockedIn, 'clock_in_reminder', 'Clock-in Reminder', 'Your evening shift is starting soon. Please remember to clock in.');
             if(todaySchedule.hours?.morning) checkShift('morning', todaySchedule.hours.morning, hasClockedOut, 'clock_out_reminder', 'Clock-out Reminder', 'Your morning shift is ending soon. Please complete tasks and clock out.');
             if(todaySchedule.hours?.evening) checkShift('evening', todaySchedule.hours.evening, hasClockedOut, 'clock_out_reminder', 'Clock-out Reminder', 'Your evening shift is ending soon. Please complete tasks and clock out.');
-
-        }, 60 * 1000); // Check every minute
-
+        }, 60 * 1000);
         return () => clearInterval(timer);
     }, [currentUser, schedule, logs, showNotification]);
-
-    const [swapMode, setSwapMode] = useState(false);
-    const [swapSelection, setSwapSelection] = useState<{ step: 1|2, myDate?: string, myShift?: 'morning'|'evening'|'night', targetName?: string, targetDate?: string, targetShift?: 'morning'|'evening'|'night' }>({ step: 1 });
-    const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, msg: React.ReactNode, action: () => void}>({isOpen:false, msg:'', action:()=>{}});
-
-    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-    const clientSchedule = { ...schedule, days: schedule?.days?.slice(0, 14) || [] };
-    const myPendingSwaps = swapRequests?.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending') || [];
 
     const findNextShift = () => {
         if (!schedule?.days) return null;
         const now = new Date();
-        const currentYear = now.getFullYear();
-        for (const day of schedule.days) {
-            const [month, dayOfMonth] = day.date.split('-').map(Number);
-            let scheduleYear = currentYear;
-            if (now.getMonth() === 11 && month === 1) scheduleYear++;
-            const scheduleDate = new Date(scheduleYear, month - 1, dayOfMonth);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            if (scheduleDate >= today) {
-                const isToday = scheduleDate.toDateString() === today.toDateString();
+        const year = now.getFullYear();
+        now.setHours(0,0,0,0);
+
+        // Sort days chronologically, handling year wrap-around
+        const sortedDays = [...schedule.days].sort((a,b) => {
+            const dateA = new Date(`${year}-${a.date}`);
+            const dateB = new Date(`${year}-${b.date}`);
+            // If date is in the past (e.g., it's Jan and date is Dec), add a year
+            if (dateA < now) dateA.setFullYear(year + 1);
+            if (dateB < now) dateB.setFullYear(year + 1);
+            return dateA.getTime() - dateB.getTime();
+        });
+
+        for (const day of sortedDays) {
+            const scheduleDate = new Date(`${year}-${day.date}`);
+            if (scheduleDate < now) scheduleDate.setFullYear(year + 1);
+
+            if (scheduleDate >= now) {
+                const isToday = scheduleDate.toDateString() === new Date().toDateString();
                 const mStart = day.hours?.morning?.start || '10:00';
                 const mEnd = day.hours?.morning?.end || '15:00';
                 const eStart = day.hours?.evening?.start || '14:30';
                 const eEnd = day.hours?.evening?.end || '19:00';
                 if (day.morning.includes(currentUser.name)) {
                     if (isToday) {
-                        if (now.getHours() < parseInt(mEnd.split(':')[0])) return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
+                        const mEndTime = new Date();
+                        const [h,m] = mEnd.split(':').map(Number);
+                        mEndTime.setHours(h,m);
+                        if (new Date() < mEndTime) return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
                     } else return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
                 }
                 if (day.evening.includes(currentUser.name)) {
-                    if (isToday) {
-                        if (now.getHours() < parseInt(eEnd.split(':')[0])) return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
+                     if (isToday) {
+                        const eEndTime = new Date();
+                        const [h,m] = eEnd.split(':').map(Number);
+                        eEndTime.setHours(h,m);
+                        if (new Date() < eEndTime) return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
                     } else return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
                 }
             }
@@ -2474,9 +2691,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const nextShift = findNextShift();
 
     const hasShiftToday = (user: User, scheduleData: any): boolean => {
-        if (!scheduleData?.days) {
-            return false;
-        }
+        if (!scheduleData?.days) return false;
+        
         const now = new Date();
         const todayDateKey = `${now.getMonth() + 1}-${now.getDate()}`;
         const todaySchedule = scheduleData.days.find((day: ScheduleDay) => day.date === todayDateKey);
@@ -2486,13 +2702,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             todaySchedule.evening.includes(user.name) ||
             (todaySchedule.night?.includes(user.name) ?? false)
         ) : false;
-        
-        // Debugging logs as requested for the next round of fixes
-        console.log('[ATTENDANCE][DEBUG] currentUserId:', user.id);
-        console.log('[ATTENDANCE][DEBUG] todayDateKey:', todayDateKey);
-        console.log('[ATTENDANCE][DEBUG] allSchedules:', scheduleData);
-        // "userSchedulesForToday_beforeHotfix" in this context is the found schedule for the day, before checking the user's name in it.
-        console.log('[ATTENDANCE][DEBUG] userSchedulesForToday_beforeHotfix (found schedule for today):', todaySchedule || 'NOT FOUND');
         
         return hasShift;
     };
@@ -2604,16 +2813,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
     
     const handleClockLog = (type: ClockType) => {
-        // TODO: 临时 hotfix —— 为了保证门店可以正常打卡，暂时不根据排班限制打卡。
-        // 后续再修复 schedule 匹配逻辑后，恢复“无排班禁止打卡”的规则。
-        // The hasShiftToday function is still called to log debug info, but its result is temporarily ignored for blocking.
-        hasShiftToday(currentUser, schedule); 
-    
-        // The original blocking logic is now bypassed for the hotfix.
-        // if (!hasShiftToday(currentUser, schedule)) {
-        //     alert(t.no_shift_today_alert);
-        //     return;
-        // }
+        if (!hasShiftToday(currentUser, schedule)) {
+            alert(t.no_shift_today_alert);
+            return;
+        }
     
         if (type === 'clock-out') {
             alert(t.inventory_before_clock_out);
@@ -2631,28 +2834,92 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
     }
 
-    const handleShiftClick = (day: any, shift: 'morning' | 'evening' | 'night', name: string) => {
-        if (!swapMode) return;
-        if (swapSelection.step === 1) {
-            if (name !== currentUser.name) { alert("⚠️ Step 1: Please select YOUR shift first (Green)."); return; }
-            setSwapSelection({ step: 2, myDate: day.date, myShift: shift });
-        } else {
-            if (name === currentUser.name) { alert("⚠️ Step 2: Select a COLLEAGUE'S shift (Blue)."); return; }
-            setConfirmModal({
-                isOpen: true,
-                msg: (<div>Request swap with <strong>{name}</strong>?<br/><br/>You give: {swapSelection.myDate} ({swapSelection.myShift})<br/>You take: {day.date} ({shift})</div>),
-                action: () => {
-                    const targetUser = users.find((u:User) => u.name === name);
-                    const req: SwapRequest = { id: Date.now().toString(), requesterName: currentUser.name, requesterId: currentUser.id, requesterDate: swapSelection.myDate!, requesterShift: swapSelection.myShift!, targetName: name, targetId: targetUser ? targetUser.id : 'unknown', targetDate: day.date, targetShift: shift, status: 'pending', timestamp: Date.now() };
-                    Cloud.saveSwapRequest(req); alert("✅ Request Sent!"); setSwapMode(false); setSwapSelection({ step: 1 }); setConfirmModal(prev => ({...prev, isOpen: false}));
-                }
-            });
-        }
+    const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
+        const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
+        if(!req) return;
+        const updatedReq = { ...req, status: action, decidedAt: Date.now() };
+        const updatedReqs = swapRequests.map((r: SwapRequest) => (r.id === reqId ? updatedReq : r));
+        await Cloud.updateSwapRequests(updatedReqs);
+        showNotification({ type: 'message', title: 'Swap Updated', message: `You have ${action === 'accepted_by_peer' ? 'accepted' : 'rejected'} the swap request.` });
     };
 
-    const handleSwapAction = (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
-        const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? {...r, status: action} : r);
-        setSwapRequests(updatedReqs); Cloud.updateSwapRequests(updatedReqs);
+    const handleConfirmSchedule = async () => {
+        const start = new Date();
+        const end = new Date();
+        end.setDate(start.getDate() + 13);
+        const startISO = formatDateISO(start);
+        const endISO = formatDateISO(end);
+    
+        const hasShiftsInWindow = (() => {
+            if (!schedule?.days) return false;
+            const startDate = new Date(start);
+            const endDate = new Date(end);
+            const startMs = startDate.setHours(0, 0, 0, 0);
+            const endMs = endDate.setHours(23, 59, 59, 999);
+    
+            return schedule.days.some((day: ScheduleDay) => {
+                const dayDate = new Date(new Date().getFullYear() + '-' + day.date);
+                if(isNaN(dayDate.getTime())) return false;
+                const scheduleMs = dayDate.getTime();
+                
+                if (scheduleMs >= startMs && scheduleMs <= endMs) {
+                    return [...day.morning, ...day.evening, ...(day.night || [])].includes(currentUser.name);
+                }
+                return false;
+            });
+        })();
+        
+        if (!hasShiftsInWindow) {
+            showNotification({ type: 'announcement', title: "No shifts found", message: "You have no shifts in this period to confirm." });
+            return;
+        }
+    
+        const result = await Cloud.saveScheduleConfirmation(currentUser.id, startISO, endISO);
+        if (result.success) {
+            setConfirmationStatus('confirmed');
+            showNotification({ type: 'message', title: "Schedule Confirmed", message: "Thanks for confirming your schedule!" });
+        } else {
+            alert("Error saving confirmation. Please try again.");
+        }
+    };
+    
+    const handleSendSwapRequest = async () => {
+        if (!currentSwap || !targetEmployeeId) {
+            alert("Please select a colleague.");
+            return;
+        }
+        const targetUser = users.find((u:User) => u.id === targetEmployeeId);
+        if (!targetUser) {
+             alert("Selected colleague not found.");
+            return;
+        }
+
+        const newRequest: Omit<SwapRequest, 'id'> = {
+            requesterId: currentUser.id,
+            requesterName: currentUser.name,
+            requesterDate: currentSwap.date,
+            requesterShift: currentSwap.shift,
+            targetId: targetUser.id,
+            targetName: targetUser.name,
+            targetDate: null, // One-way for now
+            targetShift: null, // One-way for now
+            status: 'pending',
+            reason: reason || null,
+            timestamp: Date.now(),
+        };
+
+        await Cloud.saveSwapRequest(newRequest);
+        showNotification({ type: 'message', title: 'Swap Request Sent', message: `Your request to ${targetUser.name} has been sent.` });
+        setIsSwapModalOpen(false);
+        setReason('');
+        setTargetEmployeeId('');
+    };
+
+
+    const ConfirmationBanner = () => {
+        if (confirmationStatus === 'loading' || confirmationStatus === 'not_applicable') return null;
+        if (confirmationStatus === 'confirmed') return <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-3 rounded-lg mb-4 text-sm flex items-center gap-3 animate-fade-in"><Icon name="CheckCircle2" size={20} /><p>You have confirmed your schedule for the next two weeks.</p></div>;
+        return ( <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in"><div className="flex-1"><h4 className="font-bold">Please Confirm Your Schedule</h4><p className="text-sm mt-1">Review your upcoming shifts and tap confirm.</p></div><button onClick={handleConfirmSchedule} className="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg text-sm whitespace-nowrap hover:bg-blue-600 transition-all shadow-md active:scale-95 w-full sm:w-auto">Confirm Next 2 Weeks</button></div>);
     };
 
     const LibraryView = ({ data, onOpenChecklist }: { data: any, onOpenChecklist: (key: string) => void }) => {
@@ -2697,7 +2964,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         const logs: InventoryLog[] = [];
         const timestamp = new Date().toLocaleString();
         Object.keys(report.data).forEach(itemId => {
-            const itemData = report.data[itemId];
+            const itemData = report.data[itemId] as { end: string, waste: string };
             const itemDef = data.inventoryList.find((i:any) => i.id === itemId);
             if (itemData.end || itemData.waste) {
                 logs.push({
@@ -2721,52 +2988,52 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             setView('home');
         }
     };
-
+    
     const renderView = () => {
         if (view === 'team') {
+            const dateMap = new Map<string, number>();
+            const today = new Date();
+            const year = today.getFullYear();
+            for (let i = 0; i < 14; i++) {
+                const d = new Date(today);
+                d.setDate(today.getDate() + i);
+                const dateStr = `${d.getMonth() + 1}-${d.getDate()}`;
+                dateMap.set(dateStr, i);
+            }
+
+            const futureScheduleDays = schedule.days?.filter((day: ScheduleDay) => {
+                return dateMap.has(day.date);
+            }).sort((a: ScheduleDay, b: ScheduleDay) => {
+                return (dateMap.get(a.date) ?? 99) - (dateMap.get(b.date) ?? 99);
+            }) || [];
+            
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
-                    <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-black">{t.team_title}</h2><button onClick={() => { setSwapMode(!swapMode); setSwapSelection({step:1}); }} className={`px-4 py-2 rounded-xl font-bold text-xs shadow-sm transition-all ${swapMode ? 'bg-destructive text-white animate-pulse' : 'bg-primary text-white'}`}>{swapMode ? 'Exit Swap' : '🔄 Swap Shift'}</button></div>
-                    {swapMode && <div className="bg-yellow-400/20 p-3 rounded-xl mb-4 text-sm text-yellow-800 border border-yellow-400/30"><strong>Wizard:</strong> {swapSelection.step === 1 ? 'Step 1: Select YOUR shift' : 'Step 2: Select TARGET shift'}</div>}
-                    {myPendingSwaps.length > 0 && !swapMode && (<div className="bg-surface border border-destructive-light p-4 rounded-xl mb-4 shadow-sm"><h3 className="font-bold text-destructive mb-2">🔔 Swap Requests</h3>{myPendingSwaps.map((req: SwapRequest) => (<div key={req.id} className="bg-secondary p-3 rounded-lg mb-2 text-sm"><p><strong>{req.requesterName}</strong> wants your <strong>{req.targetDate}</strong> for <strong>{req.requesterDate}</strong></p><div className="flex gap-2 mt-2"><button onClick={()=>handleSwapAction(req.id, 'accepted_by_peer')} className="flex-1 bg-green-500 text-white py-2 rounded font-bold">Accept</button><button onClick={()=>handleSwapAction(req.id, 'rejected')} className="flex-1 bg-gray-300 text-text-light py-2 rounded font-bold">Reject</button></div></div>))}</div>)}
-                    <div className="space-y-4">{clientSchedule?.days?.map((day: any, idx: number) => (
-                        <div key={idx} className="p-4 rounded-xl shadow-sm border bg-surface border-gray-100">
+                    <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-black">{t.team_title}</h2></div>
+                    <ConfirmationBanner />
+                    
+                    <div className="space-y-4">{futureScheduleDays.map((day: any) => (
+                        <div key={day.date} className="p-4 rounded-xl shadow-sm border bg-surface border-gray-100">
                             <div className="flex justify-between items-center mb-3">
                                 <h3 className="font-bold text-text">{day.name} <span className="text-text-light font-normal ml-1">{day.date}</span></h3>
                             </div>
                             <div className="space-y-2">
-                                {
-                                    (['morning', 'evening', 'night'] as const)
-                                    .filter(shift => day[shift] && day[shift].length > 0)
-                                    .map(shift => (
-                                        <div key={shift} className="flex items-center gap-2">
-                                            <span className={`text-xs font-bold w-12 text-center ${
-                                                shift === 'morning' ? 'text-orange-500' : 
-                                                shift === 'evening' ? 'text-indigo-500' : 'text-purple-500'
-                                            }`}>
-                                                {shift === 'morning' ? 'AM' : shift === 'evening' ? 'PM' : 'NIGHT'}
-                                            </span>
-                                            <div className="flex flex-wrap gap-2">
-                                                {day[shift].map((name: string, i: number) => { 
-                                                    const isMe = name === currentUser.name; 
-                                                    let bg = shift === 'morning' ? 'bg-orange-400/10 text-orange-700' : 
-                                                             shift === 'evening' ? 'bg-indigo-500/10 text-indigo-700' : 
-                                                             'bg-purple-500/10 text-purple-700';
-
-                                                    if (swapMode) { 
-                                                        if (swapSelection.step === 1) bg = isMe ? 'bg-green-500 text-white ring-4 ring-green-200 cursor-pointer animate-pulse' : 'bg-gray-100 text-gray-300'; 
-                                                        else if (swapSelection.step === 2) bg = !isMe ? 'bg-blue-500 text-white ring-4 ring-blue-200 cursor-pointer animate-pulse' : 'bg-gray-100 text-gray-300'; 
-                                                    } else if (isMe) {
-                                                        bg = shift === 'morning' ? 'bg-orange-500 text-white' : 
-                                                             shift === 'evening' ? 'bg-indigo-600 text-white' : 
-                                                             'bg-purple-600 text-white';
-                                                    } 
-                                                    return (<div key={i} onClick={() => handleShiftClick(day, shift as any, name)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${bg}`}>{name}</div>); 
-                                                })}
-                                            </div>
+                                {(['morning', 'evening', 'night'] as const).filter(shift => day[shift] && day[shift].length > 0).map(shift => (
+                                    <div key={shift} className="flex items-center gap-2">
+                                        <span className={`text-xs font-bold w-14 text-center capitalize ${shift === 'morning' ? 'text-orange-500' : shift === 'evening' ? 'text-indigo-500' : 'text-purple-500'}`}>{shift}</span>
+                                        <div className="flex-1 flex flex-wrap gap-2 items-center">
+                                            {day[shift].map((name: string, i: number) => { 
+                                                const isMe = name === currentUser.name;
+                                                return (
+                                                    <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white' : 'bg-secondary text-text-light'}`}>
+                                                        {name}
+                                                        {isMe && <button onClick={() => { setCurrentSwap({ date: day.date, shift }); setIsSwapModalOpen(true); }} className="text-white/70 hover:text-white"><Icon name="Refresh" size={12} /></button>}
+                                                    </div>
+                                                ); 
+                                            })}
                                         </div>
-                                    ))
-                                }
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     ))}</div>
@@ -2790,6 +3057,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             <div className="relative z-10"><div className="inline-block bg-white/20 backdrop-blur-sm px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider mb-4">{t.next_shift}</div><h2 className="text-3xl font-bold mb-2">{nextShift ? nextShift.name : 'No Shift'}</h2><p className="text-teal-100 font-medium flex items-center gap-2"><Icon name="Calendar" size={16} /> {nextShift ? `${nextShift.date} • ${nextShift.shift}` : t.no_shift}</p></div>
                             <Icon name="Calendar" size={120} className="absolute -right-4 -bottom-8 text-white opacity-10 rotate-12" />
                         </div>
+                        
+                        <div onClick={() => setView('swapRequests')} className="bg-surface p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-95 transition-transform cursor-pointer">
+                            <div className="flex items-center gap-4"><div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center"><Icon name="Refresh" size={28} /></div><span className="font-bold text-lg text-text">Swap Requests</span></div>
+                            <Icon name="ChevronRight" className="text-gray-300" />
+                        </div>
 
                         <LastRefillCard inventoryHistory={data.inventoryHistory} inventoryList={data.inventoryList} lang={lang} t={t} />
 
@@ -2798,13 +3070,46 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             <Icon name="ChevronRight" className="text-gray-300" />
                         </div>
                          <div onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-95 transition-transform cursor-pointer">
-                            <div className="flex items-center gap-4"><div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center"><Icon name="Calendar" size={28} /></div><span className="font-bold text-lg text-text">{t.next_week_availability}</span></div>
+                            <div className="flex items-center gap-4"><div className="w-14 h-14 bg-yellow-100 text-yellow-600 rounded-2xl flex items-center justify-center"><Icon name="Calendar" size={28} /></div><span className="font-bold text-lg text-text">{t.next_week_availability}</span></div>
                             <Icon name="ChevronRight" className="text-gray-300" />
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <button onClick={() => handleClockLog('clock-in')} className="bg-primary hover:bg-primary-dark text-white p-6 rounded-3xl shadow-lg shadow-primary-light flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"><Icon name="Play" size={32} /><span className="font-bold">{clockBtnText.in}</span></button>
                             <button onClick={() => handleClockLog('clock-out')} className="bg-text-light hover:bg-text text-white p-6 rounded-3xl shadow-lg shadow-gray-200 flex flex-col items-center justify-center gap-3 active:scale-95 transition-all"><Icon name="Square" size={32} /><span className="font-bold">{clockBtnText.out}</span></button>
                         </div>
+                    </div>
+                </div>
+            );
+        }
+        if (view === 'swapRequests') {
+            const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id || r.targetId === currentUser.id)
+                .sort((a: SwapRequest, b: SwapRequest) => b.timestamp - a.timestamp);
+            return (
+                <div className="h-full flex flex-col text-text animate-fade-in-up">
+                    <div className="p-4 border-b flex items-center gap-3 bg-surface sticky top-0 z-10">
+                        <button onClick={() => setView('home')} className="p-2 -ml-2 rounded-full hover:bg-secondary"><Icon name="ArrowLeft" /></button>
+                        <h2 className="text-xl font-black">Swap Requests</h2>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 bg-secondary space-y-3 pb-24">
+                        {myRequests.length === 0 && <p className="text-center text-text-light py-10">No swap requests found.</p>}
+                        {myRequests.map((req: SwapRequest) => (
+                            <div key={req.id} className="bg-surface p-4 rounded-xl shadow-sm border">
+                                <p className="text-sm mb-2">{req.requesterId === currentUser.id ? "You requested to swap with" : `${req.requesterName} requested to swap with you.`} <strong>{req.requesterId === currentUser.id ? req.targetName : req.requesterName}</strong>.</p>
+                                <div className="bg-secondary p-3 rounded-lg text-xs space-y-1 mb-3">
+                                    <p><strong>{req.requesterName}'s Shift:</strong> {req.requesterDate} ({req.requesterShift})</p>
+                                    <p><strong>{req.targetName}'s Shift:</strong> {req.targetDate ? `${req.targetDate} (${req.targetShift})` : 'Cover shift (one-way)'}</p>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-xs font-bold capitalize">{req.status.replace('_by_peer', '')}</span>
+                                    {req.targetId === currentUser.id && req.status === 'pending' && (
+                                        <div className="flex gap-2">
+                                            <button onClick={() => handleSwapAction(req.id, 'rejected')} className="bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-bold text-xs">Reject</button>
+                                            <button onClick={() => handleSwapAction(req.id, 'accepted_by_peer')} className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg font-bold text-xs">Accept</button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             );
@@ -2817,7 +3122,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 if (!recipeSearchQuery) return true;
                 const query = recipeSearchQuery.toLowerCase().trim();
                 const nameEn = recipe.name?.en?.toLowerCase() || '';
-                const nameZh = recipe.name?.zh || ''; // No toLowerCase needed for Chinese includes
+                const nameZh = recipe.name?.zh || '';
                 const cat = recipe.cat?.toLowerCase() || '';
                 return nameEn.includes(query) || nameZh.includes(query) || cat.includes(query);
             });
@@ -2853,237 +3158,181 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
         if (view === 'training') return <TrainingView data={data} onComplete={() => {}} />;
         if (view === 'sop') return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />;
-        if (view === 'checklist') { const tmpl = CHECKLIST_TEMPLATES[currentShift] || CHECKLIST_TEMPLATES['opening']; return (<div className="h-full flex flex-col bg-surface text-text"><div className={`${tmpl.color} p-6 text-white`}><button onClick={() => setView('sop')} className="mb-4"><Icon name="ArrowLeft" /></button><h2 className="text-3xl font-bold">{getLoc(tmpl.title)}</h2></div><div className="flex-1 overflow-y-auto p-4">{tmpl.items.map((i: any) => (<div key={i.id} className="p-4 border-b flex items-center gap-3"><div className="w-6 h-6 border-2 rounded"></div><div><p className="font-bold">{getLoc(i.text)}</p></div></div>))}</div><div className="p-4 border-t"><button onClick={()=>{alert('OK'); setView('home');}} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold transition-all active:scale-95">Confirm</button></div></div>); }
-        if (view === 'availability') { setShowAvailabilityModal(true); setView('home'); return null; }
-        
-        return <div className="p-10 text-center text-text-light">Section {view} under maintenance <button onClick={()=>setView('home')} className="text-primary underline block mt-4">Back</button></div>;
+        if (view === 'checklist') {
+            const ChecklistView = ({ template, lang, t, onBack }: any) => {
+                if (!template) return <div>Template not found. <button onClick={onBack}>Back</button></div>;
+                return (
+                    <div className="h-full flex flex-col bg-secondary p-4 pb-24 animate-fade-in-up">
+                        <div className="flex items-center gap-2 mb-4">
+                            <button onClick={onBack} className="p-2 -ml-2"><Icon name="ArrowLeft" /></button>
+                            <div>
+                                <h2 className="text-xl font-bold">{template.title[lang]}</h2>
+                                <p className="text-sm text-text-light">{template.subtitle[lang]}</p>
+                            </div>
+                        </div>
+                        <div className="space-y-3">
+                            {template.items.map((item: any) => (
+                                <div key={item.id} className="bg-surface p-4 rounded-xl shadow-sm border">
+                                    <label className="flex items-center">
+                                        <input type="checkbox" className="w-5 h-5 rounded-md text-primary focus:ring-primary" />
+                                        <div className="ml-3">
+                                            <p className="font-bold text-text">{item.text[lang]}</p>
+                                            <p className="text-xs text-text-light">{item.desc[lang]}</p>
+                                        </div>
+                                    </label>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            };
+            return <ChecklistView template={CHECKLIST_TEMPLATES[currentShift as keyof typeof CHECKLIST_TEMPLATES]} lang={lang} t={t} onBack={() => setView('sop')} />;
+        }
+        return null;
     };
+    
+    const NavButton = ({ targetView, iconName, label, hasNotification = false }: { targetView: StaffViewMode, iconName: string, label: string, hasNotification?: boolean }) => (
+        <button onClick={() => setView(targetView)} className={`flex flex-col items-center justify-center gap-1.5 p-2 rounded-lg relative transition-colors ${view === targetView ? 'text-primary' : 'text-text-light hover:text-primary'}`}>
+            <Icon name={iconName} size={24} />
+            <span className="text-[10px] font-bold">{label}</span>
+            {hasNotification && <div className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-surface"></div>}
+        </button>
+    );
 
     return (
-        <div className="max-w-md mx-auto min-h-screen max-h-[100dvh] overflow-y-auto bg-secondary relative flex flex-col font-sans pt-8 md:pt-0">
-            <CustomConfirmModal isOpen={confirmModal.isOpen} title="Confirm Action" message={confirmModal.msg} onConfirm={confirmModal.action} onCancel={() => setConfirmModal(prev => ({...prev, isOpen:false}))} />
-            <AvailabilityReminderModal isOpen={showAvailabilityReminder} t={t} onCancel={() => setShowAvailabilityReminder(false)} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} />
-            <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />
-            <DeviationReasonModal 
-                isOpen={!!deviationData}
-                details={deviationData?.details}
-                t={t}
-                onClose={() => setDeviationData(null)}
-                onSubmit={(reason: string) => {
-                    if (deviationData) {
-                        const fullDeviationInfo = { ...deviationData, reason };
-                        recordLog(deviationData.type, deviationData.locTag, fullDeviationInfo);
-                        alert(`✅ Success (Reason Logged)!\n${deviationData.locTag}`);
-                        setDeviationData(null);
-                    }
-                }}
-            />
-
-            <div className="flex-1 overflow-y-auto relative">{renderView()}</div>
-            {view !== 'checklist' && (
-                <nav className="fixed bottom-0 w-full max-w-md bg-surface border-t p-2 pb-4 z-50 flex overflow-x-auto shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] no-scrollbar gap-1">
-                    {[{id: 'home', icon: 'Grid', label: 'Workbench'}, {id: 'team', icon: 'Calendar', label: 'Schedule'}, {id: 'chat', icon: 'MessageSquare', label: 'Chat'}, {id: 'training', icon: 'GraduationCap', label: 'Training'}, {id: 'sop', icon: 'Book', label: 'SOP'}, {id: 'recipes', icon: 'BookOpen', label: 'Recipes'}, {id: 'contact', icon: 'Users', label: 'Contacts'}].map(item => (
-                        <button key={item.id} onClick={() => setView(item.id as StaffViewMode)} className={`relative min-w-[60px] flex flex-col items-center p-2 rounded-lg transition-colors ${view === item.id ? 'text-primary bg-primary-light' : 'text-text-light hover:text-primary'}`}>
-                            <Icon name={item.icon} size={20} />
-                            <span className="text-[10px] font-bold mt-1">{item.label}</span>
-                            {item.id === 'chat' && hasUnreadChat && (
-                                <span className="absolute top-1.5 right-3 h-2.5 w-2.5 rounded-full bg-red-500 border-2 border-surface"></span>
-                            )}
-                        </button>
-                    ))}
-                </nav>
-            )}
+        <div className="h-[100dvh] bg-secondary flex flex-col">
+            <main className="flex-1 overflow-hidden relative">
+                {renderView()}
+            </main>
+            <nav className="bg-surface border-t border-gray-100 p-2 grid grid-cols-5 gap-1 shrink-0">
+                <NavButton targetView="home" iconName="Grid" label={t.home} />
+                <NavButton targetView="team" iconName="Users" label={t.team_title} />
+                <NavButton targetView="chat" iconName="MessageSquare" label={t.chat} hasNotification={hasUnreadChat} />
+                <NavButton targetView="recipes" iconName="BookOpen" label={t.recipes} />
+                <NavButton targetView="sop" iconName="ShieldCheck" label={t.sop} />
+            </nav>
         </div>
     );
 };
 
-const LoginScreen = ({ t, onLogin, users }: { t: any, onLogin: (id: string, keepLogin: boolean) => void, users: User[] }) => {
-    const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
-    const [rememberPwd, setRememberPwd] = useState(false);
-    const [keepLogin, setKeepLogin] = useState(true);
+// --- MAIN APP COMPONENT ---
 
-    useEffect(() => {
-        const savedPwd = localStorage.getItem('onesip_saved_password');
-        if (savedPwd) {
-            try {
-                setPassword(atob(savedPwd));
-                setRememberPwd(true);
-            } catch (e) { console.error("Pwd load error", e); }
-        }
-    }, []);
-
-    const handleLogin = () => {
-        const user = users.find(u => u.password === password && u.password && u.active !== false);
-        if (user) {
-            if (rememberPwd) {
-                localStorage.setItem('onesip_saved_password', btoa(password));
-            } else {
-                localStorage.removeItem('onesip_saved_password');
-            }
-            onLogin(user.id, keepLogin);
-        } else {
-            setError(t.invalid_code);
-            setTimeout(() => setError(''), 3000);
-        }
-    };
+function App() {
+    // --- STATE & LIFECYCLE ---
+    const [lang, setLang] = useState<Lang>('en');
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [isCloudEnabled, setIsCloudEnabled] = useState(false);
+    const [showCloudSetup, setShowCloudSetup] = useState(false);
     
-    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-        if (event.key === 'Enter') {
-            handleLogin();
-        }
-    };
+    // Auth & Roles
+    const [isManager, setIsManager] = useState(false);
+    const [isOwner, setIsOwner] = useState(false);
+    const [isEditor, setIsEditor] = useState(false);
+    const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
 
-    return (
-        <div className="min-h-screen max-h-[100dvh] overflow-y-auto bg-gradient-to-br from-gray-50 to-gray-200 flex flex-col items-center justify-center p-6 font-sans text-text animate-fade-in">
-            <div className="text-center mb-10">
-                <h1 className="text-3xl font-black text-text mb-1 tracking-tight">ONESIP {t.login_title.split(' ')[1]}</h1>
-                <p className="text-text-light font-medium">Store Management System</p>
-            </div>
-            
-            <div className="w-full max-w-xs space-y-4 z-10">
-                <div className="relative">
-                    <label className="absolute -top-2 left-3 px-1 bg-gradient-to-br from-gray-50 to-gray-200 text-xs font-bold text-text-light">{t.enter_code}</label>
-                    <input 
-                        type="password" 
-                        value={password}
-                        onChange={e => { setPassword(e.target.value); setError(''); }}
-                        onKeyDown={handleKeyDown}
-                        className="w-full p-4 bg-white/80 backdrop-blur-sm rounded-xl font-bold text-lg text-center tracking-[0.2em] border-2 border-white focus:border-primary focus:ring-4 focus:ring-primary-light outline-none transition-all"
-                        placeholder="••••••"
-                        autoFocus
-                    />
-                </div>
-                
-                <div className="flex flex-col gap-2 mt-2 px-1">
-                    <label className="flex items-center gap-2 text-xs text-text-light cursor-pointer select-none">
-                        <input 
-                            type="checkbox" 
-                            checked={rememberPwd} 
-                            onChange={e => setRememberPwd(e.target.checked)} 
-                            className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer" 
-                        />
-                        {t.remember_password}
-                    </label>
-                    <label className="flex items-center gap-2 text-xs text-text-light cursor-pointer select-none">
-                        <input 
-                            type="checkbox" 
-                            checked={keepLogin} 
-                            onChange={e => setKeepLogin(e.target.checked)} 
-                            className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer" 
-                        />
-                        {t.keep_logged_in}
-                    </label>
-                </div>
-
-                {error && <p className="text-destructive text-xs text-center font-bold animate-pulse">{error}</p>}
-                
-                <button 
-                    onClick={handleLogin}
-                    className="w-full bg-primary text-white py-4 rounded-xl font-bold text-lg shadow-xl shadow-primary-light hover:bg-primary-dark active:scale-95 transition-all mt-4"
-                >
-                    {t.login_btn}
-                </button>
-                <div className="text-center pt-4">
-                    <p className="text-xs text-gray-400 font-medium">v2.7.0 • ONESIP</p>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-
-// --- APP COMPONENT ---
-const App = () => {
-    const [user, setUser] = useState<User | null>(() => {
-        const saved = localStorage.getItem('onesip_user') || sessionStorage.getItem('onesip_user');
-        return saved ? JSON.parse(saved) : null;
-    });
-    const [lang, setLang] = useState<Lang>('zh');
-    const t = TRANSLATIONS[lang];
-    
-    const [users, setUsers] = useState<User[]>(STATIC_USERS); // Start with static data as fallback
-    const [inventoryList, setInventoryList] = useState<any[]>(INVENTORY_ITEMS);
-    const [schedule, setSchedule] = useState<any>({ title: '', days: [] });
+    // Data states
+    const [users, setUsers] = useState<User[]>(STATIC_USERS);
     const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
+    const [schedule, setSchedule] = useState<any>({});
     const [notices, setNotices] = useState<Notice[]>([]);
+    const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
+    const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
+    const [inventoryList, setInventoryList] = useState<InventoryItem[]>(INVENTORY_ITEMS);
+    const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
     const [sopList, setSopList] = useState<SopItem[]>(SOP_DATABASE);
     const [trainingLevels, setTrainingLevels] = useState<TrainingLevel[]>(TRAINING_LEVELS);
     const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
-    const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
-    const [salesRecords, setSalesRecords] = useState<SalesRecord[]>([]);
-    const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
-    const [showAdminModal, setShowAdminModal] = useState(false);
-    const [adminRole, setAdminRole] = useState<'manager' | 'owner' | 'editor' | null>(null);
+    const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
 
     useEffect(() => {
-        Cloud.seedInitialData();
-        const unsubInv = Cloud.subscribeToInventory(setInventoryList);
-        const unsubSched = Cloud.subscribeToSchedule(data => setSchedule(data || { title: '', days: [] }));
-        const unsubContent = Cloud.subscribeToContent(data => { if (data?.sops) setSopList(data.sops); if (data?.training) setTrainingLevels(data.training); if (data?.recipes) setRecipes(data.recipes); });
-        const unsubLogs = Cloud.subscribeToLogs(setLogs);
-        const unsubChat = Cloud.subscribeToChat((msgs, notes) => { setDirectMessages(msgs); setNotices(notes); });
-        const unsubSwaps = Cloud.subscribeToSwaps(setSwapRequests);
-        const unsubSales = Cloud.subscribeToSales(setSalesRecords);
-        const unsubHistory = Cloud.subscribeToInventoryHistory(setInventoryHistory);
-        const unsubUsers = Cloud.subscribeToUsers(setUsers);
-        return () => { unsubInv(); unsubSched(); unsubContent(); unsubLogs(); unsubChat(); unsubSwaps(); unsubSales(); unsubHistory(); unsubUsers(); };
+        // Check for Firebase config and set cloud status
+        if (process.env.API_KEY) {
+            setIsCloudEnabled(true);
+            Cloud.seedInitialData();
+
+            const unsubUsers = Cloud.subscribeToUsers(setUsers);
+            const unsubLogs = Cloud.subscribeToLogs(setLogs);
+            const unsubSchedule = Cloud.subscribeToSchedule(setSchedule);
+            const unsubChat = Cloud.subscribeToChat((msgs, ntcs) => { setDirectMessages(msgs); setNotices(ntcs); });
+            const unsubSwaps = Cloud.subscribeToSwaps(setSwapRequests);
+            const unsubInvList = Cloud.subscribeToInventory(setInventoryList);
+            const unsubInvHist = Cloud.subscribeToInventoryHistory(setInventoryHistory);
+            const unsubContent = Cloud.subscribeToContent(data => {
+                if (data.sops) setSopList(data.sops);
+                if (data.training) setTrainingLevels(data.training);
+                if (data.recipes) setRecipes(data.recipes);
+            });
+
+            return () => {
+                unsubUsers();
+                unsubLogs();
+                unsubSchedule();
+                unsubChat();
+                unsubSwaps();
+                unsubInvList();
+                unsubInvHist();
+                unsubContent();
+            };
+        } else {
+            console.warn("Cloud features disabled. No Firebase config.");
+            setShowCloudSetup(true);
+        }
     }, []);
 
-    const handleLogin = (userId: string, persist: boolean) => { 
-        const u = users.find(user => user.id === userId); 
-        if (u) { 
-            setUser(u); 
-            if (persist) {
-                localStorage.setItem('onesip_user', JSON.stringify(u)); 
-            } else {
-                sessionStorage.setItem('onesip_user', JSON.stringify(u));
+    useEffect(() => {
+        // Attempt to log in user from local storage
+        const savedUser = localStorage.getItem('onesip_user');
+        if (savedUser) {
+            try {
+                setCurrentUser(JSON.parse(savedUser));
+            } catch (e) {
+                console.error("Failed to parse saved user", e);
+                localStorage.removeItem('onesip_user');
             }
-        } 
-    };
+        }
+    }, []);
     
-    const handleLogout = () => { 
-        setUser(null); 
-        setAdminRole(null); 
-        localStorage.removeItem('onesip_user'); 
-        sessionStorage.removeItem('onesip_user');
+    const handleAdminLogin = (role: 'manager' | 'owner' | 'editor') => {
+        if (role === 'manager') setIsManager(true);
+        if (role === 'owner') setIsOwner(true);
+        if (role === 'editor') setIsEditor(true);
+        setIsAdminLoginOpen(false);
     };
 
-    const appData = { lang, setLang, t, users, inventoryList, setInventoryList, schedule, setSchedule, logs, setLogs, sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, directMessages, setDirectMessages, notices, setNotices, swapRequests, setSwapRequests, salesRecords, setSalesRecords, inventoryHistory, setInventoryHistory };
-
-    if (!user) {
-        return <LoginScreen t={t} onLogin={handleLogin} users={users} />;
+    if (isEditor) {
+        return <EditorDashboard data={{ sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t }} onExit={() => { setCurrentUser(null); setIsEditor(false); }} />;
     }
 
-    if (adminRole === 'manager') {
-        return <ManagerDashboard data={appData} onExit={() => setAdminRole(null)} />;
+    if (isOwner) {
+        return <OwnerDashboard data={{ lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs }} onExit={() => { setCurrentUser(null); setIsOwner(false); }} />;
     }
 
-    if (adminRole === 'owner') {
-        return <OwnerDashboard data={appData} onExit={() => setAdminRole(null)} />;
+    if (isManager) {
+        return <ManagerDashboard data={{ lang, t, schedule, setSchedule, notices, logs, setLogs, directMessages, setDirectMessages, swapRequests, setSwapRequests, users }} onExit={() => { setCurrentUser(null); setIsManager(false); }} />;
     }
-    
-    if (adminRole === 'editor') {
-        return <EditorDashboard data={appData} onExit={() => setAdminRole(null)} />;
+
+    if (!currentUser) {
+        return <LoginScreen users={users} onLogin={(user: User, keepLoggedIn: boolean) => {
+            setCurrentUser(user);
+            if (keepLoggedIn) {
+                localStorage.setItem('onesip_user', JSON.stringify(user));
+            }
+        }} t={t} lang={lang} setLang={setLang} />;
     }
 
     return (
         <>
             <StaffApp 
                 onSwitchMode={() => {}} 
-                data={appData} 
-                onLogout={handleLogout} 
-                currentUser={user}
-                openAdmin={() => setShowAdminModal(true)}
+                data={{ lang, setLang, schedule, notices, logs, setLogs, t, inventoryList, setInventoryList, inventoryHistory, sopList, recipes, trainingLevels, directMessages, setDirectMessages, swapRequests, setSwapRequests, users }} 
+                onLogout={() => { setCurrentUser(null); localStorage.removeItem('onesip_user'); }} 
+                currentUser={currentUser} 
+                openAdmin={() => setIsAdminLoginOpen(true)} 
             />
-            <AdminLoginModal 
-                isOpen={showAdminModal} 
-                onClose={() => setShowAdminModal(false)} 
-                onLogin={(role) => { setAdminRole(role); setShowAdminModal(false); }} 
-            />
+            <AdminLoginModal isOpen={isAdminLoginOpen} onClose={() => setIsAdminLoginOpen(false)} onLogin={handleAdminLogin} />
+            <CloudSetupModal isOpen={showCloudSetup} onClose={() => setShowCloudSetup(false)} />
         </>
     );
-};
+}
 
 export default App;

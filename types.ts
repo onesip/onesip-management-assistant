@@ -242,17 +242,18 @@ export interface SwapRequest {
     requesterName: string;
     requesterId: string;
     requesterDate: string; // Date of the shift being given away
-    // FIX: Add 'night' to support night shift swaps.
     requesterShift: 'morning' | 'evening' | 'night';
     
     targetName: string; // The person being asked
     targetId: string;
-    targetDate: string; // Date of the shift being taken (usually same if swapping on same day, or different)
-    // FIX: Add 'night' to support night shift swaps.
-    targetShift: 'morning' | 'evening' | 'night';
+    targetDate: string | null;
+    targetShift: 'morning' | 'evening' | 'night' | null;
 
-    status: 'pending' | 'accepted_by_peer' | 'rejected' | 'approved'; // approved means Manager finalized
+    status: 'pending' | 'accepted_by_peer' | 'rejected' | 'approved' | 'cancelled';
     timestamp: number;
+    reason?: string | null;
+    decidedAt?: number | null;
+    appliedToSchedule?: boolean; // Has this been manually applied by manager?
 }
 
 export interface SalesRecord {
@@ -302,4 +303,15 @@ export interface ChatReadState {
   updatedAt: any; // Firestore Timestamp
 }
 
-export type StaffViewMode = 'home' | 'team' | 'contact' | 'inventory' | 'recipes' | 'training' | 'sop' | 'chat' | 'checklist' | 'availability';
+export interface ScheduleConfirmation {
+  id?: string;
+  employeeId: string;
+  rangeStart: string;
+  rangeEnd: string;
+  status: 'confirmed';
+  confirmedAt: any; // Firestore Timestamp
+  createdAt?: any;
+  updatedAt?: any;
+}
+
+export type StaffViewMode = 'home' | 'team' | 'contact' | 'inventory' | 'recipes' | 'training' | 'sop' | 'chat' | 'checklist' | 'availability' | 'swapRequests';

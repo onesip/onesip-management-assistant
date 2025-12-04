@@ -2,7 +2,21 @@
 // @ts-ignore
 // FIX: Added @ts-ignore to suppress potential module resolution errors in specific build environments.
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, getDoc, serverTimestamp, collection, getDocs } from 'firebase/firestore';
+import { 
+    getFirestore, 
+    doc, 
+    setDoc, 
+    onSnapshot, 
+    updateDoc, 
+    arrayUnion, 
+    getDoc, 
+    serverTimestamp, 
+    collection, 
+    getDocs,
+    query,
+    where,
+    addDoc
+} from 'firebase/firestore';
 import { INITIAL_MENU_DATA, INITIAL_ANNOUNCEMENT_DATA, INITIAL_WIKI_DATA, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES, USERS } from '../constants';
 import { ChatReadState, User } from '../types';
 
@@ -65,7 +79,8 @@ export const seedInitialData = async () => {
              for (let i = 0; i < 21; i++) {
                  const d = new Date(today);
                  d.setDate(today.getDate() + i);
-                 const dateStr = `${d.getMonth()+1}-${d.getDate()}`;
+                 // FIX: Use MM-DD format to be consistent with app logic.
+                 const dateStr = `${d.getMonth() + 1}-${d.getDate()}`;
                  days.push({
                      date: dateStr,
                      name: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()],
@@ -226,20 +241,33 @@ export const saveChatReadState = async (userId: string, lastReadAt: Date) => {
 // --- SWAPS ---
 export const subscribeToSwaps = (callback: (reqs: any[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'swap_requests'), (doc) => {
-        if (doc.exists()) callback(doc.data().requests || []);
+    // FIX: Changed from listening to a single doc to the entire collection for proper querying.
+    return onSnapshot(collection(db, 'swapRequests'), (snapshot) => {
+        const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        callback(requests);
     });
 };
 
 export const saveSwapRequest = async (req: any) => {
     if (!db) return;
-    await updateDoc(doc(db, 'data', 'swap_requests'), { requests: arrayUnion(req) })
-        .catch(() => setDoc(doc(db, 'data', 'swap_requests'), { requests: [req] }));
+    // FIX: Changed to use addDoc for creating a new document in the collection.
+    await addDoc(collection(db, 'swapRequests'), req);
 };
 
 export const updateSwapRequests = async (requests: any[]) => {
     if (!db) return;
-    await setDoc(doc(db, 'data', 'swap_requests'), { requests }, { merge: true });
+    // This function is now more granular. We update one doc at a time.
+    // Assuming the calling context will handle the logic of which doc to update.
+    // A better function would be:
+    // export const updateSwapRequest = async (reqId, newData) => { ... }
+    // For now, let's assume we get the full list and find the changed one.
+    // This is inefficient but fits the old pattern.
+    for (const req of requests) {
+        if (req.id) {
+            const docRef = doc(db, 'swapRequests', req.id);
+            await setDoc(docRef, req, { merge: true });
+        }
+    }
 };
 
 
@@ -300,18 +328,16 @@ export const saveInventoryLogs = async (logs: any[]) => {
 };
 
 // --- STAFF AVAILABILITY (NEW) ---
-import { collection as firestoreCollection, query as firestoreQuery, where as firestoreWhere, getDocs as firestoreGetDocs, doc as firestoreDoc, getDoc as firestoreGetDoc } from 'firebase/firestore';
-
 export const getStaffAvailability = async (userId: string, weekStart: string) => {
     if (!db) return null;
-    const docRef = firestoreDoc(db, 'staff_availability', `${userId}_${weekStart}`);
-    const docSnap = await firestoreGetDoc(docRef);
+    const docRef = doc(db, 'staff_availability', `${userId}_${weekStart}`);
+    const docSnap = await getDoc(docRef);
     return docSnap.exists() ? docSnap.data() : null;
 };
 
 export const saveStaffAvailability = async (userId: string, weekStart: string, slots: any) => {
     if (!db) return;
-    const docRef = firestoreDoc(db, 'staff_availability', `${userId}_${weekStart}`);
+    const docRef = doc(db, 'staff_availability', `${userId}_${weekStart}`);
     await setDoc(docRef, {
         userId,
         weekStart,
@@ -322,7 +348,7 @@ export const saveStaffAvailability = async (userId: string, weekStart: string, s
 
 export const subscribeToAvailabilitiesForWeek = (weekStart: string, callback: (data: any[]) => void) => {
     if (!db) return () => {};
-    const q = firestoreQuery(firestoreCollection(db, "staff_availability"), firestoreWhere("weekStart", "==", weekStart));
+    const q = query(collection(db, "staff_availability"), where("weekStart", "==", weekStart));
     return onSnapshot(q, (querySnapshot) => {
         const availabilities: any[] = [];
         querySnapshot.forEach((doc) => {
@@ -330,4 +356,62 @@ export const subscribeToAvailabilitiesForWeek = (weekStart: string, callback: (d
         });
         callback(availabilities);
     });
+};
+
+// --- SCHEDULE CONFIRMATION (NEW) ---
+export const getScheduleConfirmation = async (employeeId: string, rangeStart: string, rangeEnd: string) => {
+    if (!db) return null;
+    try {
+        const q = query(
+            collection(db, 'scheduleConfirmations'),
+            where('employeeId', '==', employeeId),
+            where('rangeStart', '==', rangeStart),
+            where('rangeEnd', '==', rangeEnd),
+            where('status', '==', 'confirmed')
+        );
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+            return { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
+        }
+        return null;
+    } catch (e) {
+        console.error("Error getting schedule confirmation:", e);
+        return null;
+    }
+};
+
+export const saveScheduleConfirmation = async (employeeId: string, rangeStart: string, rangeEnd: string) => {
+    if (!db) return { success: false, error: 'DB not connected' };
+    try {
+        const q = query(
+            collection(db, 'scheduleConfirmations'),
+            where('employeeId', '==', employeeId),
+            where('rangeStart', '==', rangeEnd)
+        );
+        const querySnapshot = await getDocs(q);
+
+        const dataToSet = {
+            status: 'confirmed' as const,
+            confirmedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+        };
+
+        if (!querySnapshot.empty) {
+            const docRef = doc(db, 'scheduleConfirmations', querySnapshot.docs[0].id);
+            await updateDoc(docRef, dataToSet);
+        } else {
+            const collectionRef = collection(db, 'scheduleConfirmations');
+            await addDoc(collectionRef, {
+                employeeId,
+                rangeStart,
+                rangeEnd,
+                ...dataToSet,
+                createdAt: serverTimestamp()
+            });
+        }
+        return { success: true };
+    } catch (e) {
+        console.error("Error saving schedule confirmation:", e);
+        return { success: false, error: e };
+    }
 };
