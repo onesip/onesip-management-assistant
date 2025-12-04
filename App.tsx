@@ -27,6 +27,16 @@ function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon
 
 function deg2rad(deg: number) { return deg * (Math.PI/180); }
 
+// FIX: Helper to normalize date keys (e.g., '12-5' vs '12-05') for reliable lookups.
+const normalizeDateKey = (dateStr: string) => {
+    if (!dateStr || typeof dateStr !== 'string') return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 2) {
+        return `${parseInt(parts[0], 10)}-${parseInt(parts[1], 10)}`;
+    }
+    return dateStr;
+};
+
 function getYouTubeId(url: string | undefined) {
     if (!url) return null;
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
@@ -2918,7 +2928,15 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const ConfirmationBanner = () => {
         if (confirmationStatus === 'loading' || confirmationStatus === 'not_applicable') return null;
-        if (confirmationStatus === 'confirmed') return <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-3 rounded-lg mb-4 text-sm flex items-center gap-3 animate-fade-in"><Icon name="CheckCircle2" size={20} /><p>You have confirmed your schedule for the next two weeks.</p></div>;
+        if (confirmationStatus === 'confirmed') return (
+            <div className="bg-green-100 border-l-4 border-green-500 text-green-800 p-4 rounded-lg mb-4 flex items-start gap-3 animate-fade-in">
+                <Icon name="CheckCircle2" size={20} className="text-green-600 mt-0.5 shrink-0" />
+                <div>
+                    <p className="font-bold">Schedule Confirmed</p>
+                    <p className="text-sm mt-1 text-green-700">You can still request to swap individual shifts if needed.</p>
+                </div>
+            </div>
+        );
         return ( <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in"><div className="flex-1"><h4 className="font-bold">Please Confirm Your Schedule</h4><p className="text-sm mt-1">Review your upcoming shifts and tap confirm.</p></div><button onClick={handleConfirmSchedule} className="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg text-sm whitespace-nowrap hover:bg-blue-600 transition-all shadow-md active:scale-95 w-full sm:w-auto">Confirm Next 2 Weeks</button></div>);
     };
 
@@ -2994,50 +3012,66 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
-            const upcomingDates = Array.from({ length: 14 }).map((_, i) => {
+            const fourteenDays = Array.from({ length: 14 }).map((_, i) => {
                 const d = new Date(today);
                 d.setDate(d.getDate() + i);
-                return `${d.getMonth() + 1}-${d.getDate()}`;
+                return {
+                    dateObj: d,
+                    date: `${d.getMonth() + 1}-${d.getDate()}`,
+                    name: d.toLocaleDateString('en-US', { weekday: 'long' }),
+                };
             });
-            const upcomingDatesSet = new Set(upcomingDates);
 
-            const futureScheduleDays = schedule.days?.filter((day: ScheduleDay) => 
-                upcomingDatesSet.has(day.date)
-            ).sort((a: ScheduleDay, b: ScheduleDay) => {
-                // Sort based on the order in the upcomingDates array
-                return upcomingDates.indexOf(a.date) - upcomingDates.indexOf(b.date);
-            }) || [];
+            const scheduleMap = new Map<string, ScheduleDay>(
+                schedule.days?.map((day: ScheduleDay) => [normalizeDateKey(day.date), day]) || []
+            );
             
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
                     <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-black">{t.team_title}</h2></div>
                     <ConfirmationBanner />
                     
-                    <div className="space-y-4">{futureScheduleDays.map((day: any) => (
-                        <div key={day.date} className="p-4 rounded-xl shadow-sm border bg-surface border-gray-100">
-                            <div className="flex justify-between items-center mb-3">
-                                <h3 className="font-bold text-text">{day.name} <span className="text-text-light font-normal ml-1">{day.date}</span></h3>
-                            </div>
-                            <div className="space-y-2">
-                                {(['morning', 'evening', 'night'] as const).filter(shift => day[shift] && day[shift].length > 0).map(shift => (
-                                    <div key={shift} className="flex items-center gap-2">
-                                        <span className={`text-xs font-bold w-14 text-center capitalize ${shift === 'morning' ? 'text-orange-500' : shift === 'evening' ? 'text-indigo-500' : 'text-purple-500'}`}>{shift}</span>
-                                        <div className="flex-1 flex flex-wrap gap-2 items-center">
-                                            {day[shift].map((name: string, i: number) => { 
-                                                const isMe = name === currentUser.name;
+                    <div className="space-y-4">
+                        {fourteenDays.map((dayInfo) => {
+                            const daySchedule = scheduleMap.get(dayInfo.date); // dayInfo.date is already normalized
+                            const shiftsToRender = daySchedule 
+                                ? (['morning', 'evening', 'night'] as const).filter(shift => (daySchedule as any)[shift] && (daySchedule as any)[shift].length > 0)
+                                : [];
+
+                            return (
+                                <div key={dayInfo.date} className="p-4 rounded-xl shadow-sm border bg-surface border-gray-100">
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h3 className="font-bold text-text">{dayInfo.name} <span className="text-text-light font-normal ml-1">{dayInfo.date}</span></h3>
+                                    </div>
+                                    {shiftsToRender.length > 0 ? (
+                                        <div className="space-y-2">
+                                            {shiftsToRender.map(shift => {
+                                                const staffList: string[] = (daySchedule as any)[shift];
                                                 return (
-                                                    <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white' : 'bg-secondary text-text-light'}`}>
-                                                        {name}
-                                                        {isMe && <button onClick={() => { setCurrentSwap({ date: day.date, shift }); setIsSwapModalOpen(true); }} className="text-white/70 hover:text-white"><Icon name="Refresh" size={12} /></button>}
+                                                    <div key={shift} className="flex items-center gap-2">
+                                                        <span className={`text-xs font-bold w-14 text-center capitalize ${shift === 'morning' ? 'text-orange-500' : shift === 'evening' ? 'text-indigo-500' : 'text-purple-500'}`}>{shift}</span>
+                                                        <div className="flex-1 flex flex-wrap gap-2 items-center">
+                                                            {staffList.map((name: string, i: number) => { 
+                                                                const isMe = name === currentUser.name;
+                                                                return (
+                                                                    <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white' : 'bg-secondary text-text-light'}`}>
+                                                                        {name}
+                                                                        {isMe && <button onClick={() => { setCurrentSwap({ date: dayInfo.date, shift }); setIsSwapModalOpen(true); }} className="text-white/70 hover:text-white hover:bg-white/10 rounded-full p-1 -m-1 transition-colors"><Icon name="Refresh" size={12} /></button>}
+                                                                    </div>
+                                                                ); 
+                                                            })}
+                                                        </div>
                                                     </div>
-                                                ); 
+                                                );
                                             })}
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}</div>
+                                    ) : (
+                                        <p className="text-sm text-text-light italic">No shifts scheduled.</p>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             );
         }
