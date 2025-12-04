@@ -2940,9 +2940,14 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
     
     const handleClockLog = (type: ClockType) => {
+        // The schedule check is removed, but we can add a non-blocking notification.
         if (!hasShiftToday(currentUser, schedule)) {
-            alert(t.no_shift_today_alert);
-            return;
+            showNotification({
+                type: 'announcement',
+                title: 'Unscheduled Clocking',
+                message: 'No shift found for today. This will be recorded as an unscheduled entry.',
+                dedupeKey: 'unscheduled-clocking-info'
+            });
         }
     
         if (type === 'clock-out') {
