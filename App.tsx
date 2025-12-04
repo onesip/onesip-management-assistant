@@ -43,6 +43,24 @@ const getStartOfWeek = (date: Date, weekOffset = 0) => {
 
 const formatDateISO = (date: Date) => date.toISOString().split('T')[0];
 
+const formattedDate = (isoString: string) => {
+    if (!isoString) return 'No Date';
+    try {
+        const date = new Date(isoString);
+        if (isNaN(date.getTime())) {
+            return 'Invalid Date';
+        }
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        return `${year}/${month}/${day} ${hours}:${minutes}`;
+    } catch {
+        return isoString; // Fallback
+    }
+}
+
 // --- MODALS ---
 
 const EditInventoryLogModal = ({ isOpen, log, onClose, onSave, currentUser }: { isOpen: boolean, log: LogEntry | null, onClose: () => void, onSave: (log: LogEntry) => void, currentUser: User }) => {
@@ -68,7 +86,7 @@ const EditInventoryLogModal = ({ isOpen, log, onClose, onSave, currentUser }: { 
     };
 
     const handleSubmit = () => {
-        const hasInvalidAmount = items.some(item => typeof item.amount !== 'number');
+        const hasInvalidAmount = items.some(item => typeof item.amount !== 'number' && item.amount !== '');
         if (hasInvalidAmount) {
             alert('All item amounts must be valid numbers.');
             return;
@@ -76,7 +94,7 @@ const EditInventoryLogModal = ({ isOpen, log, onClose, onSave, currentUser }: { 
 
         const updatedLog: LogEntry = {
             ...log,
-            items: items,
+            items: items.map(item => ({...item, amount: item.amount === '' ? 0 : Number(item.amount)})),
             // FIX: Removed @ts-ignore as properties are now defined in LogEntry type.
             manualInventoryEdited: true,
             manualInventoryEditedBy: currentUser.name,
@@ -1656,7 +1674,6 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
 
 
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    // ... (Existing code)
     const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users } = data;
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability'>('requests');
@@ -1667,17 +1684,13 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
     
-    // --- NEW: Schedule Navigation State ---
     const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
     const totalWeeks = schedule?.days ? Math.ceil(schedule.days.length / 7) : 0;
     const activeStaff = users.filter((u: User) => u.active !== false);
-    // ------------------------------------
 
      const handleUpdateLogs = async (updatedLogs: LogEntry[]) => {
         try {
-            // FIX: Refactored to use centralized cloud service function, resolving firebase import errors in this component.
             await Cloud.updateLogs(updatedLogs);
-            // The snapshot listener will update the state automatically.
         } catch (error) {
             console.error("Failed to update logs:", error);
             alert("Error: Could not save log changes.");
@@ -1754,7 +1767,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const calculateFinancials = () => {
         const stats: Record<string, any> = {};
         activeStaff.forEach((m:User) => { stats[m.name] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 }; });
-        if (schedule?.days) { schedule.days.forEach((day: any) => { day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ }); day.evening.forEach((p: string) => { if(stats[p]) stats[p].evening++ }); }); }
+        if (schedule?.days) { schedule.days.forEach((day: ScheduleDay) => { day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ }); day.evening.forEach((p: string) => { if(stats[p]) stats[p].evening++ }); }); }
         const userLogs: Record<string, LogEntry[]> = {};
         if (logs) { logs.forEach((l: LogEntry) => { if (!l.name) return; if (!userLogs[l.name]) userLogs[l.name] = []; userLogs[l.name].push(l); }); }
         Object.keys(userLogs).forEach(name => { if(!stats[name]) return; const sorted = userLogs[name].sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime()); let lastIn: number | null = null; sorted.forEach(log => { if (log.shift === 'clock-in') { lastIn = new Date(log.time).getTime(); } else if (log.shift === 'clock-out' && lastIn) { const diffHrs = (new Date(log.time).getTime() - lastIn) / (1000 * 60 * 60); if (diffHrs > 0 && diffHrs < 16) { stats[name].actualHours += diffHrs; } lastIn = null; } }); });
@@ -1771,18 +1784,24 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const newSchedule = JSON.parse(JSON.stringify(schedule));
         const findDay = (dateStr: string) => {
             if (!dateStr) return undefined;
-            return newSchedule.days.find((d: any) => d.date === dateStr || d.date === dateStr.replace(/^0/, '').replace(/-0/, '-'));
+            return newSchedule.days.find((d: ScheduleDay) => d.date === dateStr || d.date === dateStr.replace(/^0/, '').replace(/-0/, '-'));
         };
         const reqDay = findDay(req.requesterDate);
         const targetDay = findDay(req.targetDate);
 
         if (reqDay && targetDay) {
-            const remove = (day: any, shift: 'morning' | 'evening' | 'night', name: string) => {
-                const idx = day[shift].indexOf(name);
-                if (idx > -1) day[shift].splice(idx, 1);
+            const remove = (day: ScheduleDay, shift: 'morning' | 'evening' | 'night', name: string) => {
+                const shiftStaff = day[shift] as string[] | undefined;
+                if (shiftStaff) {
+                    const idx = shiftStaff.indexOf(name);
+                    if (idx > -1) shiftStaff.splice(idx, 1);
+                }
             };
-            const add = (day: any, shift: 'morning' | 'evening' | 'night', name: string) => {
-                if (!day[shift].includes(name)) day[shift].push(name);
+            const add = (day: ScheduleDay, shift: 'morning' | 'evening' | 'night', name: string) => {
+                const shiftStaff = day[shift] as string[] | undefined;
+                if (shiftStaff && !shiftStaff.includes(name)) {
+                    shiftStaff.push(name);
+                }
             };
             remove(reqDay, req.requesterShift, req.requesterName);
             remove(targetDay, req.targetShift, req.targetName);
@@ -1793,7 +1812,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             scheduleUpdated = true;
         }
 
-        // Always mark the request as processed and remove it from the UI.
         const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === req.id ? { ...r, status: 'approved' } : r);
         Cloud.updateSwapRequests(updatedReqs);
         setSwapRequests(swapRequests.filter(r => r.id !== req.id));
@@ -1815,13 +1833,13 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         
         if (!newSched.days || !newSched.days[dayIdx]) return;
 
-        newSched.days[dayIdx][shift] = newStaff; 
+        (newSched.days[dayIdx] as any)[shift] = newStaff; 
         
         if (!newSched.days[dayIdx].hours) {
             newSched.days[dayIdx].hours = { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end:'19:00'} }; 
         }
         
-        newSched.days[dayIdx].hours[shift] = newHours; 
+        (newSched.days[dayIdx].hours as any)[shift] = newHours; 
         
         setSchedule(newSched); 
         Cloud.saveSchedule(newSched); 
@@ -1832,13 +1850,19 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
     const getShiftCost = (staff: string[], start: string, end: string) => {
         if (!staff || staff.length === 0) return 0;
-        const s = parseInt(start.split(':')[0]) + (parseInt(start.split(':')[1]||'0')/60);
-        const e = parseInt(end.split(':')[0]) + (parseInt(end.split(':')[1]||'0')/60);
+        
+        if (typeof start !== 'string' || typeof end !== 'string' || !start.includes(':') || !end.includes(':')) {
+            console.error("Invalid time format passed to getShiftCost", { start, end });
+            return 0;
+        }
+
+        const s = parseInt(start.split(':')[0], 10) + (parseInt(start.split(':')[1] || '0', 10) / 60);
+        const e = parseInt(end.split(':')[0], 10) + (parseInt(end.split(':')[1] || '0', 10) / 60);
         const duration = Math.max(0, e - s);
         return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
     };
     
-    const totalWeeklyPlanningCost = schedule.days?.reduce((acc: number, day: any) => {
+    const totalWeeklyPlanningCost = schedule.days?.reduce((acc: number, day: ScheduleDay) => {
         const m = getShiftCost(day.morning, day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
         const e = getShiftCost(day.evening, day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
         const n = day.night ? getShiftCost(day.night, day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00') : 0;
@@ -2108,7 +2132,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     </div>
                 )}
             </div>
-            {editingShift && <ScheduleEditorModal isOpen={!!editingShift} day={schedule.days[editingShift.dayIdx]} shiftType={editingShift.shift} currentStaff={schedule.days[editingShift.dayIdx][editingShift.shift]} currentHours={schedule.days[editingShift.dayIdx].hours?.[editingShift.shift]} onClose={() => setEditingShift(null)} onSave={handleSaveSchedule} teamMembers={activeStaff} />}
+            {editingShift && <ScheduleEditorModal isOpen={!!editingShift} day={schedule.days[editingShift.dayIdx]} shiftType={editingShift.shift} currentStaff={(schedule.days[editingShift.dayIdx] as any)[editingShift.shift]} currentHours={schedule.days[editingShift.dayIdx].hours?.[editingShift.shift]} onClose={() => setEditingShift(null)} onSave={handleSaveSchedule} teamMembers={activeStaff} />}
             <ManualAddModal isOpen={isAddingManualLog} onClose={() => setIsAddingManualLog(false)} onSave={handleSaveManualLog} users={users} currentUser={managerUser} />
             <InvalidateLogModal isOpen={!!logToInvalidate} log={logToInvalidate} onClose={() => setLogToInvalidate(null)} onConfirm={handleInvalidateConfirm} currentUser={managerUser} />
             <AdjustHoursModal isOpen={!!logPairToAdjust} logPair={logPairToAdjust} onClose={() => setLogPairToAdjust(null)} onSave={handleSaveAdjustedHours} currentUser={managerUser} />
@@ -2118,36 +2142,34 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
 // --- STAFF APP ---
 
-const RefillDetailsModal = ({ isOpen, onClose, data, mode, t, lang }: any) => {
+const RefillDetailsModal = ({ isOpen, onClose, data, t, lang }: any) => {
     if (!isOpen) return null;
 
-    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-
-    const title = mode === 'manual' ? t.refill_details_title : t.preset_inventory_title;
-    
-    let items: { key: string; text: string }[] = [];
-    if (mode === 'manual' && data.items) {
-        items = data.items.map((item: any) => ({
-            key: item.itemId || Math.random(),
-            text: `${item.name} +${item.amount}${item.unit}`
-        }));
-    } else if (mode === 'preset' && data) {
-        items = data.map((item: InventoryItem) => ({
-            key: item.id,
-            text: `${getLoc(item.name)} · ${t.preset_value} ${item.defaultVal}${item.unit}`
-        }));
-    }
+    const items = (data.items || []).map((item: any) => ({
+        key: item.itemId || Math.random(),
+        text: `${item.name} - ${item.amount || '0'}${item.unit}`
+    }));
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
             <div className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl border flex flex-col max-h-[80vh]">
-                <h3 className="text-lg font-black text-text mb-4 shrink-0">{title}</h3>
+                <h3 className="text-lg font-black text-text mb-2 shrink-0">{t.refill_details_title}</h3>
+                
+                <div className="text-xs text-text-light mb-4 border-b pb-3">
+                    <p><strong>{t.staff_label || 'Operator'}:</strong> {data.name}</p>
+                    <p><strong>{t.time_label || 'Time'}:</strong> {formattedDate(data.time)}</p>
+                </div>
+
                 <div className="flex-1 overflow-y-auto space-y-2 no-scrollbar pr-2 -mr-2">
-                    {items.map((item) => (
-                        <div key={item.key} className="bg-secondary p-3 rounded-lg text-sm text-text">
-                            {item.text}
-                        </div>
-                    ))}
+                    {items.length === 0 ? (
+                        <p className="text-sm text-text-light italic">本次补料没有明细记录</p>
+                    ) : (
+                        items.map((item) => (
+                            <div key={item.key} className="bg-secondary p-3 rounded-lg text-sm text-text">
+                                {item.text}
+                            </div>
+                        ))
+                    )}
                 </div>
                 <div className="mt-6 shrink-0">
                     <button onClick={onClose} className="w-full py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200 transition-all">{t.close}</button>
@@ -2160,99 +2182,60 @@ const RefillDetailsModal = ({ isOpen, onClose, data, mode, t, lang }: any) => {
 const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
     const [modalOpen, setModalOpen] = useState(false);
 
-    const cardState = React.useMemo(() => {
-        const reports = inventoryHistory || [];
-        
-        // Sort reports by date string, newest first.
-        const sortedReports: InventoryReport[] = reports.slice().sort((a: InventoryReport, b: InventoryReport) => {
-            try {
-                return new Date(b.date).getTime() - new Date(a.date).getTime();
-            } catch {
-                return 0;
-            }
+    const lastReportData = React.useMemo(() => {
+        const reports = (inventoryHistory || []).filter((r: InventoryReport) => r && r.date);
+        if (reports.length === 0) {
+            return null;
+        }
+
+        const sortedReports = reports.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const lastReport = sortedReports[0];
+
+        const reportItems = Object.entries(lastReport.data).map(([itemId, values]) => {
+            const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
+            const name = itemDef ? (itemDef.name[lang] || itemDef.name['zh']) : itemId;
+            return {
+                name: name,
+                amount: values.end,
+                unit: itemDef?.unit || '',
+                itemId: itemId,
+            };
         });
 
-        const lastReport = sortedReports.length > 0 ? sortedReports[0] : null;
-        
-        const preset = inventoryList;
-        const presetItems = (preset || []).filter((item: InventoryItem) => item.defaultVal);
-        const hasPreset = presetItems.length > 0;
-
-        if (lastReport) {
-            // Transform the report data into the structure expected by the UI.
-            const reportItems = Object.entries(lastReport.data).map(([itemId, values]) => {
-                const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
-                const name = itemDef ? (itemDef.name[lang] || itemDef.name['zh']) : itemId;
-                return {
-                    name: name,
-                    amount: values.end, // Using end count as 'amount'
-                    unit: itemDef?.unit || '',
-                    itemId: itemId,
-                };
-            });
-
-            return {
-                mode: 'manual', 
-                data: {
-                    name: lastReport.submittedBy,
-                    time: lastReport.date,
-                    items: reportItems,
-                }
-            };
-        }
-
-        if (hasPreset) {
-            return { mode: 'preset', data: presetItems };
-        }
-        
-        return { mode: 'empty', data: null };
+        return {
+            name: lastReport.submittedBy,
+            time: lastReport.date,
+            items: reportItems,
+        };
     }, [inventoryHistory, inventoryList, lang]);
 
     const handleCardClick = () => {
-        if (cardState.mode !== 'empty') {
+        if (lastReportData) {
             setModalOpen(true);
         }
     };
 
-    const formattedDate = (isoString: string) => {
-        try {
-            const date = new Date(isoString);
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const hours = String(date.getHours()).padStart(2, '0');
-            const minutes = String(date.getMinutes()).padStart(2, '0');
-            return `${year}-${month}-${day} ${hours}:${minutes}`;
-        } catch {
-            return isoString;
-        }
-    }
-
     const renderCardContent = () => {
-        switch (cardState.mode) {
-            case 'manual':
-                return (
-                    <div>
-                        <p className="text-sm font-medium text-text-light">{t.refilled_by_on.replace('{name}', cardState.data.name).replace('{time}', formattedDate(cardState.data.time))}</p>
-                        <p className="text-xs text-text-light mt-1">{t.total_items_refilled.replace('{count}', cardState.data.items.length)}</p>
-                    </div>
-                );
-            case 'preset':
-                return (
-                    <div>
-                        <p className="text-sm font-medium text-text-light">{t.using_preset_inventory}</p>
-                        <p className="text-xs text-text-light mt-1">{t.managing_preset_items.replace('{count}', cardState.data.length)}</p>
-                    </div>
-                );
-            case 'empty':
-            default:
-                return (
-                    <p className="text-sm font-medium text-text-light italic">{t.no_refill_or_preset}</p>
-                );
+        if (!lastReportData) {
+            return (
+                <p className="text-sm font-medium text-text-light italic">{t.no_refill_record}</p>
+            );
         }
+
+        const translation = t.refilled_by_on || '由 {name} 在 {time} 补料';
+        return (
+            <div>
+                <p className="text-sm font-medium text-text-light">
+                    {translation.replace('{name}', lastReportData.name).replace('{time}', formattedDate(lastReportData.time))}
+                </p>
+                <p className="text-xs text-text-light mt-1">
+                    {(t.total_items_refilled || '共补料 {count} 项').replace('{count}', lastReportData.items?.length || 0)}
+                </p>
+            </div>
+        );
     };
 
-    const isClickable = cardState.mode !== 'empty';
+    const isClickable = !!lastReportData;
 
     return (
         <>
@@ -2273,14 +2256,13 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
                 </div>
                 {isClickable && <Icon name="ChevronRight" className="text-gray-300" />}
             </div>
-            <RefillDetailsModal 
+            {lastReportData && <RefillDetailsModal 
                 isOpen={modalOpen} 
                 onClose={() => setModalOpen(false)} 
-                data={cardState.data}
-                mode={cardState.mode}
+                data={lastReportData}
                 t={t}
                 lang={lang}
-            />
+            />}
         </>
     );
 };
@@ -2421,7 +2403,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const hasClockedOut = logs.some((l: LogEntry) => l.userId === currentUser.id && new Date(l.time).toDateString() === now.toDateString() && l.type === 'clock-out');
 
             const checkShift = (shiftType: 'morning' | 'evening', shiftHours: any, clockedStatus: boolean, notificationType: 'clock_in_reminder' | 'clock_out_reminder', title: string, message: string) => {
-                if (todaySchedule[shiftType].includes(currentUser.name) && !clockedStatus) {
+                if (todaySchedule[shiftType] && Array.isArray(todaySchedule[shiftType]) && todaySchedule[shiftType].includes(currentUser.name) && !clockedStatus) {
                     const timeStr = notificationType === 'clock_in_reminder' ? shiftHours.start : shiftHours.end;
                     const [hour, minute] = timeStr.split(':').map(Number);
                     const shiftTime = new Date();
@@ -2440,10 +2422,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 }
             };
             
-            checkShift('morning', todaySchedule.hours.morning, hasClockedIn, 'clock_in_reminder', 'Clock-in Reminder', 'Your morning shift is starting soon. Please remember to clock in.');
-            checkShift('evening', todaySchedule.hours.evening, hasClockedIn, 'clock_in_reminder', 'Clock-in Reminder', 'Your evening shift is starting soon. Please remember to clock in.');
-            checkShift('morning', todaySchedule.hours.morning, hasClockedOut, 'clock_out_reminder', 'Clock-out Reminder', 'Your morning shift is ending soon. Please complete tasks and clock out.');
-            checkShift('evening', todaySchedule.hours.evening, hasClockedOut, 'clock_out_reminder', 'Clock-out Reminder', 'Your evening shift is ending soon. Please complete tasks and clock out.');
+            if(todaySchedule.hours?.morning) checkShift('morning', todaySchedule.hours.morning, hasClockedIn, 'clock_in_reminder', 'Clock-in Reminder', 'Your morning shift is starting soon. Please remember to clock in.');
+            if(todaySchedule.hours?.evening) checkShift('evening', todaySchedule.hours.evening, hasClockedIn, 'clock_in_reminder', 'Clock-in Reminder', 'Your evening shift is starting soon. Please remember to clock in.');
+            if(todaySchedule.hours?.morning) checkShift('morning', todaySchedule.hours.morning, hasClockedOut, 'clock_out_reminder', 'Clock-out Reminder', 'Your morning shift is ending soon. Please complete tasks and clock out.');
+            if(todaySchedule.hours?.evening) checkShift('evening', todaySchedule.hours.evening, hasClockedOut, 'clock_out_reminder', 'Clock-out Reminder', 'Your evening shift is ending soon. Please complete tasks and clock out.');
 
         }, 60 * 1000); // Check every minute
 
