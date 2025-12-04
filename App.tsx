@@ -2450,7 +2450,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [showScheduleConfirmModal, setShowScheduleConfirmModal] = useState(false);
     const [showSwapRequestModal, setShowSwapRequestModal] = useState(false);
     const [swapRequestCount, setSwapRequestCount] = useState(0);
-    const [newPendingSwaps, setNewPendingSwaps] = useState<SwapRequest[]>([]);
+    const hasShownSessionNotification = useRef(false);
 
     // Swap Request State
     const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
@@ -2460,60 +2460,58 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
-    // --- Effect for one-time notification popups ---
+    // --- Effect for persistent notification popups ---
     useEffect(() => {
+        // Only run checks when on the home screen and data is loaded.
         if (view !== 'home' || !currentUser || !schedule?.days || !swapRequests) {
             return;
         }
 
         const runChecks = async () => {
+            // If a notification has already been shown in this session, do nothing.
+            if (hasShownSessionNotification.current) {
+                return;
+            }
+
             // --- 1. Schedule Confirmation Check ---
             const start = new Date();
             const end = new Date();
             end.setDate(start.getDate() + 13);
             const startISO = formatDateISO(start);
             const endISO = formatDateISO(end);
-            const scheduleNotificationKey = `scheduleConfirmNotified::${currentUser.id}::${startISO}::${endISO}`;
+            
+            const startMs = new Date(start).setHours(0, 0, 0, 0);
+            const endMs = new Date(end).setHours(23, 59, 59, 999);
 
-            if (!localStorage.getItem(scheduleNotificationKey)) {
-                const startMs = new Date(start).setHours(0, 0, 0, 0);
-                const endMs = new Date(end).setHours(23, 59, 59, 999);
+            const hasShiftsInWindow = schedule.days.some((day: ScheduleDay) => {
+                const dayDate = new Date(`${new Date().getFullYear()}-${day.date}`);
+                if (isNaN(dayDate.getTime())) return false;
+                const scheduleMs = dayDate.getTime();
+                if (scheduleMs >= startMs && scheduleMs <= endMs) {
+                    return [...day.morning, ...day.evening, ...(day.night || [])].includes(currentUser.name);
+                }
+                return false;
+            });
 
-                const hasShiftsInWindow = schedule.days.some((day: ScheduleDay) => {
-                    const dayDate = new Date(`${new Date().getFullYear()}-${day.date}`);
-                    if (isNaN(dayDate.getTime())) return false;
-                    const scheduleMs = dayDate.getTime();
-                    if (scheduleMs >= startMs && scheduleMs <= endMs) {
-                        return [...day.morning, ...day.evening, ...(day.night || [])].includes(currentUser.name);
-                    }
-                    return false;
-                });
-
-                if (hasShiftsInWindow) {
-                    const existingConfirmation = await Cloud.getScheduleConfirmation(currentUser.id, startISO, endISO);
-                    if (!existingConfirmation) {
-                        setShowScheduleConfirmModal(true);
-                    } else {
-                        localStorage.setItem(scheduleNotificationKey, 'true');
-                    }
-                } else {
-                    localStorage.setItem(scheduleNotificationKey, 'true');
+            if (hasShiftsInWindow) {
+                const existingConfirmation = await Cloud.getScheduleConfirmation(currentUser.id, startISO, endISO);
+                if (!existingConfirmation) {
+                    setShowScheduleConfirmModal(true);
+                    hasShownSessionNotification.current = true;
+                    return; // Prioritize schedule confirmation and stop further checks
                 }
             }
 
-            // --- 2. Swap Request Check ---
-            const swapNotifiedKey = `swapNotifiedIds::${currentUser.id}`;
-            const notifiedIds = new Set<string>(JSON.parse(localStorage.getItem(swapNotifiedKey) || '[]'));
-            const newPendingRequests = swapRequests.filter((req: SwapRequest) => 
+            // --- 2. Swap Request Check (runs only if schedule doesn't need confirmation) ---
+            const pendingRequests = swapRequests.filter((req: SwapRequest) => 
                 req.targetId === currentUser.id && 
-                req.status === 'pending' &&
-                !notifiedIds.has(req.id)
+                req.status === 'pending'
             );
 
-            if (newPendingRequests.length > 0) {
-                setNewPendingSwaps(newPendingRequests);
-                setSwapRequestCount(newPendingRequests.length);
+            if (pendingRequests.length > 0) {
+                setSwapRequestCount(pendingRequests.length);
                 setShowSwapRequestModal(true);
+                hasShownSessionNotification.current = true;
             }
         };
         
@@ -3288,20 +3286,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     confirmText="去排班页面"
                     cancelText="稍后"
                     onConfirm={() => {
-                        const start = new Date();
-                        const end = new Date();
-                        end.setDate(start.getDate() + 13);
-                        const notificationKey = `scheduleConfirmNotified::${currentUser.id}::${formatDateISO(start)}::${formatDateISO(end)}`;
-                        localStorage.setItem(notificationKey, 'true');
                         setView('team');
                         setShowScheduleConfirmModal(false);
                     }}
                     onCancel={() => {
-                        const start = new Date();
-                        const end = new Date();
-                        end.setDate(start.getDate() + 13);
-                        const notificationKey = `scheduleConfirmNotified::${currentUser.id}::${formatDateISO(start)}::${formatDateISO(end)}`;
-                        localStorage.setItem(notificationKey, 'true');
                         setShowScheduleConfirmModal(false);
                     }}
                 />
@@ -3314,18 +3302,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     confirmText="去处理"
                     cancelText="稍后"
                     onConfirm={() => {
-                        const notifiedKey = `swapNotifiedIds::${currentUser.id}`;
-                        const notifiedIds = new Set<string>(JSON.parse(localStorage.getItem(notifiedKey) || '[]'));
-                        newPendingSwaps.forEach(req => notifiedIds.add(req.id));
-                        localStorage.setItem(notifiedKey, JSON.stringify(Array.from(notifiedIds)));
                         setView('swapRequests');
                         setShowSwapRequestModal(false);
                     }}
                     onCancel={() => {
-                        const notifiedKey = `swapNotifiedIds::${currentUser.id}`;
-                        const notifiedIds = new Set<string>(JSON.parse(localStorage.getItem(notifiedKey) || '[]'));
-                        newPendingSwaps.forEach(req => notifiedIds.add(req.id));
-                        localStorage.setItem(notifiedKey, JSON.stringify(Array.from(notifiedIds)));
                         setShowSwapRequestModal(false);
                     }}
                 />
