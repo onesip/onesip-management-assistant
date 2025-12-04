@@ -416,7 +416,7 @@ const CloudSetupModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => 
     );
 };
 
-const CustomConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText = "Confirm", cancelText = "Cancel" }: { isOpen: boolean, title: string, message: React.ReactNode, onConfirm: () => void, onCancel: () => void, confirmText?: string, cancelText?: string }) => {
+const CustomConfirmModal = ({ isOpen, title, message, onConfirm, onCancel }: { isOpen: boolean, title: string, message: React.ReactNode, onConfirm: () => void, onCancel: () => void }) => {
     if (!isOpen) return null;
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
@@ -424,8 +424,8 @@ const CustomConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, confi
                 <h3 className="text-lg font-black text-text mb-3">{title}</h3>
                 <div className="text-text-light text-sm mb-6 leading-relaxed">{message}</div>
                 <div className="flex gap-3">
-                    <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200 transition-all">{cancelText}</button>
-                    <button onClick={onConfirm} className="flex-1 py-3 rounded-xl bg-primary text-white font-bold hover:bg-primary-dark shadow-lg shadow-primary-light transition-all">{confirmText}</button>
+                    <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200 transition-all">Cancel</button>
+                    <button onClick={onConfirm} className="flex-1 py-3 rounded-xl bg-primary text-white font-bold hover:bg-primary-dark shadow-lg shadow-primary-light transition-all">Confirm</button>
                 </div>
             </div>
         </div>
@@ -2446,80 +2446,14 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
     const [confirmationStatus, setConfirmationStatus] = useState<'loading' | 'unconfirmed' | 'confirmed' | 'not_applicable'>('loading');
     
-    // --- State for new notification modals ---
-    const [showScheduleConfirmModal, setShowScheduleConfirmModal] = useState(false);
-    const [showSwapRequestModal, setShowSwapRequestModal] = useState(false);
-    const [swapRequestCount, setSwapRequestCount] = useState(0);
-    const hasShownSessionNotification = useRef(false);
-
     // Swap Request State
     const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
     const [currentSwap, setCurrentSwap] = useState<{ date: string, shift: 'morning'|'evening'|'night' } | null>(null);
     const [targetEmployeeId, setTargetEmployeeId] = useState('');
     const [reason, setReason] = useState('');
 
+    // FIX: Define the 'getLoc' helper function to resolve translation object properties based on the current language.
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-
-    // --- Effect for persistent notification popups ---
-    useEffect(() => {
-        // Only run checks when on the home screen and data is loaded.
-        if (view !== 'home' || !currentUser || !schedule?.days || !swapRequests) {
-            return;
-        }
-
-        const runChecks = async () => {
-            // If a notification has already been shown in this session, do nothing.
-            if (hasShownSessionNotification.current) {
-                return;
-            }
-
-            // --- 1. Schedule Confirmation Check ---
-            const start = new Date();
-            const end = new Date();
-            end.setDate(start.getDate() + 13);
-            const startISO = formatDateISO(start);
-            const endISO = formatDateISO(end);
-            
-            const startMs = new Date(start).setHours(0, 0, 0, 0);
-            const endMs = new Date(end).setHours(23, 59, 59, 999);
-
-            const hasShiftsInWindow = schedule.days.some((day: ScheduleDay) => {
-                const dayDate = new Date(`${new Date().getFullYear()}-${day.date}`);
-                if (isNaN(dayDate.getTime())) return false;
-                const scheduleMs = dayDate.getTime();
-                if (scheduleMs >= startMs && scheduleMs <= endMs) {
-                    return [...day.morning, ...day.evening, ...(day.night || [])].includes(currentUser.name);
-                }
-                return false;
-            });
-
-            if (hasShiftsInWindow) {
-                const existingConfirmation = await Cloud.getScheduleConfirmation(currentUser.id, startISO, endISO);
-                if (!existingConfirmation) {
-                    setShowScheduleConfirmModal(true);
-                    hasShownSessionNotification.current = true;
-                    return; // Prioritize schedule confirmation and stop further checks
-                }
-            }
-
-            // --- 2. Swap Request Check (runs only if schedule doesn't need confirmation) ---
-            const pendingRequests = swapRequests.filter((req: SwapRequest) => 
-                req.targetId === currentUser.id && 
-                req.status === 'pending'
-            );
-
-            if (pendingRequests.length > 0) {
-                setSwapRequestCount(pendingRequests.length);
-                setShowSwapRequestModal(true);
-                hasShownSessionNotification.current = true;
-            }
-        };
-        
-        const timer = setTimeout(runChecks, 1000);
-        return () => clearTimeout(timer);
-
-    }, [view, currentUser, schedule, swapRequests]);
-
 
     useEffect(() => {
         const checkAvailability = async () => {
@@ -3057,20 +2991,21 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     
     const renderView = () => {
         if (view === 'team') {
-            const dateMap = new Map<string, number>();
             const today = new Date();
-            const year = today.getFullYear();
-            for (let i = 0; i < 14; i++) {
-                const d = new Date(today);
-                d.setDate(today.getDate() + i);
-                const dateStr = `${d.getMonth() + 1}-${d.getDate()}`;
-                dateMap.set(dateStr, i);
-            }
+            today.setHours(0, 0, 0, 0);
 
-            const futureScheduleDays = schedule.days?.filter((day: ScheduleDay) => {
-                return dateMap.has(day.date);
-            }).sort((a: ScheduleDay, b: ScheduleDay) => {
-                return (dateMap.get(a.date) ?? 99) - (dateMap.get(b.date) ?? 99);
+            const upcomingDates = Array.from({ length: 14 }).map((_, i) => {
+                const d = new Date(today);
+                d.setDate(d.getDate() + i);
+                return `${d.getMonth() + 1}-${d.getDate()}`;
+            });
+            const upcomingDatesSet = new Set(upcomingDates);
+
+            const futureScheduleDays = schedule.days?.filter((day: ScheduleDay) => 
+                upcomingDatesSet.has(day.date)
+            ).sort((a: ScheduleDay, b: ScheduleDay) => {
+                // Sort based on the order in the upcomingDates array
+                return upcomingDates.indexOf(a.date) - upcomingDates.indexOf(b.date);
             }) || [];
             
             return (
@@ -3277,39 +3212,21 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 <NavButton targetView="recipes" iconName="BookOpen" label={t.recipes} />
                 <NavButton targetView="sop" iconName="ShieldCheck" label={t.sop} />
             </nav>
-            {/* --- NOTIFICATION MODALS --- */}
-            {showScheduleConfirmModal && (
-                <CustomConfirmModal
-                    isOpen={true}
-                    title="排班确认提醒"
-                    message="你未来两周有排班安排，请确认。"
-                    confirmText="去排班页面"
-                    cancelText="稍后"
-                    onConfirm={() => {
-                        setView('team');
-                        setShowScheduleConfirmModal(false);
-                    }}
-                    onCancel={() => {
-                        setShowScheduleConfirmModal(false);
-                    }}
-                />
-            )}
-            {showSwapRequestModal && (
-                <CustomConfirmModal
-                    isOpen={true}
-                    title="有待处理的换班申请"
-                    message={`你有 ${swapRequestCount} 条新的换班申请，请尽快处理。`}
-                    confirmText="去处理"
-                    cancelText="稍后"
-                    onConfirm={() => {
-                        setView('swapRequests');
-                        setShowSwapRequestModal(false);
-                    }}
-                    onCancel={() => {
-                        setShowSwapRequestModal(false);
-                    }}
-                />
-            )}
+            <AvailabilityReminderModal 
+                isOpen={showAvailabilityReminder} 
+                onCancel={() => setShowAvailabilityReminder(false)} 
+                onConfirm={() => { 
+                    setShowAvailabilityReminder(false); 
+                    setShowAvailabilityModal(true); 
+                }} 
+                t={t} 
+            />
+            <AvailabilityModal 
+                isOpen={showAvailabilityModal} 
+                onClose={() => setShowAvailabilityModal(false)} 
+                t={t} 
+                currentUser={currentUser} 
+            />
         </div>
     );
 };
