@@ -991,6 +991,7 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
     const [activeChannel, setActiveChannel] = useState<string | null>(null);
     const [inputText, setInputText] = useState('');
     const [broadcastText, setBroadcastText] = useState('');
+    const [broadcastImageUrl, setBroadcastImageUrl] = useState('');
     const [broadcastFreq, setBroadcastFreq] = useState<'always' | 'daily' | '3days' | 'once'>('always');
     const [isAiTyping, setIsAiTyping] = useState(false);
     const messagesEndRef = useRef<null | HTMLDivElement>(null);
@@ -1062,11 +1063,13 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             date: new Date().toISOString(), 
             isUrgent: false,
             frequency: broadcastFreq,
-            status: 'active'
+            status: 'active',
+            imageUrl: broadcastImageUrl.trim() || undefined,
         };
         const res = await Cloud.updateNotices([notice]); 
         if (res.success) {
             setBroadcastText('');
+            setBroadcastImageUrl('');
             alert("New announcement posted. This is now the only active announcement.");
         } else {
             alert("Error: Could not post announcement.");
@@ -1214,6 +1217,13 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                                 className="w-full text-sm p-3 border rounded-lg bg-secondary focus:ring-2 ring-accent/50 outline-none transition-all" 
                                 placeholder="Type announcement..." 
                             />
+                            <input
+                                type="url"
+                                value={broadcastImageUrl}
+                                onChange={e => setBroadcastImageUrl(e.target.value)}
+                                className="w-full text-sm p-3 border rounded-lg bg-secondary focus:ring-2 ring-accent/50 outline-none transition-all"
+                                placeholder="Image URL (optional)"
+                            />
                             <div className="flex justify-between items-center mt-1">
                                 <div className="flex items-center gap-2">
                                     <span className="text-[10px] font-bold text-text-light uppercase">Freq:</span>
@@ -1248,6 +1258,9 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
                                       </div>
                                     </div>
                                     <p className={`text-text-light ${n.status === 'cancelled' ? 'line-through' : ''}`}>{n.content}</p>
+                                    {n.imageUrl && n.status !== 'cancelled' && (
+                                        <img src={n.imageUrl} alt="Announcement" className="mt-2 rounded-lg w-full h-auto max-h-40 object-cover border" />
+                                    )}
                                     {isManager && n.status !== 'cancelled' && (
                                         <button 
                                             onClick={() => cancelNotice(n.id)}
@@ -2805,6 +2818,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 message: latest.content,
                 sticky: latest.frequency === 'always',
                 dedupeKey: latest.id,
+                imageUrl: latest.imageUrl,
             });
             
             if (latest.frequency !== 'always') {

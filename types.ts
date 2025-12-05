@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 
 export type Lang = 'zh' | 'en';
@@ -235,6 +236,7 @@ export interface Notice {
     isUrgent: boolean;
     frequency?: 'always' | 'daily' | '3days' | 'once';
     status?: 'active' | 'cancelled'; // Added status
+    imageUrl?: string;
 }
 
 export interface SwapRequest {

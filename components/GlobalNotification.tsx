@@ -11,6 +11,7 @@ interface NotificationItem {
     onClose?: () => void;
     sticky?: boolean;
     dedupeKey?: string;
+    imageUrl?: string;
 }
 
 interface NotificationContextType {
@@ -91,6 +92,7 @@ export const NotificationProvider = ({ children }: { children?: ReactNode }) => 
                         <div className="flex-1">
                             <h4 className="font-bold text-gray-900 text-sm leading-tight mb-1">{n.title}</h4>
                             <p className="text-xs text-gray-500 leading-relaxed">{n.message}</p>
+                            {n.imageUrl && <img src={n.imageUrl} alt="" className="mt-2 rounded-md w-full object-cover max-h-32 border" />}
                         </div>
                         <button onClick={() => removeNotification(n.id)} className="text-gray-400 hover:text-gray-600 transition-colors p-1">
                             <Icon name="X" size={16} />
