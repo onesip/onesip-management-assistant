@@ -569,20 +569,38 @@ const AvailabilityReminderModal = ({ isOpen, onConfirm, onCancel, t }: { isOpen:
 const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolean, onClose: () => void, t: any, currentUser: User }) => {
     const [slots, setSlots] = useState<StaffAvailability['slots']>({});
     const [isLoading, setIsLoading] = useState(true);
-    const nextWeekStart = getStartOfWeek(new Date(), 1);
-    const nextWeekStartISO = formatDateISO(nextWeekStart);
-    const days = Array.from({ length: 14 }).map((_, i) => { const d = new Date(nextWeekStart); d.setDate(d.getDate() + i); return d; });
+
+    // Generate 14 days starting from today.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Use local date and clear time to avoid timezone issues.
+    
+    const days = Array.from({ length: 14 }).map((_, i) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() + i);
+        return d;
+    });
+
+    // Determine the unique week-start keys needed to fetch data for these 14 days.
+    const weekStartKeys = Array.from(new Set(days.map(day => formatDateISO(getStartOfWeek(day, 0)))));
 
     useEffect(() => {
         if (isOpen) {
             setIsLoading(true);
-            Cloud.getStaffAvailability(currentUser.id, nextWeekStartISO).then(data => {
-                if (data) setSlots(data.slots || {});
-                else setSlots({});
+            // Fetch availability data for all relevant weeks.
+            const fetchPromises = weekStartKeys.map(key =>
+                Cloud.getStaffAvailability(currentUser.id, key)
+            );
+
+            Promise.all(fetchPromises).then(results => {
+                // Merge the 'slots' from all fetched documents into one state object.
+                const mergedSlots = results.reduce((acc, data) => {
+                    return { ...acc, ...(data?.slots || {}) };
+                }, {});
+                setSlots(mergedSlots);
                 setIsLoading(false);
             });
         }
-    }, [isOpen, currentUser.id, nextWeekStartISO]);
+    }, [isOpen, currentUser.id, ...weekStartKeys]); // Re-run if keys change.
 
     const handleToggle = (dateISO: string, shift: 'morning' | 'evening') => {
         setSlots(prev => ({
@@ -595,7 +613,35 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
     };
 
     const handleSave = async () => {
-        await Cloud.saveStaffAvailability(currentUser.id, nextWeekStartISO, slots);
+        // Fetch existing data for all relevant weeks to avoid overwriting non-displayed days.
+        const existingDataPromises = weekStartKeys.map(key => Cloud.getStaffAvailability(currentUser.id, key));
+        const existingResults = await Promise.all(existingDataPromises);
+
+        const finalSlotsByWeek: { [key: string]: StaffAvailability['slots'] } = {};
+        weekStartKeys.forEach((key, index) => {
+            finalSlotsByWeek[key] = existingResults[index]?.slots || {};
+        });
+
+        // Update the slots for the 14 days being displayed based on the component's state.
+        for (const day of days) {
+            const dateISO = formatDateISO(day);
+            const weekKey = formatDateISO(getStartOfWeek(day, 0));
+            const dayState = slots[dateISO];
+            
+            // Explicitly set the availability for the day, defaulting to false if undefined.
+            finalSlotsByWeek[weekKey][dateISO] = {
+                morning: !!dayState?.morning,
+                evening: !!dayState?.evening,
+            };
+        }
+    
+        // Save each updated week document back to Firestore.
+        const savePromises = Object.entries(finalSlotsByWeek).map(([key, weekSlots]) =>
+            Cloud.saveStaffAvailability(currentUser.id, key, weekSlots)
+        );
+
+        await Promise.all(savePromises);
+        
         alert(t.availability_saved);
         onClose();
     };
@@ -612,10 +658,9 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
                     {days.map(day => {
                         const dateISO = formatDateISO(day);
-                        const dayName = day.toLocaleDateString('en-US', { weekday: 'short' });
                         return (
                             <div key={dateISO} className="bg-secondary p-4 rounded-xl">
-                                <h3 className="font-bold mb-2">{dayName} <span className="text-text-light font-normal text-sm">{dateISO}</span></h3>
+                                <h3 className="font-bold mb-2">{dateISO}</h3>
                                 <div className="flex gap-4">
                                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!slots[dateISO]?.morning} onChange={() => handleToggle(dateISO, 'morning')} className="w-5 h-5 rounded text-primary focus:ring-primary" /> Morning</label>
                                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!slots[dateISO]?.evening} onChange={() => handleToggle(dateISO, 'evening')} className="w-5 h-5 rounded text-primary focus:ring-primary" /> Evening</label>
@@ -2886,21 +2931,25 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 const mEnd = day.hours?.morning?.end || '15:00';
                 const eStart = day.hours?.evening?.start || '14:30';
                 const eEnd = day.hours?.evening?.end || '19:00';
+                
+                // FIX: Recalculate weekday name from the date to prevent mismatches from stale data.
+                const correctDayName = scheduleDate.toLocaleDateString('en-US', { weekday: 'long' });
+
                 if (day.morning.includes(currentUser.name)) {
                     if (isToday) {
                         const mEndTime = new Date();
                         const [h,m] = mEnd.split(':').map(Number);
                         mEndTime.setHours(h,m);
-                        if (new Date() < mEndTime) return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
-                    } else return { date: day.date, shift: `${mStart} - ${mEnd}`, name: day.name };
+                        if (new Date() < mEndTime) return { date: day.date, shift: `${mStart} - ${mEnd}`, name: correctDayName };
+                    } else return { date: day.date, shift: `${mStart} - ${mEnd}`, name: correctDayName };
                 }
                 if (day.evening.includes(currentUser.name)) {
                      if (isToday) {
                         const eEndTime = new Date();
                         const [h,m] = eEnd.split(':').map(Number);
                         eEndTime.setHours(h,m);
-                        if (new Date() < eEndTime) return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
-                    } else return { date: day.date, shift: `${eStart} - ${eEnd}`, name: day.name };
+                        if (new Date() < eEndTime) return { date: day.date, shift: `${eStart} - ${eEnd}`, name: correctDayName };
+                    } else return { date: day.date, shift: `${eStart} - ${eEnd}`, name: correctDayName };
                 }
             }
         }
@@ -3377,7 +3426,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
                 <p className="text-xs text-text-light font-bold uppercase mb-2">{t.next_shift}</p>
                 {nextShift ? (
-                    <p className="font-bold text-text text-lg">{nextShift.date} ({nextShift.name}) <span className="text-primary">{nextShift.shift}</span></p>
+                    <p className="font-bold text-text text-lg">{nextShift.date} <span className="text-primary">{nextShift.shift}</span></p>
                 ) : <p className="text-sm text-text-light italic">{t.no_shift}</p>}
             </div>
             
@@ -3437,7 +3486,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     setView('swapRequests');
                     setIsSwapReminderOpen(false);
                 }}
-                onCancel={() => setIsSwapReminderOpen(false)}
+                onCancel={() => setIsScheduleReminderOpen(false)}
             />
         </div>
     );
@@ -3509,7 +3558,7 @@ const App = () => {
                 Cloud.subscribeToSwaps(setSwapRequests);
                 Cloud.subscribeToSales(setSales);
                 Cloud.subscribeToContent(data => { if (data.sops) setSopList(data.sops); if (data.training) setTrainingLevels(data.training); if(data.recipes) setRecipes(data.recipes); });
-                Cloud.subscribeToUsers(setUsers);
+                    Cloud.subscribeToUsers(setUsers);
 
                 const savedUser = localStorage.getItem('onesip_user');
                 if (savedUser) {

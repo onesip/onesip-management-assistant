@@ -1,7 +1,5 @@
-
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-// FIX: The App component is a default export, not a named export.
 import App from './App';
 import { NotificationProvider } from './components/GlobalNotification';
 // Import PWA Service Worker registration (will be handled by vite-plugin-pwa automatically, 
