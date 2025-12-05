@@ -2058,7 +2058,8 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
         const newSchedule = JSON.parse(JSON.stringify(schedule));
         
-        const fromDayIndex = newSchedule.days.findIndex((d: ScheduleDay) => d.date === requesterDate);
+        const normalizedRequesterDate = normalizeDateKey(requesterDate);
+        const fromDayIndex = newSchedule.days.findIndex((d: ScheduleDay) => normalizeDateKey(d.date) === normalizedRequesterDate);
         if (fromDayIndex === -1) { showNotification({ type: 'announcement', title: "Error", message: `Could not find schedule for date: ${requesterDate}` }); return; }
         
         const fromDay = newSchedule.days[fromDayIndex];
@@ -2067,7 +2068,8 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         }
 
         if (isTwoWay) {
-            const toDayIndex = newSchedule.days.findIndex((d: ScheduleDay) => d.date === targetDate);
+            const normalizedTargetDate = normalizeDateKey(targetDate);
+            const toDayIndex = newSchedule.days.findIndex((d: ScheduleDay) => normalizeDateKey(d.date) === normalizedTargetDate);
             if (toDayIndex === -1) { showNotification({ type: 'announcement', title: "Error", message: `Could not find schedule for date: ${targetDate}` }); return; }
             
             const toDay = newSchedule.days[toDayIndex];
