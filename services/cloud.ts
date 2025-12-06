@@ -384,6 +384,15 @@ export const getScheduleConfirmation = async (employeeId: string, rangeStart: st
     }
 };
 
+export const subscribeToScheduleConfirmations = (callback: (data: any[]) => void) => {
+    if (!db) return () => {};
+    const q = query(collection(db, "scheduleConfirmations"));
+    return onSnapshot(q, (snapshot) => {
+        const confirmations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        callback(confirmations);
+    });
+};
+
 export const saveScheduleConfirmation = async (employeeId: string, rangeStart: string, rangeEnd: string) => {
     if (!db) return { success: false, error: 'DB not connected' };
     try {

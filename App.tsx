@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Icon } from './components/Icons';
 import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, USERS as STATIC_USERS } from './constants';
-import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState, UserRole, ClockType } from './types';
+import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState, UserRole, ClockType, ScheduleConfirmation } from './types';
 import * as Cloud from './services/cloud';
 import { getChatResponse } from './services/geminiService';
 import { useNotification } from './components/GlobalNotification';
@@ -2001,8 +2001,8 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { showNotification } = useNotification();
     const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
-    const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users } = data;
-    const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability'>('requests');
+    const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users, confirmations } = data;
+    const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability' | 'confirmations'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
     const [wages, setWages] = useState<Record<string, number>>(() => { const saved = localStorage.getItem('onesip_wages'); const def: any = {}; users.forEach((m:User) => def[m.name] = 12); return saved ? { ...def, ...JSON.parse(saved) } : def; });
@@ -2235,7 +2235,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
             </div>
             <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
-                {['requests', 'schedule', 'planning', 'availability', 'chat', 'logs', 'financial'].map(v => (
+                {['requests', 'schedule', 'planning', 'availability', 'chat', 'logs', 'financial', 'confirmations'].map(v => (
                     <button key={v} onClick={() => setView(v as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === v ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
                         {v} {v === 'requests' && allReqs.filter(r => r.status === 'accepted_by_peer' && !r.appliedToSchedule).length > 0 && `(${allReqs.filter(r => r.status === 'accepted_by_peer' && !r.appliedToSchedule).length})`}
                     </button>
@@ -2503,6 +2503,45 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                 </table>
                             </div>
                             <button onClick={exportFinancialCSV} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-md flex justify-center gap-2 transition-all hover:bg-green-700"><Icon name="List" /> Export Report (CSV)</button>
+                        </div>
+                    </div>
+                )}
+                {view === 'confirmations' && (
+                    <div className="space-y-4">
+                        <div className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
+                            <h3 className="font-bold text-dark-text mb-2">Schedule Confirmations</h3>
+                            <p className="text-xs text-dark-text-light mb-4">Track which staff members have confirmed their upcoming schedules.</p>
+                            
+                            <div className="overflow-x-auto">
+                                 <table className="w-full text-xs text-left">
+                                    <thead className="text-dark-text-light border-b border-white/10">
+                                        <tr>
+                                            <th className="p-3">Staff</th>
+                                            <th className="p-3">Schedule Period</th>
+                                            <th className="p-3">Confirmed At</th>
+                                            <th className="p-3">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/10">
+                                        {confirmations?.slice().sort((a:any, b:any) => b.confirmedAt?.seconds - a.confirmedAt?.seconds).map((c: any) => {
+                                            const staff = users.find((u:User) => u.id === c.employeeId);
+                                            return (
+                                                <tr key={c.id}>
+                                                    <td className="p-3 font-bold text-dark-text">{staff?.name || c.employeeId}</td>
+                                                    <td className="p-3 text-dark-text-light font-mono">{c.rangeStart} to {c.rangeEnd}</td>
+                                                    <td className="p-3 text-dark-text-light">
+                                                        {c.confirmedAt ? new Date(c.confirmedAt.seconds * 1000).toLocaleString() : '-'}
+                                                    </td>
+                                                    <td className="p-3">
+                                                        <span className="bg-green-500/10 text-green-400 px-2 py-1 rounded font-bold capitalize">{c.status}</span>
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                 </table>
+                                 {(!confirmations || confirmations.length === 0) && <p className="text-center p-4 text-dark-text-light italic">No confirmations yet.</p>}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -3337,10 +3376,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             messages={directMessages} 
             setMessages={data.setDirectMessages} 
             notices={notices} 
-            allUsers={users} 
+            isManager={true} 
+            onExit={() => setView('home')} 
             sopList={data.sopList} 
             trainingLevels={data.trainingLevels}
-            onExit={() => setView('home')} 
+            allUsers={users} 
         />; }
         if (view === 'contact') { return <ContactView t={t} lang={lang} />; }
         if (view === 'recipes') {
@@ -3492,7 +3532,7 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
         <div className="absolute bottom-0 left-0 right-0 h-20 bg-surface/80 backdrop-blur-lg border-t border-gray-100 flex justify-around items-center max-w-md mx-auto">
             {navItems.map(item => (
                 <button key={item.key} onClick={() => setActiveView(item.key as StaffViewMode)} className={`flex flex-col items-center gap-1 w-16 transition-all relative ${activeView === item.key ? 'text-primary' : 'text-text-light hover:text-primary'}`}>
-                    <Icon name={item.icon} size={22} />
+                    <Icon name="item.icon" size={22} />
                     <span className="text-[10px] font-bold">{item.label}</span>
                     {item.key === 'chat' && hasUnreadChat && <div className="absolute top-0 right-3.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-surface"></div>}
                 </button>
@@ -3524,6 +3564,7 @@ const App = () => {
     const [sopList, setSopList] = useState<SopItem[]>(SOP_DATABASE);
     const [trainingLevels, setTrainingLevels] = useState<TrainingLevel[]>(TRAINING_LEVELS);
     const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
+    const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
 
     const t = TRANSLATIONS[lang];
 
@@ -3546,7 +3587,8 @@ const App = () => {
                 Cloud.subscribeToSwaps(setSwapRequests);
                 Cloud.subscribeToSales(setSales);
                 Cloud.subscribeToContent(data => { if (data.sops) setSopList(data.sops); if (data.training) setTrainingLevels(data.training); if(data.recipes) setRecipes(data.recipes); });
-                    Cloud.subscribeToUsers(setUsers);
+                Cloud.subscribeToUsers(setUsers);
+                Cloud.subscribeToScheduleConfirmations(setConfirmations);
 
                 const savedUser = localStorage.getItem('onesip_user');
                 if (savedUser) {
@@ -3592,6 +3634,7 @@ const App = () => {
         sales, setSales,
         sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes,
         users,
+        confirmations
     };
     
     if (isLoading) {
