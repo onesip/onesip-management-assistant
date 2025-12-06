@@ -2971,22 +2971,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
     const nextShift = findNextShift();
 
-    const hasShiftToday = (user: User, scheduleData: any): boolean => {
-        if (!scheduleData?.days) return false;
-        
-        const now = new Date();
-        const todayDateKey = `${now.getMonth() + 1}-${now.getDate()}`;
-        const todaySchedule = scheduleData.days.find((day: ScheduleDay) => day.date === todayDateKey);
-
-        const hasShift = todaySchedule ? (
-            todaySchedule.morning.includes(user.name) ||
-            todaySchedule.evening.includes(user.name) ||
-            (todaySchedule.night?.includes(user.name) ?? false)
-        ) : false;
-        
-        return hasShift;
-    };
-
     const recordLog = (type: ClockType, note: string, deviationInfo?: any) => {
         const newLog: LogEntry = {
             id: Date.now(),
@@ -3094,16 +3078,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
     
     const handleClockLog = (type: ClockType) => {
-        // The schedule check is removed, but we can add a non-blocking notification.
-        if (!hasShiftToday(currentUser, schedule)) {
-            showNotification({
-                type: 'announcement',
-                title: 'Unscheduled Clocking',
-                message: 'No shift found for today. This will be recorded as an unscheduled entry.',
-                dedupeKey: 'unscheduled-clocking-info'
-            });
-        }
-    
         if (type === 'clock-out') {
             alert(t.inventory_before_clock_out);
             setOnInventorySuccess(() => () => performClocking('clock-out'));
