@@ -1,5 +1,3 @@
-
-
 import React from 'react';
 
 export type Lang = 'zh' | 'en';
@@ -44,6 +42,7 @@ export interface TrainingLevel {
   subtitle: Translation;
   desc: Translation;
   youtubeLink?: string; // Added for video support
+  imageUrls?: string[]; // Added for image gallery support
   content: { title: Translation; body: Translation }[]; 
   quiz: QuizItem[];
 }
@@ -149,15 +148,30 @@ export interface CustomerMenuItem {
     descCN: string;
     descEN: string;
     sugarGuideCN: string;
-    sugarGuideEN: string;
+}
+
+// --- ADDED MISSING TYPES ---
+
+export interface ContactItem {
+    id: string;
+    name: string;
+    role: Translation;
+    phone: string | null;
+}
+
+export interface InventoryItem {
+    id: string;
+    name: Translation;
+    unit: string;
+    defaultVal: string;
+    category: string;
 }
 
 export interface WikiItem {
     id: string;
-    nameCN: string;
-    nameEN: string;
-    descCN: string;
-    descEN: string;
+    title: string;
+    content: string;
+    // Add other properties if needed
 }
 
 export interface AnnouncementData {
@@ -179,92 +193,24 @@ export interface AnnouncementData {
     disclaimerEN: string;
 }
 
-export interface InventoryItem {
-    id: string;
-    name: Translation;
-    unit: string;
-    threshold?: number;
-    defaultVal?: string; // Added for Owner presets
-    category?: 'raw' | 'packaging' | 'dairy';
-}
-
-export interface InventoryReport {
-    id: number;
-    date: string;
-    submittedBy: string; // User Name
-    userId?: string; // User ID
-    data: Record<string, { end: string, waste: string }>;
-}
-
-export interface InventoryLog {
-    id: string;
-    timestamp: string;
-    operator: string;
-    itemId: string;
-    itemName: string;
-    oldStock?: string; // Optional if not tracked
-    newStock: string;
-    waste: string;
-    diff?: string; // diff from old stock
-    actionType: 'report' | 'adjust';
+export interface WeeklySchedule {
+    week: {
+        title: string;
+        days: ScheduleDay[];
+    }
 }
 
 export interface ScheduleDay {
-    date: string; // MM-DD
+    date: string;
     name: string;
-    zh: string;
-    morning: string[]; // List of names
-    evening: string[]; // List of names
-    night?: string[]; // Optional third shift for weekends
+    morning: string[];
+    evening: string[];
+    night?: string[];
     hours?: {
-        morning: { start: string, end: string };
-        evening: { start: string, end: string };
-        night?: { start: string, end: string }; // Optional hours for third shift
+        morning?: { start: string; end: string };
+        evening?: { start: string; end: string };
+        night?: { start: string; end: string };
     };
-}
-
-export interface WeeklySchedule {
-    title: string;
-    days: ScheduleDay[];
-}
-
-export interface Notice {
-    id: string;
-    author: string; 
-    content: string;
-    date: string;
-    isUrgent: boolean;
-    frequency?: 'always' | 'daily' | '3days' | 'once';
-    status?: 'active' | 'cancelled'; // Added status
-    imageUrl?: string;
-}
-
-export interface SwapRequest {
-    id: string;
-    requesterName: string;
-    requesterId: string;
-    requesterDate: string; // Date of the shift being given away
-    requesterShift: 'morning' | 'evening' | 'night';
-    
-    targetName: string; // The person being asked
-    targetId: string;
-    targetDate: string | null;
-    targetShift: 'morning' | 'evening' | 'night' | null;
-
-    status: 'pending' | 'accepted_by_peer' | 'rejected' | 'approved' | 'cancelled';
-    timestamp: number;
-    reason?: string | null;
-    decidedAt?: number | null;
-    appliedToSchedule?: boolean; // Has this been manually applied by manager?
-}
-
-export interface SalesRecord {
-    id: string;
-    date: string;
-    timeSlot: '15:00' | '19:00';
-    amount: number;
-    weatherTemp: number;
-    weatherCode: number;
 }
 
 export interface ToppingSlot {
@@ -279,41 +225,79 @@ export interface SyrupSlot {
     isEmpty?: boolean;
 }
 
-export interface ContactItem {
+export interface Notice {
     id: string;
-    name: string;
-    role: Translation;
-    phone: string | null;
-    note?: string;
+    author: string;
+    content: string;
+    date: string;
+    isUrgent: boolean;
+    frequency: 'always' | 'daily' | '3days' | 'once';
+    status: 'active' | 'cancelled';
+    imageUrl?: string;
+}
+
+export interface InventoryReport {
+    id: number;
+    date: string;
+    submittedBy: string;
+    data: Record<string, { end: string; waste: string }>;
+}
+
+export interface SwapRequest {
+    id: string;
+    requesterId: string;
+    requesterName: string;
+    requesterDate: string;
+    requesterShift: 'morning' | 'evening' | 'night';
+    targetId: string;
+    targetName: string;
+    targetDate: string | null;
+    targetShift: 'morning' | 'evening' | 'night' | null;
+    status: 'pending' | 'rejected' | 'accepted_by_peer' | 'approved' | 'cancelled';
+    reason: string | null;
+    timestamp: number;
+    appliedToSchedule?: boolean;
+    decidedAt?: number;
+}
+
+export interface SalesRecord {
+    id: string;
+    // Define properties based on usage if available
+    [key: string]: any; 
+}
+
+export type StaffViewMode = 'home' | 'training' | 'recipes' | 'inventory' | 'chat' | 'team' | 'contact' | 'sop' | 'checklist' | 'availability' | 'swapRequests';
+
+export interface InventoryLog {
+    id: string;
+    timestamp: string;
+    operator: string;
+    itemId: string;
+    itemName: string;
+    newStock: string;
+    waste: string;
+    actionType: string;
 }
 
 export interface StaffAvailability {
-  userId: string;
-  weekStart: string; // YYYY-MM-DD format for Monday
-  slots: {
-    [date: string]: { // YYYY-MM-DD
-      morning?: boolean;
-      evening?: boolean;
-    }
-  };
-  updatedAt: any; // Firestore Timestamp
+    userId: string;
+    weekStart: string;
+    slots: Record<string, { morning: boolean; evening: boolean }>;
+    updatedAt?: any;
 }
 
 export interface ChatReadState {
-  userId: string;
-  lastReadAt: any; // Firestore Timestamp
-  updatedAt: any; // Firestore Timestamp
+    userId: string;
+    lastReadAt: any;
+    updatedAt: any;
 }
 
 export interface ScheduleConfirmation {
-  id?: string;
-  employeeId: string;
-  rangeStart: string;
-  rangeEnd: string;
-  status: 'confirmed';
-  confirmedAt: any; // Firestore Timestamp
-  createdAt?: any;
-  updatedAt?: any;
+    id: string;
+    employeeId: string;
+    rangeStart: string;
+    rangeEnd: string;
+    status: 'confirmed';
+    confirmedAt: any;
+    updatedAt: any;
 }
-
-export type StaffViewMode = 'home' | 'team' | 'contact' | 'inventory' | 'recipes' | 'training' | 'sop' | 'chat' | 'checklist' | 'availability' | 'swapRequests';
