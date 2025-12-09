@@ -7,8 +7,6 @@ import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, Inve
 import * as Cloud from './services/cloud';
 import { getChatResponse } from './services/geminiService';
 import { useNotification } from './components/GlobalNotification';
-// FIX: Removed direct firebase imports as they are now handled in the cloud service.
-
 
 // --- CONSTANTS ---
 const STORE_COORDS = { lat: 51.9207886, lng: 4.4863897 };
@@ -877,7 +875,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     // Owner handlers
     const handleAddItem = () => {
         if(!newItemName.zh || !newItemName.en) return;
-        const newItem: InventoryItem = { id: `inv_${Date.now()}`, name: newItemName, unit: 'unit', defaultVal: '' };
+        const newItem: InventoryItem = { id: `inv_${Date.now()}`, name: newItemName, unit: 'unit', defaultVal: '', category: 'other' };
         const updatedList = [...localInventory, newItem];
         setLocalInventory(updatedList);
         Cloud.saveInventoryList(updatedList);
@@ -1323,7 +1321,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
         }
     };
 
-    const createNewItem = () => { const id = Date.now().toString(); if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]} }; return {}; };
+    const createNewItem = () => { const id = Date.now().toString(); if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', imageUrls: [], content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]} }; return {}; };
     const handleSave = () => { if (!editingItem) return; let updatedList; let setList; if (view === 'sop') { updatedList = sopList.some((i:any) => i.id === editingItem.id) ? sopList.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...sopList, editingItem]; setList = setSopList; Cloud.saveContent('sops', updatedList); } else if (view === 'training') { updatedList = trainingLevels.some((i:any) => i.id === editingItem.id) ? trainingLevels.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...trainingLevels, editingItem]; setList = setTrainingLevels; Cloud.saveContent('training', updatedList); } else { updatedList = recipes.some((i:any) => i.id === editingItem.id) ? recipes.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...recipes, editingItem]; setList = setRecipes; Cloud.saveContent('recipes', updatedList); } if (setList) { setList(updatedList); } setEditingItem(null); };
     const handleDelete = (id: string) => { if(!window.confirm("Delete this item?")) return; if (view === 'sop') { const list = sopList.filter((i:any) => i.id !== id); setSopList(list); Cloud.saveContent('sops', list); } else if (view === 'training') { const list = trainingLevels.filter((i:any) => i.id !== id); setTrainingLevels(list); Cloud.saveContent('training', list); } else { const list = recipes.filter((i:any) => i.id !== id); setRecipes(list); Cloud.saveContent('recipes', list); } };
     
@@ -1436,6 +1434,46 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                 <div><label className="block text-xs font-bold text-red-500 mb-1 flex items-center gap-2"><Icon name="Play" size={12}/> YOUTUBE VIDEO LINK</label>
                     <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://youtu.be/..." value={editingItem.youtubeLink || ''} onChange={e => setEditingItem({...editingItem, youtubeLink: e.target.value})} />
                 </div>
+                
+                {/* NEW IMAGE GALLERY SECTION */}
+                <div>
+                    <label className="block text-xs font-bold text-blue-400 mb-1 flex items-center gap-2"><Icon name="Camera" size={12}/> IMAGE GALLERY (Max 6)</label>
+                    <div className="space-y-2">
+                        {(editingItem.imageUrls || []).map((url: string, idx: number) => (
+                            <div key={idx} className="flex gap-2">
+                                <input 
+                                    className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" 
+                                    placeholder="Image URL..." 
+                                    value={url} 
+                                    onChange={e => {
+                                        const newUrls = [...(editingItem.imageUrls || [])];
+                                        newUrls[idx] = e.target.value;
+                                        setEditingItem({...editingItem, imageUrls: newUrls});
+                                    }} 
+                                />
+                                <button 
+                                    onClick={() => {
+                                        const newUrls = [...(editingItem.imageUrls || [])];
+                                        newUrls.splice(idx, 1);
+                                        setEditingItem({...editingItem, imageUrls: newUrls});
+                                    }}
+                                    className="px-3 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"
+                                >
+                                    <Icon name="Trash" size={14}/>
+                                </button>
+                            </div>
+                        ))}
+                        {(editingItem.imageUrls?.length || 0) < 6 && (
+                            <button 
+                                onClick={() => setEditingItem({...editingItem, imageUrls: [...(editingItem.imageUrls || []), '']})}
+                                className="text-xs bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded font-bold hover:bg-blue-500/20"
+                            >
+                                + Add Image URL
+                            </button>
+                        )}
+                    </div>
+                </div>
+
                 <div><label className="block text-xs font-bold text-dark-accent/70 mb-2">CONTENT SECTIONS</label>
                     {editingItem.content?.map((section: any, idx: number) => (
                     <div key={idx} className="bg-dark-bg p-3 rounded mb-2 border border-white/10">
@@ -3263,7 +3301,18 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const TrainingView = ({ data, onComplete }: { data: any, onComplete: (levelId: number) => void }) => {
         const { trainingLevels, t, lang } = data;
         const [activeLevel, setActiveLevel] = useState<TrainingLevel | null>(null);
-        if (activeLevel) { return (<div className="h-full flex flex-col bg-surface animate-fade-in-up text-text"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setActiveLevel(null)}><Icon name="ArrowLeft"/></button><h2 className="font-bold text-lg">{activeLevel.title?.[lang] || activeLevel.title?.['zh']}</h2></div><div className="flex-1 overflow-y-auto p-4 space-y-6"><div className="bg-primary-light p-4 rounded-xl border border-primary/20"><h3 className="font-bold text-primary mb-2">Overview</h3><p className="text-sm text-primary/80">{activeLevel.desc?.[lang] || activeLevel.desc?.['zh']}</p></div>{activeLevel.youtubeLink && (<div className="rounded-xl overflow-hidden shadow-lg border border-gray-200"><iframe className="w-full aspect-video" src={`https://www.youtube.com/embed/${getYouTubeId(activeLevel.youtubeLink)}`} title="Training Video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe></div>)}{activeLevel.content.map((c: any, i: number) => (<div key={i}><h3 className="font-bold text-text mb-2">{i+1}. {c.title?.[lang] || c.title?.['zh']}</h3><p className="text-sm text-text-light whitespace-pre-line leading-relaxed">{c.body?.[lang] || c.body?.['zh']}</p></div>))}<div className="pt-6"><h3 className="font-bold text-text mb-4">Quiz</h3>{activeLevel.quiz.map((q: any, i: number) => (<div key={q.id} className="mb-4 bg-secondary p-4 rounded-xl"><p className="font-bold text-sm mb-2">{i+1}. {q.question?.[lang] || q.question?.['zh']}</p><div className="space-y-2">{q.options?.map((opt: string, idx: number) => (<button key={idx} className="w-full text-left p-3 bg-surface border rounded-lg text-sm hover:bg-gray-100">{opt}</button>))}</div></div>))}</div></div></div>); }
+        if (activeLevel) { return (<div className="h-full flex flex-col bg-surface animate-fade-in-up text-text"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setActiveLevel(null)}><Icon name="ArrowLeft"/></button><h2 className="font-bold text-lg">{activeLevel.title?.[lang] || activeLevel.title?.['zh']}</h2></div><div className="flex-1 overflow-y-auto p-4 space-y-6"><div className="bg-primary-light p-4 rounded-xl border border-primary/20"><h3 className="font-bold text-primary mb-2">Overview</h3><p className="text-sm text-primary/80">{activeLevel.desc?.[lang] || activeLevel.desc?.['zh']}</p></div>{activeLevel.youtubeLink && (<div className="rounded-xl overflow-hidden shadow-lg border border-gray-200"><iframe className="w-full aspect-video" src={`https://www.youtube.com/embed/${getYouTubeId(activeLevel.youtubeLink)}`} title="Training Video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe></div>)}
+        
+        {/* ADD IMAGE GALLERY HERE */}
+        {activeLevel.imageUrls && activeLevel.imageUrls.length > 0 && (
+            <div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 scroll-smooth no-scrollbar">
+                {activeLevel.imageUrls.map((url: string, idx: number) => (
+                    <img key={idx} src={url} alt={`Training slide ${idx+1}`} className="h-48 w-auto rounded-xl shadow-md object-cover border border-gray-100 flex-shrink-0" />
+                ))}
+            </div>
+        )}
+
+        {activeLevel.content.map((c: any, i: number) => (<div key={i}><h3 className="font-bold text-text mb-2">{i+1}. {c.title?.[lang] || c.title?.['zh']}</h3><p className="text-sm text-text-light whitespace-pre-line leading-relaxed">{c.body?.[lang] || c.body?.['zh']}</p></div>))}<div className="pt-6"><h3 className="font-bold text-text mb-4">Quiz</h3>{activeLevel.quiz.map((q: any, i: number) => (<div key={q.id} className="mb-4 bg-secondary p-4 rounded-xl"><p className="font-bold text-sm mb-2">{i+1}. {q.question?.[lang] || q.question?.['zh']}</p><div className="space-y-2">{q.options?.map((opt: string, idx: number) => (<button key={idx} className="w-full text-left p-3 bg-surface border rounded-lg text-sm hover:bg-gray-100">{opt}</button>))}</div></div>))}</div></div></div>); }
         return (<div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.training}</h2><div className="space-y-3">{trainingLevels.map((l: TrainingLevel) => (<div key={l.id} onClick={() => setActiveLevel(l)} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:shadow-md transition-all"><div className="w-12 h-12 bg-primary-light text-primary rounded-full flex items-center justify-center font-bold text-lg">{l.id}</div><div className="flex-1"><h3 className="font-bold text-text">{l.title?.[lang] || l.title?.['zh']}</h3><p className="text-xs text-text-light">{l.subtitle?.[lang] || l.subtitle?.['zh']}</p></div><Icon name="ChevronRight" className="text-gray-300"/></div>))}</div></div>);
     };
 
@@ -3568,104 +3617,113 @@ const App = () => {
 
     const t = TRANSLATIONS[lang];
 
+    const appData = {
+        lang, setLang, users, inventoryList, setInventoryList, inventoryHistory, 
+        schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
+        setDirectMessages, swapRequests, setSwapRequests, sales, sopList, 
+        setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
+        confirmations
+    };
+
     useEffect(() => {
-        const init = async () => {
-            try {
-                // Check for API_KEY, if missing, show setup modal.
-                if (!process.env.API_KEY) {
-                     setShowCloudSetup(true);
-                } else {
-                    await Cloud.seedInitialData();
-                }
+        Cloud.seedInitialData();
+        
+        const unsubs = [
+            Cloud.subscribeToUsers(setUsers),
+            Cloud.subscribeToInventory(setInventoryList),
+            Cloud.subscribeToSchedule((week) => setSchedule({ days: week?.days || [] })),
+            Cloud.subscribeToLogs(setLogs),
+            Cloud.subscribeToChat((msgs, nts) => { setDirectMessages(msgs); setNotices(nts); }),
+            Cloud.subscribeToSwaps(setSwapRequests),
+            Cloud.subscribeToSales(setSales),
+            Cloud.subscribeToInventoryHistory(setInventoryHistory),
+            Cloud.subscribeToScheduleConfirmations(setConfirmations),
+            Cloud.subscribeToContent((data) => {
+                if (data?.sops) setSopList(data.sops);
+                if (data?.training) setTrainingLevels(data.training);
+                if (data?.recipes) setRecipes(data.recipes);
+            })
+        ];
 
-                // Subscriptions
-                Cloud.subscribeToInventory(setInventoryList);
-                Cloud.subscribeToInventoryHistory(setInventoryHistory);
-                Cloud.subscribeToSchedule(setSchedule);
-                Cloud.subscribeToChat((msgs, ntcs) => { setDirectMessages(msgs); setNotices(ntcs); });
-                Cloud.subscribeToLogs(setLogs);
-                Cloud.subscribeToSwaps(setSwapRequests);
-                Cloud.subscribeToSales(setSales);
-                Cloud.subscribeToContent(data => { if (data.sops) setSopList(data.sops); if (data.training) setTrainingLevels(data.training); if(data.recipes) setRecipes(data.recipes); });
-                Cloud.subscribeToUsers(setUsers);
-                Cloud.subscribeToScheduleConfirmations(setConfirmations);
+        // Simulate initialization delay
+        setTimeout(() => setIsLoading(false), 800);
 
-                const savedUser = localStorage.getItem('onesip_user');
-                if (savedUser) {
-                    const user: User = JSON.parse(savedUser);
-                    // Verify user still exists and is active
-                    const activeUser = users.find(u => u.id === user.id && u.active !== false);
-                    if (activeUser) {
-                        setCurrentUser(activeUser);
-                    } else {
-                         localStorage.removeItem('onesip_user');
-                    }
-                }
-            } catch (error) {
-                console.error("Initialization error:", error);
-            } finally {
-                setIsLoading(false);
-            }
+        return () => {
+            unsubs.forEach(unsub => unsub && unsub());
         };
-        init();
-    }, []); // Removed `users` from dependency array to prevent re-login loop
-    
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem('onesip_lang', lang);
+    }, [lang]);
+
     const handleLogin = (user: User, keepLoggedIn: boolean) => {
         setCurrentUser(user);
-        if (keepLoggedIn) {
-            localStorage.setItem('onesip_user', JSON.stringify(user));
-        } else {
-             localStorage.removeItem('onesip_user');
+        if(keepLoggedIn) {
+             // Logic to persist session token could go here
         }
     };
 
     const handleLogout = () => {
         setCurrentUser(null);
-        localStorage.removeItem('onesip_user');
-        localStorage.removeItem('onesip_remembered_password');
+        setAdminMode(null);
     };
 
-    const appData = { 
-        lang, setLang, t, 
-        inventoryList, setInventoryList, inventoryHistory, 
-        schedule, setSchedule, notices, logs, setLogs,
-        directMessages, setDirectMessages,
-        swapRequests, setSwapRequests,
-        sales, setSales,
-        sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes,
-        users,
-        confirmations
-    };
-    
     if (isLoading) {
-        return <div className="min-h-screen bg-secondary flex items-center justify-center"><div className="text-primary font-bold">Loading...</div></div>;
+        return <div className="min-h-screen flex items-center justify-center bg-secondary text-primary font-bold animate-pulse">Loading ONESIP...</div>;
     }
 
-    if (adminMode === 'manager') {
-        return <ManagerDashboard data={appData} onExit={() => setAdminMode(null)} />;
-    }
-    if (adminMode === 'owner') {
-        return <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />;
-    }
     if (adminMode === 'editor') {
         return <EditorDashboard data={appData} onExit={() => setAdminMode(null)} />;
     }
 
-    if (!currentUser) {
-        return <LoginScreen users={users} onLogin={handleLogin} t={t} lang={lang} setLang={setLang} />;
+    if (adminMode === 'owner' || adminMode === 'manager') {
+        return <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />;
     }
-    
+
     return (
         <>
-            <StaffApp 
-                onSwitchMode={() => {}} 
-                data={appData} 
-                onLogout={handleLogout} 
-                currentUser={currentUser}
-                openAdmin={() => setAdminModalOpen(true)}
+            {!currentUser && (
+                <LoginScreen 
+                    users={users} 
+                    onLogin={handleLogin} 
+                    t={t} 
+                    lang={lang} 
+                    setLang={setLang}
+                />
+            )}
+
+            {currentUser && (
+                <StaffApp 
+                    onSwitchMode={() => {}} 
+                    data={appData} 
+                    onLogout={handleLogout} 
+                    currentUser={currentUser}
+                    openAdmin={() => setAdminModalOpen(true)}
+                />
+            )}
+            
+            {/* Admin Trigger for Login Screen */}
+            {!currentUser && !adminMode && (
+                <div className="fixed bottom-6 right-6 z-50">
+                    <button 
+                        onClick={() => setAdminModalOpen(true)} 
+                        className="w-10 h-10 bg-gray-200/50 hover:bg-gray-200 text-gray-500 hover:text-gray-800 rounded-full flex items-center justify-center transition-all backdrop-blur-sm"
+                    >
+                        <Icon name="Shield" size={18} />
+                    </button>
+                </div>
+            )}
+
+            <AdminLoginModal 
+                isOpen={adminModalOpen} 
+                onClose={() => setAdminModalOpen(false)} 
+                onLogin={(role) => {
+                    setAdminModalOpen(false);
+                    setAdminMode(role);
+                }} 
             />
-            <AdminLoginModal isOpen={adminModalOpen} onClose={() => setAdminModalOpen(false)} onLogin={(role) => { setAdminMode(role); setAdminModalOpen(false); }} />
-            <CloudSetupModal isOpen={showCloudSetup} onClose={() => setShowCloudSetup(false)} />
+            {showCloudSetup && <CloudSetupModal isOpen={showCloudSetup} onClose={() => setShowCloudSetup(false)} />}
         </>
     );
 };
