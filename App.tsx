@@ -71,6 +71,39 @@ const formattedDate = (isoString: string | number) => {
 
 // --- MODALS ---
 
+const NewRecipeReminderModal = ({ isOpen, newRecipes, onAcknowledge, onCancel, lang }: { isOpen: boolean, newRecipes: DrinkRecipe[], onAcknowledge: () => void, onCancel: () => void, lang: Lang }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl border flex flex-col max-h-[80vh]">
+                <div className="flex items-start gap-4 mb-3 shrink-0">
+                    <div className="w-10 h-10 bg-primary-light text-primary rounded-full flex items-center justify-center shrink-0 mt-1">
+                        <Icon name="Gift" size={20} />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-black text-text">你有新的菜谱需要学习</h3>
+                        <p className="text-sm text-text-light">请查阅以下新增项目。</p>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-2 no-scrollbar my-4 border-y py-4 -mx-6 px-6">
+                    {newRecipes.map(recipe => (
+                        <div key={recipe.id} className="bg-secondary p-3 rounded-lg text-sm text-text font-bold">
+                            {recipe.name[lang] || recipe.name['zh']}
+                        </div>
+                    ))}
+                </div>
+                
+                <div className="flex gap-3 shrink-0">
+                    <button onClick={onCancel} className="flex-1 py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200 transition-all">稍后再看</button>
+                    <button onClick={onAcknowledge} className="flex-1 py-3 rounded-xl bg-primary text-white font-bold hover:bg-primary-dark shadow-lg shadow-primary-light transition-all">确认学习</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 const ActionReminderModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText, cancelText }: { isOpen: boolean, title: string, message: React.ReactNode, onConfirm: () => void, onCancel: () => void, confirmText: string, cancelText: string }) => {
     if (!isOpen) return null;
     return (
@@ -1321,8 +1354,8 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
         }
     };
 
-    const createNewItem = () => { const id = Date.now().toString(); if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', imageUrls: [], content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]} }; return {}; };
-    const handleSave = () => { if (!editingItem) return; let updatedList; let setList; if (view === 'sop') { updatedList = sopList.some((i:any) => i.id === editingItem.id) ? sopList.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...sopList, editingItem]; setList = setSopList; Cloud.saveContent('sops', updatedList); } else if (view === 'training') { updatedList = trainingLevels.some((i:any) => i.id === editingItem.id) ? trainingLevels.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...trainingLevels, editingItem]; setList = setTrainingLevels; Cloud.saveContent('training', updatedList); } else { updatedList = recipes.some((i:any) => i.id === editingItem.id) ? recipes.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...recipes, editingItem]; setList = setRecipes; Cloud.saveContent('recipes', updatedList); } if (setList) { setList(updatedList); } setEditingItem(null); };
+    const createNewItem = () => { const id = `item_${Date.now()}`; if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', imageUrls: [], content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]}, isNew: false, coverImageUrl: '', tutorialVideoUrl: '' }; return {}; };
+    const handleSave = () => { if (!editingItem) return; let updatedList; let setList; if (view === 'sop') { updatedList = sopList.some((i:any) => i.id === editingItem.id) ? sopList.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...sopList, editingItem]; setList = setSopList; Cloud.saveContent('sops', updatedList); } else if (view === 'training') { updatedList = trainingLevels.some((i:any) => i.id === editingItem.id) ? trainingLevels.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...trainingLevels, editingItem]; setList = setTrainingLevels; Cloud.saveContent('training', updatedList); } else { updatedList = recipes.some((i:any) => i.id === editingItem.id) ? recipes.map((i:any) => i.id === editingItem.id ? { ...editingItem, coverImageUrl: editingItem.coverImageUrl?.trim(), tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() } : i) : [...recipes, { ...editingItem, coverImageUrl: editingItem.coverImageUrl?.trim(), tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() }]; setList = setRecipes; Cloud.saveContent('recipes', updatedList); } if (setList) { setList(updatedList); } setEditingItem(null); };
     const handleDelete = (id: string) => { if(!window.confirm("Delete this item?")) return; if (view === 'sop') { const list = sopList.filter((i:any) => i.id !== id); setSopList(list); Cloud.saveContent('sops', list); } else if (view === 'training') { const list = trainingLevels.filter((i:any) => i.id !== id); setTrainingLevels(list); Cloud.saveContent('training', list); } else { const list = recipes.filter((i:any) => i.id !== id); setRecipes(list); Cloud.saveContent('recipes', list); } };
     
     const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1504,6 +1537,28 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                         <input type="file" accept="application/pdf" className="hidden" onChange={handlePdfUpload} disabled={isProcessingPdf} />
                     </label>
                 </div>
+                 <div className="border-t border-white/10 pt-4 mt-2">
+                    <h4 className="text-xs font-bold text-green-400 mb-2 uppercase">Display Assets (Optional)</h4>
+                    <div>
+                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Cover Image URL</label>
+                        <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://..." value={editingItem.coverImageUrl || ''} onChange={e => setEditingItem({...editingItem, coverImageUrl: e.target.value})} /> 
+                    </div>
+                    <div className="mt-2">
+                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Tutorial Video URL (YouTube)</label>
+                        <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://youtu.be/..." value={editingItem.tutorialVideoUrl || ''} onChange={e => setEditingItem({...editingItem, tutorialVideoUrl: e.target.value})} />
+                    </div>
+                </div>
+                <div className="border-t border-white/10 pt-4 mt-2">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                        <input 
+                            type="checkbox" 
+                            checked={!!editingItem.isNew} 
+                            onChange={e => setEditingItem({...editingItem, isNew: e.target.checked})}
+                            className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
+                        />
+                        <span className="font-bold text-dark-accent">标记为新菜谱 / Mark as NEW recipe</span>
+                    </label>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                     <div>
                         <label className="text-[10px] uppercase font-bold text-dark-text-light">Name (EN)</label>
@@ -1586,7 +1641,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                            <div key={item.id} className="bg-dark-surface p-4 rounded-xl flex justify-between items-center border border-white/10 hover:border-white/20 transition-all">
                                <div><h3 className="font-bold text-sm text-dark-text">{item.title?.en || item.name?.en}</h3><p className="text-xs text-dark-text-light font-mono">{item.id}</p></div>
                                <div className="flex gap-2">
-                                   <button onClick={() => setEditingItem(item)} className="p-2 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20 transition-all"><Icon name="Edit" size={16}/></button>
+                                   <button onClick={() => setEditingItem(JSON.parse(JSON.stringify(item)))} className="p-2 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20 transition-all"><Icon name="Edit" size={16}/></button>
                                    <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20 transition-all"><Icon name="Trash" size={16}/></button>
                                </div>
                            </div>
@@ -2720,7 +2775,7 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 };
 
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests, directMessages, users } = data;
+    const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests, directMessages, users, recipes } = data;
     const { showNotification } = useNotification();
     const [view, setView] = useState<StaffViewMode>('home');
     const [clockBtnText, setClockBtnText] = useState({ in: t.clock_in, out: t.clock_out });
@@ -2746,9 +2801,50 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const scheduleReminderShown = useRef(false);
     const swapReminderShown = useRef(false);
 
+    // New Recipe Reminder State
+    const [newRecipesToAck, setNewRecipesToAck] = useState<DrinkRecipe[]>([]);
+    const recipeReminderCheckDone = useRef(false);
+
 
     // FIX: Define the 'getLoc' helper function to resolve translation object properties based on the current language.
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+    
+    // New Recipe Reminder Logic
+    useEffect(() => {
+        if (recipeReminderCheckDone.current || !recipes || !currentUser || recipes.length === 0) {
+            return;
+        }
+
+        const allNewRecipes = recipes.filter((r: DrinkRecipe) => r.isNew === true);
+        if (allNewRecipes.length === 0) {
+            recipeReminderCheckDone.current = true;
+            return;
+        }
+        
+        const acknowledgedIds = new Set(currentUser.acknowledgedNewRecipes || []);
+        const unacknowledged = allNewRecipes.filter((r: DrinkRecipe) => !acknowledgedIds.has(r.id));
+        
+        if (unacknowledged.length > 0) {
+            setTimeout(() => setNewRecipesToAck(unacknowledged), 2000); // Delay to not overwhelm user
+        }
+        
+        recipeReminderCheckDone.current = true;
+    }, [recipes, currentUser]);
+
+    const handleAcknowledgeNewRecipes = async () => {
+        if (!currentUser || newRecipesToAck.length === 0) return;
+
+        const newAckIds = newRecipesToAck.map(r => r.id);
+        const existingAckIds = currentUser.acknowledgedNewRecipes || [];
+        const updatedAckIds = [...new Set([...existingAckIds, ...newAckIds])];
+
+        const updatedUser = { ...currentUser, acknowledgedNewRecipes: updatedAckIds };
+
+        await Cloud.saveUser(updatedUser);
+        
+        setNewRecipesToAck([]); // Close modal
+        setView('recipes'); // Navigate to recipes page
+    };
 
     useEffect(() => {
         const checkAvailability = async () => {
@@ -3295,7 +3391,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     }
     const DrinkCard: React.FC<DrinkCardProps> = ({ drink, lang, t }) => {
         const [expanded, setExpanded] = useState(false);
-        return (<div className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer" onClick={() => setExpanded(!expanded)}><div className="flex justify-between items-center"><div><h3 className="font-bold text-text">{drink.name?.[lang] || drink.name?.['zh']}</h3><p className="text-xs text-text-light">{drink.cat} • {drink.size}</p></div><Icon name={expanded ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" /></div>{expanded && (<div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3"><p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p><p><strong>Sugar:</strong> {drink.sugar}</p><p><strong>Ice:</strong> {drink.ice}</p><div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div><div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div></div>)}</div>);
+        return (<div className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer" onClick={() => setExpanded(!expanded)}><div className="flex justify-between items-center"><div><h3 className="font-bold text-text">{drink.name?.[lang] || drink.name?.['zh']}</h3><p className="text-xs text-text-light">{drink.cat} • {drink.size}</p></div><Icon name={expanded ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" /></div>{expanded && (<div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in"><p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p><p><strong>Sugar:</strong> {drink.sugar}</p><p><strong>Ice:</strong> {drink.ice}</p>{drink.coverImageUrl && (<img src={drink.coverImageUrl} alt={drink.name?.[lang] || drink.name?.['zh']} className="w-full h-auto rounded-lg my-2 object-cover shadow-md" />)}<div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div><div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>{drink.tutorialVideoUrl && (<a href={drink.tutorialVideoUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block w-full text-center bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-lg text-sm transition-all">观看教学视频</a>)}</div>)}</div>);
     };
 
     const TrainingView = ({ data, onComplete }: { data: any, onComplete: (levelId: number) => void }) => {
@@ -3509,6 +3605,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             
             <LastRefillCard inventoryHistory={data.inventoryHistory} inventoryList={data.inventoryList} lang={lang} t={t} />
 
+
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
                 <div className="grid grid-cols-2 gap-3">
@@ -3518,6 +3615,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     <button onClick={() => setView('sop')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left"><Icon name="Book" className="mb-1 text-primary"/> <p className="font-bold">SOP Library</p></button>
                 </div>
             </div>
+
 
         </div>
     );
@@ -3569,6 +3667,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     );
 };
 
+
 const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activeView: string, setActiveView: (v: StaffViewMode) => void, t: any, hasUnreadChat: boolean }) => {
     const navItems = [
         { key: 'home', icon: 'Grid', label: t.home },
@@ -3589,7 +3688,6 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
         </div>
     );
 };
-
 
 // --- MAIN APP ---
 const App = () => {
@@ -3615,7 +3713,9 @@ const App = () => {
     const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
     const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
 
+
     const t = TRANSLATIONS[lang];
+
 
     const appData = {
         lang, setLang, users, inventoryList, setInventoryList, inventoryHistory, 
@@ -3624,6 +3724,7 @@ const App = () => {
         setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
         confirmations
     };
+
 
     useEffect(() => {
         Cloud.seedInitialData();
@@ -3645,17 +3746,21 @@ const App = () => {
             })
         ];
 
+
         // Simulate initialization delay
         setTimeout(() => setIsLoading(false), 800);
+
 
         return () => {
             unsubs.forEach(unsub => unsub && unsub());
         };
     }, []);
 
+
     useEffect(() => {
         localStorage.setItem('onesip_lang', lang);
     }, [lang]);
+
 
     const handleLogin = (user: User, keepLoggedIn: boolean) => {
         setCurrentUser(user);
@@ -3664,22 +3769,27 @@ const App = () => {
         }
     };
 
+
     const handleLogout = () => {
         setCurrentUser(null);
         setAdminMode(null);
     };
 
+
     if (isLoading) {
         return <div className="min-h-screen flex items-center justify-center bg-secondary text-primary font-bold animate-pulse">Loading ONESIP...</div>;
     }
+
 
     if (adminMode === 'editor') {
         return <EditorDashboard data={appData} onExit={() => setAdminMode(null)} />;
     }
 
+
     if (adminMode === 'owner' || adminMode === 'manager') {
         return <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />;
     }
+
 
     return (
         <>
@@ -3692,6 +3802,7 @@ const App = () => {
                     setLang={setLang}
                 />
             )}
+
 
             {currentUser && (
                 <StaffApp 
@@ -3715,6 +3826,7 @@ const App = () => {
                 </div>
             )}
 
+
             <AdminLoginModal 
                 isOpen={adminModalOpen} 
                 onClose={() => setAdminModalOpen(false)} 
@@ -3727,5 +3839,6 @@ const App = () => {
         </>
     );
 };
+
 
 export default App;

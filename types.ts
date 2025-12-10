@@ -12,6 +12,7 @@ export interface User {
     avatar?: string;
     password?: string;
     active?: boolean; // Is the user currently employed?
+    acknowledgedNewRecipes?: string[]; // ADDED: Tracks acknowledged new recipes
 }
 
 export interface DirectMessage {
@@ -80,6 +81,9 @@ export interface DrinkRecipe {
     cold: Translation[];
     warm: Translation[];
   };
+  coverImageUrl?: string; // ADDED: For recipe cover image
+  tutorialVideoUrl?: string; // ADDED: For recipe tutorial video
+  isNew?: boolean; // ADDED: To flag as a new recipe for training
 }
 
 // FIX: Create a shared type for clock-in/clock-out to prevent type mismatches.
