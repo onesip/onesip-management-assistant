@@ -393,6 +393,27 @@ export const subscribeToScheduleConfirmations = (callback: (data: any[]) => void
     });
 };
 
+// FIX: Add missing saveRecipeConfirmation function to resolve error in App.tsx
+export const saveRecipeConfirmation = async (employeeId: string, details: string) => {
+    if (!db) return { success: false, error: 'DB not connected' };
+    try {
+        const collectionRef = collection(db, 'scheduleConfirmations');
+        await addDoc(collectionRef, {
+            employeeId,
+            type: 'new_recipe',
+            details,
+            status: 'confirmed' as const,
+            confirmedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            createdAt: serverTimestamp()
+        });
+        return { success: true };
+    } catch (e) {
+        console.error("Error saving recipe confirmation:", e);
+        return { success: false, error: e };
+    }
+};
+
 export const saveScheduleConfirmation = async (employeeId: string, rangeStart: string, rangeEnd: string) => {
     if (!db) return { success: false, error: 'DB not connected' };
     try {

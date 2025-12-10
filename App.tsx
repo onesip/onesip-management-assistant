@@ -2610,7 +2610,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                     <thead className="text-dark-text-light border-b border-white/10">
                                         <tr>
                                             <th className="p-3">Staff</th>
-                                            <th className="p-3">Schedule Period</th>
+                                            <th className="p-3">Details</th>
                                             <th className="p-3">Confirmed At</th>
                                             <th className="p-3">Status</th>
                                         </tr>
@@ -2618,10 +2618,27 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                     <tbody className="divide-y divide-white/10">
                                         {confirmations?.slice().sort((a:any, b:any) => b.confirmedAt?.seconds - a.confirmedAt?.seconds).map((c: any) => {
                                             const staff = users.find((u:User) => u.id === c.employeeId);
+                                            const confirmationType = c.type || 'schedule'; // Default to 'schedule' if type is missing
+
                                             return (
                                                 <tr key={c.id}>
-                                                    <td className="p-3 font-bold text-dark-text">{staff?.name || c.employeeId}</td>
-                                                    <td className="p-3 text-dark-text-light font-mono">{c.rangeStart} to {c.rangeEnd}</td>
+                                                    <td className="p-3 font-bold text-dark-text">
+                                                        <div>
+                                                            <span>{staff?.name || c.employeeId}</span>
+                                                            {confirmationType === 'new_recipe' ? (
+                                                                <span className="mt-1 block text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded font-bold self-start w-fit">New Recipe</span>
+                                                            ) : (
+                                                                <span className="mt-1 block text-[9px] bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded font-bold self-start w-fit">Schedule</span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-3 text-dark-text-light font-mono text-xs">
+                                                        {confirmationType === 'new_recipe' ? (
+                                                            <span className="italic">{c.details || 'Recipe acknowledgment'}</span>
+                                                        ) : (
+                                                            <span>{c.rangeStart} to {c.rangeEnd}</span>
+                                                        )}
+                                                    </td>
                                                     <td className="p-3 text-dark-text-light">
                                                         {c.confirmedAt ? new Date(c.confirmedAt.seconds * 1000).toLocaleString() : '-'}
                                                     </td>
@@ -2834,16 +2851,26 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const handleAcknowledgeNewRecipes = async () => {
         if (!currentUser || newRecipesToAck.length === 0) return;
 
+        // 1. Update user's acknowledged recipes
         const newAckIds = newRecipesToAck.map(r => r.id);
         const existingAckIds = currentUser.acknowledgedNewRecipes || [];
         const updatedAckIds = [...new Set([...existingAckIds, ...newAckIds])];
-
         const updatedUser = { ...currentUser, acknowledgedNewRecipes: updatedAckIds };
-
         await Cloud.saveUser(updatedUser);
         
+        // 2. Create a new confirmation record
+        const recipeNames = newRecipesToAck.map(r => r.name[lang] || r.name['zh']).join(', ');
+        const details = `Confirmed: ${recipeNames}`;
+// FIX: Corrected call to the newly added `saveRecipeConfirmation` function.
+        await Cloud.saveRecipeConfirmation(currentUser.id, details);
+
         setNewRecipesToAck([]); // Close modal
         setView('recipes'); // Navigate to recipes page
+        showNotification({
+            type: 'message',
+            title: 'Acknowledgment Recorded',
+            message: 'Your confirmation has been sent to the manager.'
+        });
     };
 
     useEffect(() => {
@@ -3462,6 +3489,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 };
             });
 
+
             const scheduleMap = new Map<string, ScheduleDay>(
                 schedule.days?.map((day: ScheduleDay) => [normalizeDateKey(day.date), day]) || []
             );
@@ -3477,6 +3505,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             const shiftsToRender = daySchedule 
                                 ? (['morning', 'evening', 'night'] as const).filter(shift => (daySchedule as any)[shift] && (daySchedule as any)[shift].length > 0)
                                 : [];
+
 
                             return (
                                 <div key={dayInfo.date} className="p-4 rounded-xl shadow-sm border bg-surface border-gray-100">
@@ -3561,6 +3590,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                         )) : <p className="text-sm text-text-light italic">No incoming requests.</p>}
                     </div>
 
+
                     <div>
                         <h3 className="font-bold mb-2 text-text">My Sent Requests</h3>
                         {myRequests.length > 0 ? myRequests.map((req: SwapRequest) => {
@@ -3576,7 +3606,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
         return null;
     };
-    
+
     const homeView = (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
@@ -3606,6 +3636,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             <LastRefillCard inventoryHistory={data.inventoryHistory} inventoryList={data.inventoryList} lang={lang} t={t} />
 
 
+
+
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
                 <div className="grid grid-cols-2 gap-3">
@@ -3615,6 +3647,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     <button onClick={() => setView('sop')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left"><Icon name="Book" className="mb-1 text-primary"/> <p className="font-bold">SOP Library</p></button>
                 </div>
             </div>
+
+
 
 
         </div>
@@ -3689,6 +3723,7 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
     );
 };
 
+
 // --- MAIN APP ---
 const App = () => {
     const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('onesip_lang') as Lang) || 'zh');
@@ -3714,7 +3749,11 @@ const App = () => {
     const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
 
 
+
+
     const t = TRANSLATIONS[lang];
+
+
 
 
     const appData = {
@@ -3724,7 +3763,6 @@ const App = () => {
         setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
         confirmations
     };
-
 
     useEffect(() => {
         Cloud.seedInitialData();
@@ -3747,8 +3785,12 @@ const App = () => {
         ];
 
 
+
+
         // Simulate initialization delay
         setTimeout(() => setIsLoading(false), 800);
+
+
 
 
         return () => {
@@ -3757,9 +3799,13 @@ const App = () => {
     }, []);
 
 
+
+
     useEffect(() => {
         localStorage.setItem('onesip_lang', lang);
     }, [lang]);
+
+
 
 
     const handleLogin = (user: User, keepLoggedIn: boolean) => {
@@ -3770,10 +3816,14 @@ const App = () => {
     };
 
 
+
+
     const handleLogout = () => {
         setCurrentUser(null);
         setAdminMode(null);
     };
+
+
 
 
     if (isLoading) {
@@ -3781,14 +3831,20 @@ const App = () => {
     }
 
 
+
+
     if (adminMode === 'editor') {
         return <EditorDashboard data={appData} onExit={() => setAdminMode(null)} />;
     }
 
 
+
+
     if (adminMode === 'owner' || adminMode === 'manager') {
         return <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />;
     }
+
+
 
 
     return (
@@ -3827,6 +3883,8 @@ const App = () => {
             )}
 
 
+
+
             <AdminLoginModal 
                 isOpen={adminModalOpen} 
                 onClose={() => setAdminModalOpen(false)} 
@@ -3841,4 +3899,8 @@ const App = () => {
 };
 
 
+
+
 export default App;
+
+

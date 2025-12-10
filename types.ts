@@ -299,9 +299,11 @@ export interface ChatReadState {
 export interface ScheduleConfirmation {
     id: string;
     employeeId: string;
-    rangeStart: string;
-    rangeEnd: string;
+    rangeStart?: string;
+    rangeEnd?: string;
     status: 'confirmed';
     confirmedAt: any;
     updatedAt: any;
+    type?: 'schedule' | 'new_recipe';
+    details?: string;
 }
