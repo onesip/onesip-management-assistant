@@ -1354,7 +1354,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
         }
     };
 
-    const createNewItem = () => { const id = `item_${Date.now()}`; if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', imageUrls: [], content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]}, isNew: false, coverImageUrl: '', tutorialVideoUrl: '' }; return {}; };
+    const createNewItem = () => { const id = `item_${Date.now()}`; if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', imageUrls: [], content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]}, isNew: false, coverImageUrl: '', tutorialVideoUrl: '', basePreparation: {zh: '', en: ''}, isPublished: true, createdAt: new Date().toISOString() }; return {}; };
     const handleSave = () => { if (!editingItem) return; let updatedList; let setList; if (view === 'sop') { updatedList = sopList.some((i:any) => i.id === editingItem.id) ? sopList.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...sopList, editingItem]; setList = setSopList; Cloud.saveContent('sops', updatedList); } else if (view === 'training') { updatedList = trainingLevels.some((i:any) => i.id === editingItem.id) ? trainingLevels.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...trainingLevels, editingItem]; setList = setTrainingLevels; Cloud.saveContent('training', updatedList); } else { updatedList = recipes.some((i:any) => i.id === editingItem.id) ? recipes.map((i:any) => i.id === editingItem.id ? { ...editingItem, coverImageUrl: editingItem.coverImageUrl?.trim(), tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() } : i) : [...recipes, { ...editingItem, coverImageUrl: editingItem.coverImageUrl?.trim(), tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() }]; setList = setRecipes; Cloud.saveContent('recipes', updatedList); } if (setList) { setList(updatedList); } setEditingItem(null); };
     const handleDelete = (id: string) => { if(!window.confirm("Delete this item?")) return; if (view === 'sop') { const list = sopList.filter((i:any) => i.id !== id); setSopList(list); Cloud.saveContent('sops', list); } else if (view === 'training') { const list = trainingLevels.filter((i:any) => i.id !== id); setTrainingLevels(list); Cloud.saveContent('training', list); } else { const list = recipes.filter((i:any) => i.id !== id); setRecipes(list); Cloud.saveContent('recipes', list); } };
     
@@ -1548,7 +1548,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                         <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://youtu.be/..." value={editingItem.tutorialVideoUrl || ''} onChange={e => setEditingItem({...editingItem, tutorialVideoUrl: e.target.value})} />
                     </div>
                 </div>
-                <div className="border-t border-white/10 pt-4 mt-2">
+                <div className="border-t border-white/10 pt-4 mt-2 space-y-3">
                     <label className="flex items-center gap-3 cursor-pointer">
                         <input 
                             type="checkbox" 
@@ -1557,6 +1557,15 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                             className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
                         />
                         <span className="font-bold text-dark-accent">标记为新菜谱 / Mark as NEW recipe</span>
+                    </label>
+                     <label className="flex items-center gap-3 cursor-pointer">
+                        <input 
+                            type="checkbox" 
+                            checked={editingItem.isPublished !== false}
+                            onChange={e => setEditingItem({...editingItem, isPublished: e.target.checked})}
+                            className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
+                        />
+                        <span className="font-bold text-dark-accent">在员工端显示 / Publish to staff app</span>
                     </label>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -1580,6 +1589,18 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                     <label className="text-[10px] uppercase font-bold text-dark-text-light">Toppings</label>
                     <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Toppings (EN)" value={editingItem.toppings?.en || ''} onChange={e => setEditingItem({...editingItem, toppings: {...(editingItem.toppings || {zh:'', en:''}), en: e.target.value}})} />
                     <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Toppings (ZH)" value={editingItem.toppings?.zh || ''} onChange={e => setEditingItem({...editingItem, toppings: {...(editingItem.toppings || {zh:'', en:''}), zh: e.target.value}})} />
+                </div>
+
+                <div className="border-t border-white/10 pt-4 mt-4">
+                    <h4 className="text-xs font-bold text-green-400 mb-2 uppercase">原料/基底配制说明 (可选)</h4>
+                    <div>
+                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Base Prep (EN)</label>
+                        <textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-20" placeholder="Instructions for preparing base ingredients..." value={editingItem.basePreparation?.en || ''} onChange={e => setEditingItem({...editingItem, basePreparation: {...(editingItem.basePreparation || {zh:'', en:''}), en: e.target.value}})} />
+                    </div>
+                    <div className="mt-2">
+                        <label className="text-[10px] uppercase font-bold text-dark-text-light">基底配制 (ZH)</label>
+                        <textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-20" placeholder="配制基底原料的步骤..." value={editingItem.basePreparation?.zh || ''} onChange={e => setEditingItem({...editingItem, basePreparation: {...(editingItem.basePreparation || {zh:'', en:''}), zh: e.target.value}})} />
+                    </div>
                 </div>
 
                 <div className="border-t border-white/10 pt-4 mt-2">
@@ -3418,7 +3439,16 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     }
     const DrinkCard: React.FC<DrinkCardProps> = ({ drink, lang, t }) => {
         const [expanded, setExpanded] = useState(false);
-        return (<div className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer" onClick={() => setExpanded(!expanded)}><div className="flex justify-between items-center"><div><h3 className="font-bold text-text">{drink.name?.[lang] || drink.name?.['zh']}</h3><p className="text-xs text-text-light">{drink.cat} • {drink.size}</p></div><Icon name={expanded ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" /></div>{expanded && (<div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in"><p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p><p><strong>Sugar:</strong> {drink.sugar}</p><p><strong>Ice:</strong> {drink.ice}</p>{drink.coverImageUrl && (<img src={drink.coverImageUrl} alt={drink.name?.[lang] || drink.name?.['zh']} className="w-full h-auto rounded-lg my-2 object-cover shadow-md" />)}<div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div><div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>{drink.tutorialVideoUrl && (<a href={drink.tutorialVideoUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block w-full text-center bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-lg text-sm transition-all">观看教学视频</a>)}</div>)}</div>);
+        return (<div className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer" onClick={() => setExpanded(!expanded)}><div className="flex justify-between items-center"><div><h3 className="font-bold text-text">{drink.name?.[lang] || drink.name?.['zh']}</h3><p className="text-xs text-text-light">{drink.cat} • {drink.size}</p></div><Icon name={expanded ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" /></div>{expanded && (<div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in"><p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p><p><strong>Sugar:</strong> {drink.sugar}</p><p><strong>Ice:</strong> {drink.ice}</p>{drink.coverImageUrl && (<img src={drink.coverImageUrl} alt={drink.name?.[lang] || drink.name?.['zh']} className="w-full h-auto rounded-lg my-2 object-cover shadow-md" />)}
+        
+        {(drink.basePreparation?.en || drink.basePreparation?.zh) && (
+            <div className="bg-yellow-500/10 p-3 rounded-lg my-2">
+                <p className="font-bold text-yellow-800 mb-1 text-xs uppercase">Base Preparation</p>
+                <p className="text-sm text-yellow-900 whitespace-pre-line leading-relaxed">{drink.basePreparation?.[lang] || drink.basePreparation?.['zh']}</p>
+            </div>
+        )}
+
+        <div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div><div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>{drink.tutorialVideoUrl && (<a href={drink.tutorialVideoUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block w-full text-center bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-lg text-sm transition-all">观看教学视频</a>)}</div>)}</div>);
     };
 
     const TrainingView = ({ data, onComplete }: { data: any, onComplete: (levelId: number) => void }) => {
@@ -3902,5 +3932,3 @@ const App = () => {
 
 
 export default App;
-
-

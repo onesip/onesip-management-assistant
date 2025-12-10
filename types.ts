@@ -81,9 +81,12 @@ export interface DrinkRecipe {
     cold: Translation[];
     warm: Translation[];
   };
-  coverImageUrl?: string; // ADDED: For recipe cover image
-  tutorialVideoUrl?: string; // ADDED: For recipe tutorial video
-  isNew?: boolean; // ADDED: To flag as a new recipe for training
+  coverImageUrl?: string;
+  tutorialVideoUrl?: string;
+  isNew?: boolean;
+  basePreparation?: Translation; // Instructions for base ingredients
+  isPublished?: boolean; // Controls visibility in the staff app
+  createdAt?: string; // Timestamp for sorting
 }
 
 // FIX: Create a shared type for clock-in/clock-out to prevent type mismatches.
