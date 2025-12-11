@@ -2941,7 +2941,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         // 2. Create a new confirmation record
         const recipeNames = newRecipesToAck.map(r => r.name[lang] || r.name['zh']).join(', ');
         const details = `Confirmed: ${recipeNames}`;
-// FIX: Corrected call to the newly added `saveRecipeConfirmation` function.
         await Cloud.saveRecipeConfirmation(currentUser.id, details);
 
         setNewRecipesToAck([]); // Close modal
@@ -3562,7 +3561,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             setView('home');
         }
     };
-
+    
     const renderView = () => {
         if (view === 'team') {
             const today = new Date();
@@ -3647,8 +3646,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         />; }
         if (view === 'contact') { return <ContactView t={t} lang={lang} />; }
         if (view === 'recipes') {
-             const filteredRecipes = recipes.filter(r => r.isPublished !== false && (r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery)));
-             return <div className="h-full overflow-y-auto p-4 pb-24 bg-secondary animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2><div className="sticky top-0 bg-secondary py-2 z-10 -mt-2"><div className="relative"><Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/><input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm"/></div></div>{filteredRecipes.map(r => <DrinkCard key={r.id} drink={r} lang={lang} t={t} />)}</div>;
+             const filteredRecipes = recipes.filter((r: DrinkRecipe) => r.isPublished !== false && (r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery)));
+             return <div className="h-full overflow-y-auto p-4 pb-24 bg-secondary animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2><div className="sticky top-0 bg-secondary py-2 z-10 -mt-2"><div className="relative"><Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/><input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm"/></div></div>{filteredRecipes.map((r: DrinkRecipe) => <DrinkCard key={r.id} drink={r} lang={lang} t={t} />)}</div>;
         }
         if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
         if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
