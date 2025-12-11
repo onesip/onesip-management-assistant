@@ -1358,6 +1358,36 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     const handleSave = () => { if (!editingItem) return; let updatedList; let setList; if (view === 'sop') { updatedList = sopList.some((i:any) => i.id === editingItem.id) ? sopList.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...sopList, editingItem]; setList = setSopList; Cloud.saveContent('sops', updatedList); } else if (view === 'training') { updatedList = trainingLevels.some((i:any) => i.id === editingItem.id) ? trainingLevels.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...trainingLevels, editingItem]; setList = setTrainingLevels; Cloud.saveContent('training', updatedList); } else { updatedList = recipes.some((i:any) => i.id === editingItem.id) ? recipes.map((i:any) => i.id === editingItem.id ? { ...editingItem, coverImageUrl: editingItem.coverImageUrl?.trim(), tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() } : i) : [...recipes, { ...editingItem, coverImageUrl: editingItem.coverImageUrl?.trim(), tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() }]; setList = setRecipes; Cloud.saveContent('recipes', updatedList); } if (setList) { setList(updatedList); } setEditingItem(null); };
     const handleDelete = (id: string) => { if(!window.confirm("Delete this item?")) return; if (view === 'sop') { const list = sopList.filter((i:any) => i.id !== id); setSopList(list); Cloud.saveContent('sops', list); } else if (view === 'training') { const list = trainingLevels.filter((i:any) => i.id !== id); setTrainingLevels(list); Cloud.saveContent('training', list); } else { const list = recipes.filter((i:any) => i.id !== id); setRecipes(list); Cloud.saveContent('recipes', list); } };
     
+    const handleMoveRecipe = (indexToMove: number, direction: 'up' | 'down') => {
+        const sortedRecipes = [...recipes].sort((a, b) => {
+            const orderA = a.sortOrder ?? Infinity;
+            const orderB = b.sortOrder ?? Infinity;
+            if (orderA !== orderB) {
+                return orderA - orderB;
+            }
+            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return dateB - dateA;
+        });
+
+        if ((direction === 'up' && indexToMove === 0) || (direction === 'down' && indexToMove === sortedRecipes.length - 1)) {
+            return;
+        }
+
+        const targetIndex = direction === 'up' ? indexToMove - 1 : indexToMove + 1;
+        const reorderedList = [...sortedRecipes];
+        const [movedItem] = reorderedList.splice(indexToMove, 1);
+        reorderedList.splice(targetIndex, 0, movedItem);
+
+        const updatedList = reorderedList.map((recipe, index) => ({
+            ...recipe,
+            sortOrder: index,
+        }));
+
+        setRecipes(updatedList);
+        Cloud.saveContent('recipes', updatedList);
+    };
+
     const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !process.env.API_KEY) return;
@@ -1635,6 +1665,17 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
         return null;
     };
 
+    const sortedRecipesForDisplay = [...(view === 'recipes' ? recipes : [])].sort((a, b) => {
+        const orderA = a.sortOrder ?? Infinity;
+        const orderB = b.sortOrder ?? Infinity;
+        if (orderA !== orderB) {
+            return orderA - orderB;
+        }
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+    });
+
     return (
         <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
            <div className="p-4 bg-dark-surface border-b border-white/10 flex justify-between items-center shrink-0">
@@ -1658,10 +1699,28 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                 ) : (
                    <div className="space-y-3">
                        <button onClick={() => setEditingItem(createNewItem())} className="w-full py-4 border-2 border-dashed border-white/20 rounded-xl text-dark-text-light font-bold hover:border-dark-accent hover:text-dark-accent transition-all">+ Add New Item</button>
-                       {(view === 'training' ? trainingLevels : view === 'sop' ? sopList : recipes).map((item: any) => (
+                       {(view === 'training' ? trainingLevels : view === 'sop' ? sopList : sortedRecipesForDisplay).map((item: any, index: number) => (
                            <div key={item.id} className="bg-dark-surface p-4 rounded-xl flex justify-between items-center border border-white/10 hover:border-white/20 transition-all">
                                <div><h3 className="font-bold text-sm text-dark-text">{item.title?.en || item.name?.en}</h3><p className="text-xs text-dark-text-light font-mono">{item.id}</p></div>
                                <div className="flex gap-2">
+                                   {view === 'recipes' && (
+                                       <>
+                                           <button
+                                               onClick={() => handleMoveRecipe(index, 'up')}
+                                               disabled={index === 0}
+                                               className="p-2 bg-white/5 text-dark-text-light rounded hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                                            >
+                                               <Icon name="ChevronUp" size={16}/>
+                                           </button>
+                                            <button
+                                               onClick={() => handleMoveRecipe(index, 'down')}
+                                               disabled={index === sortedRecipesForDisplay.length - 1}
+                                               className="p-2 bg-white/5 text-dark-text-light rounded hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                                           >
+                                               <Icon name="ChevronDown" size={16}/>
+                                           </button>
+                                       </>
+                                   )}
                                    <button onClick={() => setEditingItem(JSON.parse(JSON.stringify(item)))} className="p-2 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20 transition-all"><Icon name="Edit" size={16}/></button>
                                    <button onClick={() => handleDelete(item.id)} className="p-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20 transition-all"><Icon name="Trash" size={16}/></button>
                                </div>
@@ -3363,7 +3422,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             alert("Error saving confirmation. Please try again.");
         }
     };
-    
+
     const handleSendSwapRequest = async () => {
         if (!currentSwap || !targetEmployeeId) {
             alert("Please select a colleague.");
@@ -3503,7 +3562,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             setView('home');
         }
     };
-    
+
     const renderView = () => {
         if (view === 'team') {
             const today = new Date();

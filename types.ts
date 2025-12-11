@@ -87,6 +87,7 @@ export interface DrinkRecipe {
   basePreparation?: Translation; // Instructions for base ingredients
   isPublished?: boolean; // Controls visibility in the staff app
   createdAt?: string; // Timestamp for sorting
+  sortOrder?: number;
 }
 
 // FIX: Create a shared type for clock-in/clock-out to prevent type mismatches.
