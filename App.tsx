@@ -1355,7 +1355,54 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     };
 
     const createNewItem = () => { const id = `item_${Date.now()}`; if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', imageUrls: [], content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]}, isNew: false, coverImageUrl: '', tutorialVideoUrl: '', basePreparation: {zh: '', en: ''}, isPublished: true, createdAt: new Date().toISOString() }; return {}; };
-    const handleSave = () => { if (!editingItem) return; let updatedList; let setList; if (view === 'sop') { updatedList = sopList.some((i:any) => i.id === editingItem.id) ? sopList.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...sopList, editingItem]; setList = setSopList; Cloud.saveContent('sops', updatedList); } else if (view === 'training') { updatedList = trainingLevels.some((i:any) => i.id === editingItem.id) ? trainingLevels.map((i:any) => i.id === editingItem.id ? editingItem : i) : [...trainingLevels, editingItem]; setList = setTrainingLevels; Cloud.saveContent('training', updatedList); } else { updatedList = recipes.some((i:any) => i.id === editingItem.id) ? recipes.map((i:any) => i.id === editingItem.id ? { ...editingItem, coverImageUrl: editingItem.coverImageUrl?.trim(), tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() } : i) : [...recipes, { ...editingItem, coverImageUrl: editingItem.coverImageUrl?.trim(), tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() }]; setList = setRecipes; Cloud.saveContent('recipes', updatedList); } if (setList) { setList(updatedList); } setEditingItem(null); };
+    const handleSave = async () => {
+        if (!editingItem) return;
+
+        let updatedList;
+        let setList;
+        let listKey: 'sops' | 'training' | 'recipes' = 'recipes'; // default for type safety
+
+        if (view === 'sop') {
+            listKey = 'sops';
+            updatedList = sopList.some((i: any) => i.id === editingItem.id)
+                ? sopList.map((i: any) => (i.id === editingItem.id ? editingItem : i))
+                : [...sopList, editingItem];
+            setList = setSopList;
+        } else if (view === 'training') {
+            listKey = 'training';
+            updatedList = trainingLevels.some((i: any) => i.id === editingItem.id)
+                ? trainingLevels.map((i: any) => (i.id === editingItem.id ? editingItem : i))
+                : [...trainingLevels, editingItem];
+            setList = setTrainingLevels;
+        } else if (view === 'recipes') {
+            listKey = 'recipes';
+            const sanitizedItem = {
+                ...editingItem,
+                coverImageUrl: editingItem.coverImageUrl?.trim(),
+                tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim(),
+            };
+            updatedList = recipes.some((i: any) => i.id === editingItem.id)
+                ? recipes.map((i: any) => (i.id === editingItem.id ? sanitizedItem : i))
+                : [...recipes, sanitizedItem];
+            setList = setRecipes;
+        }
+
+        if (updatedList && setList) {
+            try {
+                await Cloud.saveContent(listKey, updatedList);
+                // Only update state after successful save
+                setList(updatedList);
+                setEditingItem(null);
+                console.log(`${listKey} saved successfully.`);
+            } catch (error) {
+                console.error(`Failed to save ${listKey}`, error);
+                alert(`保存失败，请检查网络连接后重试。\nSave failed for ${listKey}. Please check your connection and try again.`);
+            }
+        } else {
+            // Fallback in case something goes wrong with the logic
+            setEditingItem(null);
+        }
+    };
     const handleDelete = (id: string) => { if(!window.confirm("Delete this item?")) return; if (view === 'sop') { const list = sopList.filter((i:any) => i.id !== id); setSopList(list); Cloud.saveContent('sops', list); } else if (view === 'training') { const list = trainingLevels.filter((i:any) => i.id !== id); setTrainingLevels(list); Cloud.saveContent('training', list); } else { const list = recipes.filter((i:any) => i.id !== id); setRecipes(list); Cloud.saveContent('recipes', list); } };
     
     const handleMoveRecipe = (indexToMove: number, direction: 'up' | 'down') => {
@@ -3722,8 +3769,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             </div>
             
             <LastRefillCard inventoryHistory={data.inventoryHistory} inventoryList={data.inventoryList} lang={lang} t={t} />
-
-
 
 
             <div className="mt-4">
