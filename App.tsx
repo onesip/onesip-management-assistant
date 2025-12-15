@@ -1351,6 +1351,26 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     const handleSave = async () => {
         if (!editingItem) return;
 
+        // Helper to recursively remove undefined values which Firestore cannot handle
+        const removeUndefinedRecursive = (obj: any): any => {
+            if (obj === null || typeof obj !== 'object') {
+                return obj;
+            }
+            if (Array.isArray(obj)) {
+                return obj.map(item => removeUndefinedRecursive(item)).filter(item => item !== undefined);
+            }
+            const newObj: { [key: string]: any } = {};
+            for (const key in obj) {
+                if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                    const value = obj[key];
+                    if (value !== undefined) {
+                        newObj[key] = removeUndefinedRecursive(value);
+                    }
+                }
+            }
+            return newObj;
+        };
+
         let updatedList;
         let setList;
         let listKey: 'sops' | 'training' | 'recipes' = 'recipes'; // default for type safety
@@ -1371,8 +1391,8 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
             listKey = 'recipes';
             const sanitizedItem = {
                 ...editingItem,
-                coverImageUrl: editingItem.coverImageUrl?.trim(),
-                tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim(),
+                coverImageUrl: editingItem.coverImageUrl?.trim() || undefined,
+                tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() || undefined,
             };
             updatedList = recipes.some((i: any) => i.id === editingItem.id)
                 ? recipes.map((i: any) => (i.id === editingItem.id ? sanitizedItem : i))
@@ -1382,14 +1402,16 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
 
         if (updatedList && setList) {
             try {
-                await Cloud.saveContent(listKey, updatedList);
-                // Only update state after successful save
-                setList(updatedList);
+                const listToSave = removeUndefinedRecursive(updatedList);
+                await Cloud.saveContent(listKey, listToSave);
+                console.log(`${listKey} saved ok`);
+                // For robust validation, rely on the onSnapshot listener to update the state.
+                // Optimistically updating UI here after successful save.
+                setList(listToSave);
                 setEditingItem(null);
-                console.log(`${listKey} saved successfully.`);
-            } catch (error) {
-                console.error(`Failed to save ${listKey}`, error);
-                alert(`保存失败，请检查网络连接后重试。\nSave failed for ${listKey}. Please check your connection and try again.`);
+            } catch (error: any) {
+                console.error(error);
+                alert(error.message);
             }
         } else {
             // Fallback in case something goes wrong with the logic
