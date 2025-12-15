@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Icon } from './components/Icons';
 import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, USERS as STATIC_USERS } from './constants';
-import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState, UserRole, ClockType, ScheduleConfirmation } from './types';
+import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState, UserRole, ClockType, ScheduleConfirmation, ScheduleCycle } from './types';
 import * as Cloud from './services/cloud';
 import { getChatResponse } from './services/geminiService';
 import { useNotification } from './components/GlobalNotification';
@@ -11,6 +11,7 @@ import { useNotification } from './components/GlobalNotification';
 // --- CONSTANTS ---
 const STORE_COORDS = { lat: 51.9207886, lng: 4.4863897 };
 const AI_BOT_ID = 'u_ai_assistant';
+const SCHEDULE_DAYS_LENGTH = 21; // Increased from 14 to 21
 
 // --- HELPERS ---
 function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -601,29 +602,25 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
     const [slots, setSlots] = useState<StaffAvailability['slots']>({});
     const [isLoading, setIsLoading] = useState(true);
 
-    // Generate 14 days starting from today.
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Use local date and clear time to avoid timezone issues.
+    today.setHours(0, 0, 0, 0);
     
-    const days = Array.from({ length: 14 }).map((_, i) => {
+    const days = Array.from({ length: SCHEDULE_DAYS_LENGTH }).map((_, i) => {
         const d = new Date(today);
         d.setDate(d.getDate() + i);
         return d;
     });
 
-    // Determine the unique week-start keys needed to fetch data for these 14 days.
     const weekStartKeys = Array.from(new Set(days.map(day => formatDateISO(getStartOfWeek(day, 0)))));
 
     useEffect(() => {
         if (isOpen) {
             setIsLoading(true);
-            // Fetch availability data for all relevant weeks.
             const fetchPromises = weekStartKeys.map(key =>
                 Cloud.getStaffAvailability(currentUser.id, key)
             );
 
             Promise.all(fetchPromises).then(results => {
-                // Merge the 'slots' from all fetched documents into one state object.
                 const mergedSlots = results.reduce((acc, data) => {
                     return { ...acc, ...(data?.slots || {}) };
                 }, {});
@@ -631,7 +628,7 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
                 setIsLoading(false);
             });
         }
-    }, [isOpen, currentUser.id, ...weekStartKeys]); // Re-run if keys change.
+    }, [isOpen, currentUser.id, ...weekStartKeys]);
 
     const handleToggle = (dateISO: string, shift: 'morning' | 'evening') => {
         setSlots(prev => ({
@@ -644,7 +641,6 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
     };
 
     const handleSave = async () => {
-        // Fetch existing data for all relevant weeks to avoid overwriting non-displayed days.
         const existingDataPromises = weekStartKeys.map(key => Cloud.getStaffAvailability(currentUser.id, key));
         const existingResults = await Promise.all(existingDataPromises);
 
@@ -653,20 +649,17 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
             finalSlotsByWeek[key] = existingResults[index]?.slots || {};
         });
 
-        // Update the slots for the 14 days being displayed based on the component's state.
         for (const day of days) {
             const dateISO = formatDateISO(day);
             const weekKey = formatDateISO(getStartOfWeek(day, 0));
             const dayState = slots[dateISO];
             
-            // Explicitly set the availability for the day, defaulting to false if undefined.
             finalSlotsByWeek[weekKey][dateISO] = {
                 morning: !!dayState?.morning,
                 evening: !!dayState?.evening,
             };
         }
     
-        // Save each updated week document back to Firestore.
         const savePromises = Object.entries(finalSlotsByWeek).map(([key, weekSlots]) =>
             Cloud.saveStaffAvailability(currentUser.id, key, weekSlots)
         );
@@ -691,7 +684,7 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
                         const dateISO = formatDateISO(day);
                         return (
                             <div key={dateISO} className="bg-secondary p-4 rounded-xl">
-                                <h3 className="font-bold mb-2">{dateISO}</h3>
+                                <h3 className="font-bold mb-2">{dateISO} ({day.toLocaleDateString(t.locale, { weekday: 'short' })})</h3>
                                 <div className="flex gap-4">
                                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!slots[dateISO]?.morning} onChange={() => handleToggle(dateISO, 'morning')} className="w-5 h-5 rounded text-primary focus:ring-primary" /> Morning</label>
                                     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!slots[dateISO]?.evening} onChange={() => handleToggle(dateISO, 'evening')} className="w-5 h-5 rounded text-primary focus:ring-primary" /> Evening</label>
@@ -2147,7 +2140,7 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
     const [loading, setLoading] = useState(true);
 
     const weekStartISO = formatDateISO(weekStart);
-    const days = Array.from({ length: 14 }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
+    const days = Array.from({ length: SCHEDULE_DAYS_LENGTH }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
 
     useEffect(() => {
         setLoading(true);
@@ -2221,7 +2214,7 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { showNotification } = useNotification();
     const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
-    const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users, confirmations } = data;
+    const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users, scheduleCycles, setScheduleCycles } = data;
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability' | 'confirmations'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
@@ -2326,77 +2319,44 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     
     const handleApplySwap = async (reqId: string) => {
         const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
-
         if (!req) { showNotification({ type: 'announcement', title: "Error", message: "Swap request not found." }); return; }
-        if (req.status !== 'accepted_by_peer') { showNotification({ type: 'announcement', title: "Action Not Allowed", message: "Only accepted requests can be applied." }); return; }
-        if (req.appliedToSchedule === true) { showNotification({ type: 'announcement', title: "Already Applied", message: "This swap has already been applied." }); return; }
-
-        const { requesterName, targetName, requesterDate, requesterShift, targetDate, targetShift } = req;
-        const isTwoWay = targetDate && targetShift;
-
+        if (req.status !== 'accepted_by_peer') { showNotification({ type: 'announcement', title: "Action Not Allowed", message: "Only peer-accepted requests can be processed." }); return; }
+        
         const newSchedule = JSON.parse(JSON.stringify(schedule));
-        
+        const { requesterName, targetName, requesterDate, requesterShift } = req;
         const normalizedRequesterDate = normalizeDateKey(requesterDate);
-        const fromDayIndex = newSchedule.days.findIndex((d: ScheduleDay) => normalizeDateKey(d.date) === normalizedRequesterDate);
-        if (fromDayIndex === -1) { showNotification({ type: 'announcement', title: "Error", message: `Could not find schedule for date: ${requesterDate}` }); return; }
+        const dayIndex = newSchedule.days.findIndex((d: ScheduleDay) => normalizeDateKey(d.date) === normalizedRequesterDate);
+
+        if (dayIndex === -1) { showNotification({ type: 'announcement', title: "Schedule Error", message: `Date ${requesterDate} not found.`}); return; }
+        const day = newSchedule.days[dayIndex];
+        const shiftStaff = day[requesterShift];
+
+        if (!shiftStaff.includes(requesterName)) {
+             showNotification({ type: 'announcement', title: "Schedule Conflict", message: `${requesterName} not found in shift.`});
+             // Auto-reject
+             const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'auto_conflict_declined' } : r);
+             await Cloud.updateSwapRequests(updatedReqs);
+             return;
+        }
+
+        if (shiftStaff.includes(targetName)) {
+             showNotification({ type: 'announcement', title: "Schedule Conflict", message: `${targetName} is already in that shift.`});
+             const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'auto_conflict_declined' } : r);
+             await Cloud.updateSwapRequests(updatedReqs);
+             return;
+        }
         
-        const fromDay = newSchedule.days[fromDayIndex];
-        if (!fromDay[requesterShift] || !Array.isArray(fromDay[requesterShift]) || !fromDay[requesterShift].includes(requesterName)) {
-            showNotification({ type: 'announcement', title: "Error", message: `${requesterName} is not in the schedule for ${requesterDate} (${requesterShift}).` }); return;
-        }
-
-        if (isTwoWay) {
-            const normalizedTargetDate = normalizeDateKey(targetDate);
-            const toDayIndex = newSchedule.days.findIndex((d: ScheduleDay) => normalizeDateKey(d.date) === normalizedTargetDate);
-            if (toDayIndex === -1) { showNotification({ type: 'announcement', title: "Error", message: `Could not find schedule for date: ${targetDate}` }); return; }
-            
-            const toDay = newSchedule.days[toDayIndex];
-            if (!toDay[targetShift!] || !Array.isArray(toDay[targetShift!]) || !toDay[targetShift!].includes(targetName)) {
-                showNotification({ type: 'announcement', title: "Error", message: `${targetName} is not in the schedule for ${targetDate} (${targetShift}).` }); return;
-            }
-
-            const fromSlotSim = fromDay[requesterShift].filter((name: string) => name !== requesterName).concat([targetName]);
-            if (new Set(fromSlotSim).size !== fromSlotSim.length) {
-                showNotification({ type: 'announcement', title: "Conflict", message: `Applying would cause a duplicate booking for ${targetName} on ${requesterDate}.` }); return;
-            }
-
-            const toSlotSim = toDay[targetShift!].filter((name: string) => name !== targetName).concat([requesterName]);
-            if (new Set(toSlotSim).size !== toSlotSim.length) {
-                showNotification({ type: 'announcement', title: "Conflict", message: `Applying would cause a duplicate booking for ${requesterName} on ${targetDate}.` }); return;
-            }
-
-            // Apply two-way swap
-            const fromIdx = newSchedule.days[fromDayIndex][requesterShift].indexOf(requesterName);
-            newSchedule.days[fromDayIndex][requesterShift][fromIdx] = targetName;
-            
-            const toIdx = newSchedule.days[toDayIndex][targetShift!].indexOf(targetName);
-            newSchedule.days[toDayIndex][targetShift!][toIdx] = requesterName;
-        } else { // One-way swap
-            const fromSlotSim = fromDay[requesterShift].filter((name: string) => name !== requesterName);
-            if (!fromSlotSim.includes(targetName)) fromSlotSim.push(targetName);
-            if (new Set(fromSlotSim).size !== fromSlotSim.length) {
-                showNotification({ type: 'announcement', title: "Conflict", message: `${targetName} is already scheduled for that shift.` }); return;
-            }
-
-            // Apply one-way swap
-            const fromIdx = newSchedule.days[fromDayIndex][requesterShift].indexOf(requesterName);
-            newSchedule.days[fromDayIndex][requesterShift].splice(fromIdx, 1);
-            if (!newSchedule.days[fromDayIndex][requesterShift].includes(targetName)) {
-                newSchedule.days[fromDayIndex][requesterShift].push(targetName);
-            }
-        }
-
+        // Apply swap
+        day[requesterShift] = shiftStaff.map((name: string) => name === requesterName ? targetName : name);
+        
         try {
             await Cloud.saveSchedule(newSchedule);
-            const updatedSwapRequests = swapRequests.map((r: SwapRequest) => r.id === req.id ? { ...r, appliedToSchedule: true } : r);
-            await Cloud.updateSwapRequests(updatedSwapRequests);
-
-            setSchedule(newSchedule);
-            setSwapRequests(updatedSwapRequests);
-            showNotification({type: 'message', title: "Success", message: "Schedule updated successfully."});
-        } catch (e) {
-            console.error("Failed to apply swap:", e);
-            showNotification({type: 'announcement', title: "Save Error", message: "Could not save changes to the database."});
+            const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'completed', appliedToSchedule: true } : r);
+            await Cloud.updateSwapRequests(updatedReqs);
+            showNotification({type: 'message', title: "Success", message: "Swap approved and schedule updated."});
+        } catch(e) {
+            console.error("Swap apply error", e);
+            showNotification({type: 'announcement', title: "Save Error", message: "Could not save changes."});
         }
     };
 
@@ -2446,7 +2406,55 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     }, 0) || 0;
 
     const visibleLogs = logs?.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
+    
+    const today = new Date();
+    const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
+      const start = new Date(c.startDate);
+      const end = new Date(c.endDate);
+      return today >= start && today <= end;
+    });
 
+    const handlePublishSchedule = async () => {
+        if (!window.confirm(`Publish the schedule for the next ${SCHEDULE_DAYS_LENGTH} days? Staff will be notified.`)) return;
+
+        const startDate = new Date();
+        startDate.setHours(0, 0, 0, 0);
+        const endDate = new Date(startDate);
+        endDate.setDate(startDate.getDate() + SCHEDULE_DAYS_LENGTH - 1);
+        endDate.setHours(23, 59, 59, 999);
+
+        const cycleId = `${formatDateISO(startDate)}_${formatDateISO(endDate)}`;
+
+        const confirmations: ScheduleCycle['confirmations'] = {};
+        activeStaff.forEach((u: User) => {
+            confirmations[u.id] = { status: 'pending', viewed: false };
+        });
+
+        const snapshot: ScheduleCycle['snapshot'] = {};
+        schedule.days.forEach((d: ScheduleDay) => {
+            snapshot[d.date] = {
+                morning: d.morning,
+                evening: d.evening,
+                night: d.night,
+            };
+        });
+
+        const newCycle: ScheduleCycle = {
+            cycleId,
+            startDate: formatDateISO(startDate),
+            endDate: formatDateISO(endDate),
+            publishedAt: new Date().toISOString(),
+            status: 'published',
+            confirmations,
+            snapshot,
+        };
+
+        const updatedCycles = scheduleCycles.filter((c: ScheduleCycle) => c.cycleId !== cycleId);
+        updatedCycles.push(newCycle);
+
+        await Cloud.updateScheduleCycles(updatedCycles);
+        showNotification({ type: 'message', title: 'Schedule Published!', message: `Staff have been notified.`});
+    };
 
     return (
         <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
@@ -2469,12 +2477,13 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         </div>
                         {allReqs.length === 0 && <p className="text-dark-text-light text-center py-10 bg-dark-surface rounded-xl border border-white/10">No swap requests found.</p>}
                         {allReqs.map((req: SwapRequest) => {
-                            const statusColors = {
+                            const statusColors: any = {
                                 pending: 'bg-yellow-500/10 text-yellow-400',
                                 rejected: 'bg-red-500/10 text-red-400',
                                 cancelled: 'bg-gray-500/10 text-gray-400',
                                 accepted_by_peer: 'bg-green-500/10 text-green-400',
-                                approved: 'bg-blue-500/10 text-blue-400',
+                                completed: 'bg-blue-500/10 text-blue-400',
+                                auto_conflict_declined: 'bg-red-500/20 text-red-300',
                             };
                             return (
                                 <div key={req.id} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
@@ -2483,21 +2492,23 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                             <p className="text-sm text-dark-text-light"><strong className="text-white">{req.requesterName}</strong> wants to swap with <strong className="text-white">{req.targetName}</strong></p>
                                             <p className="text-xs text-gray-400 mt-1">Requested: {formattedDate(req.timestamp)}</p>
                                         </div>
-                                        <span className={`text-xs px-2 py-1 rounded font-bold capitalize ${statusColors[req.status] || 'bg-gray-500/10 text-gray-400'}`}>{req.status.replace('_by_peer', '')}</span>
+                                        <span className={`text-xs px-2 py-1 rounded font-bold capitalize ${statusColors[req.status] || 'bg-gray-500/10 text-gray-400'}`}>{req.status.replace(/_/g, ' ')}</span>
                                     </div>
                                     <div className="bg-dark-bg p-3 rounded-lg text-sm text-dark-text-light mb-4 space-y-2">
                                         <div className="flex justify-between"><span>{req.requesterName}'s shift:</span> <strong className="font-mono text-white">{req.requesterDate} ({req.requesterShift})</strong></div>
-                                        <div className="flex justify-between"><span>{req.targetName}'s shift:</span> <strong className="font-mono text-white">{req.targetDate ? `${req.targetDate} (${req.targetShift})` : 'N/A (Covering shift)'}</strong></div>
                                     </div>
                                     {req.reason && <p className="text-xs italic text-gray-400 border-t border-white/10 pt-2 mt-2">Reason: {req.reason}</p>}
                                     
                                     <div className="mt-4">
-                                    {req.status === 'accepted_by_peer' && !req.appliedToSchedule && (
-                                        <button onClick={() => handleApplySwap(req.id)} className="w-full bg-dark-accent text-dark-bg py-2.5 rounded-lg font-bold shadow-md active:scale-95 transition-all hover:opacity-90">
-                                            Apply to Schedule
+                                    {(req.status === 'accepted_by_peer' || req.status === 'auto_conflict_declined') && !req.appliedToSchedule && (
+                                        <div className="grid grid-cols-2 gap-2">
+                                        <button onClick={() => {}} className="w-full bg-red-600/50 text-white/80 py-2.5 rounded-lg font-bold text-xs" disabled>Reject</button>
+                                        <button onClick={() => handleApplySwap(req.id)} className="w-full bg-dark-accent text-dark-bg py-2.5 rounded-lg font-bold shadow-md active:scale-95 transition-all hover:opacity-90 text-xs">
+                                            Approve & Apply
                                         </button>
+                                        </div>
                                     )}
-                                    {req.status === 'accepted_by_peer' && req.appliedToSchedule === true && (
+                                    {req.status === 'completed' && req.appliedToSchedule === true && (
                                         <div className="text-center text-xs font-bold text-green-400 border border-green-500/20 bg-green-500/10 py-2 rounded-lg">
                                             Applied to Schedule
                                         </div>
@@ -2523,6 +2534,9 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                 </div>
                             </div>
                             <p className="text-xs text-dark-text-light">Tap on a shift to edit staff & times.</p>
+                            <button onClick={handlePublishSchedule} className="w-full mt-3 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2.5 rounded-lg">
+                                Publish 21-Day Schedule
+                            </button>
                         </div>
                         {schedule.days?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, dayIndexInWeek: number) => {
                             const absoluteDayIndex = currentWeekIndex * 7 + dayIndexInWeek;
@@ -2729,55 +2743,30 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 {view === 'confirmations' && (
                     <div className="space-y-4">
                         <div className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
-                            <h3 className="font-bold text-dark-text mb-2">Schedule Confirmations</h3>
-                            <p className="text-xs text-dark-text-light mb-4">Track which staff members have confirmed their upcoming schedules.</p>
+                            <h3 className="font-bold text-dark-text mb-2">Staff Confirmation Status</h3>
+                            <p className="text-xs text-dark-text-light mb-4">Cycle: {currentCycle ? `${currentCycle.startDate} to ${currentCycle.endDate}` : 'No active cycle'}</p>
                             
                             <div className="overflow-x-auto">
                                  <table className="w-full text-xs text-left">
                                     <thead className="text-dark-text-light border-b border-white/10">
-                                        <tr>
-                                            <th className="p-3">Staff</th>
-                                            <th className="p-3">Details</th>
-                                            <th className="p-3">Confirmed At</th>
-                                            <th className="p-3">Status</th>
-                                        </tr>
+                                        <tr><th className="p-3">Staff</th><th className="p-3">Status</th><th className="p-3">Viewed</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-white/10">
-                                        {confirmations?.slice().sort((a:any, b:any) => b.confirmedAt?.seconds - a.confirmedAt?.seconds).map((c: any) => {
-                                            const staff = users.find((u:User) => u.id === c.employeeId);
-                                            const confirmationType = c.type || 'schedule'; // Default to 'schedule' if type is missing
-
+                                        {currentCycle && Object.entries(currentCycle.confirmations).map(([userId, conf]) => {
+                                            const staff = users.find((u:User) => u.id === userId);
+                                            // FIX: Add type assertion for 'conf' to resolve 'unknown' type error when iterating object entries.
+                                            const confirmation = conf as { status: 'pending' | 'confirmed' | 'needs_change'; viewed: boolean };
                                             return (
-                                                <tr key={c.id}>
-                                                    <td className="p-3 font-bold text-dark-text">
-                                                        <div>
-                                                            <span>{staff?.name || c.employeeId}</span>
-                                                            {confirmationType === 'new_recipe' ? (
-                                                                <span className="mt-1 block text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded font-bold self-start w-fit">New Recipe</span>
-                                                            ) : (
-                                                                <span className="mt-1 block text-[9px] bg-teal-500/20 text-teal-300 px-1.5 py-0.5 rounded font-bold self-start w-fit">Schedule</span>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                    <td className="p-3 text-dark-text-light font-mono text-xs">
-                                                        {confirmationType === 'new_recipe' ? (
-                                                            <span className="italic">{c.details || 'Recipe acknowledgment'}</span>
-                                                        ) : (
-                                                            <span>{c.rangeStart} to {c.rangeEnd}</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="p-3 text-dark-text-light">
-                                                        {c.confirmedAt ? new Date(c.confirmedAt.seconds * 1000).toLocaleString() : '-'}
-                                                    </td>
-                                                    <td className="p-3">
-                                                        <span className="bg-green-500/10 text-green-400 px-2 py-1 rounded font-bold capitalize">{c.status}</span>
-                                                    </td>
+                                                <tr key={userId}>
+                                                    <td className="p-3 font-bold">{staff?.name || userId}</td>
+                                                    <td className="p-3 capitalize">{confirmation.status.replace('_', ' ')}</td>
+                                                    <td className="p-3">{confirmation.viewed ? 'Yes' : 'No'}</td>
                                                 </tr>
                                             )
                                         })}
                                     </tbody>
                                  </table>
-                                 {(!confirmations || confirmations.length === 0) && <p className="text-center p-4 text-dark-text-light italic">No confirmations yet.</p>}
+                                 {!currentCycle && <p className="text-center p-4 text-dark-text-light italic">No schedule has been published yet.</p>}
                             </div>
                         </div>
                     </div>
@@ -2919,7 +2908,7 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 };
 
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests, directMessages, users, recipes } = data;
+    const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles } = data;
     const { showNotification } = useNotification();
     const [view, setView] = useState<StaffViewMode>('home');
     const [clockBtnText, setClockBtnText] = useState({ in: t.clock_in, out: t.clock_out });
@@ -2930,30 +2919,32 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
     const [deviationData, setDeviationData] = useState<any | null>(null);
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
-    const [confirmationStatus, setConfirmationStatus] = useState<'loading' | 'unconfirmed' | 'confirmed' | 'not_applicable'>('loading');
     
-    // Swap Request State
     const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
     const [currentSwap, setCurrentSwap] = useState<{ date: string, shift: 'morning'|'evening'|'night' } | null>(null);
     const [targetEmployeeId, setTargetEmployeeId] = useState('');
     const [reason, setReason] = useState('');
 
-    // Reminder Modal States
     const [isScheduleReminderOpen, setIsScheduleReminderOpen] = useState(false);
     const [isSwapReminderOpen, setIsSwapReminderOpen] = useState(false);
     const [pendingSwapCount, setPendingSwapCount] = useState(0);
     const scheduleReminderShown = useRef(false);
     const swapReminderShown = useRef(false);
 
-    // New Recipe Reminder State
     const [newRecipesToAck, setNewRecipesToAck] = useState<DrinkRecipe[]>([]);
     const recipeReminderCheckDone = useRef(false);
+    
+    const today = new Date();
+    const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
+      const start = new Date(c.startDate);
+      const end = new Date(c.endDate);
+      return today >= start && today <= end && c.status === 'published';
+    });
+    const userConfirmation = currentCycle?.confirmations[currentUser.id];
 
 
-    // FIX: Define the 'getLoc' helper function to resolve translation object properties based on the current language.
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     
-    // New Recipe Reminder Logic
     useEffect(() => {
         if (recipeReminderCheckDone.current || !recipes || !currentUser || recipes.length === 0) {
             return;
@@ -2969,7 +2960,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         const unacknowledged = allNewRecipes.filter((r: DrinkRecipe) => !acknowledgedIds.has(r.id));
         
         if (unacknowledged.length > 0) {
-            setTimeout(() => setNewRecipesToAck(unacknowledged), 2000); // Delay to not overwhelm user
+            setTimeout(() => setNewRecipesToAck(unacknowledged), 2000);
         }
         
         recipeReminderCheckDone.current = true;
@@ -2978,20 +2969,18 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const handleAcknowledgeNewRecipes = async () => {
         if (!currentUser || newRecipesToAck.length === 0) return;
 
-        // 1. Update user's acknowledged recipes
         const newAckIds = newRecipesToAck.map(r => r.id);
         const existingAckIds = currentUser.acknowledgedNewRecipes || [];
         const updatedAckIds = [...new Set([...existingAckIds, ...newAckIds])];
         const updatedUser = { ...currentUser, acknowledgedNewRecipes: updatedAckIds };
         await Cloud.saveUser(updatedUser);
         
-        // 2. Create a new confirmation record
         const recipeNames = newRecipesToAck.map(r => r.name[lang] || r.name['zh']).join(', ');
         const details = `Confirmed: ${recipeNames}`;
         await Cloud.saveRecipeConfirmation(currentUser.id, details);
 
-        setNewRecipesToAck([]); // Close modal
-        setView('recipes'); // Navigate to recipes page
+        setNewRecipesToAck([]);
+        setView('recipes');
         showNotification({
             type: 'message',
             title: 'Acknowledgment Recorded',
@@ -3017,55 +3006,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return () => clearTimeout(timer);
     }, [currentUser.id]);
 
-    useEffect(() => {
-        if (view !== 'team') {
-            if (confirmationStatus !== 'loading') setConfirmationStatus('loading');
-            return;
-        }
-    
-        const start = new Date();
-        const end = new Date();
-        end.setDate(start.getDate() + 13);
-        const startISO = formatDateISO(start);
-        const endISO = formatDateISO(end);
-    
-        const hasShiftsInWindow = (() => {
-            if (!schedule?.days) return false;
-            
-            const startDate = new Date(start);
-            const endDate = new Date(end);
-            
-            const startMs = startDate.setHours(0, 0, 0, 0);
-            const endMs = endDate.setHours(23, 59, 59, 999);
-    
-            return schedule.days.some((day: ScheduleDay) => {
-                const dayDate = new Date(new Date().getFullYear() + '-' + day.date);
-                if(isNaN(dayDate.getTime())) return false;
-                
-                const scheduleMs = dayDate.getTime();
-                
-                if (scheduleMs >= startMs && scheduleMs <= endMs) {
-                    return [...day.morning, ...day.evening, ...(day.night || [])].includes(currentUser.name);
-                }
-                return false;
-            });
-        })();
-        
-        if (!hasShiftsInWindow) {
-            setConfirmationStatus('not_applicable');
-            return;
-        }
-    
-        const checkConfirmation = async () => {
-            const existing = await Cloud.getScheduleConfirmation(currentUser.id, startISO, endISO);
-            setConfirmationStatus(existing ? 'confirmed' : 'unconfirmed');
-        };
-    
-        checkConfirmation();
-    
-    }, [view, schedule, currentUser.id, currentUser.name]);
-
-    // Handles chat notifications and unread status
     useEffect(() => {
         const notifiedKey = `notifiedMessages_${currentUser.id}`;
         const notifiedIds = new Set<string>(JSON.parse(localStorage.getItem(notifiedKey) || '[]'));
@@ -3188,13 +3128,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     }, [currentUser, schedule, logs, showNotification]);
 
     useEffect(() => {
-        // Do not show popups if another modal is already active.
         if (view !== 'home' || deviationData || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) {
             return;
         }
 
         const runChecks = async () => {
-            // 1. Check for pending swap requests
             if (!swapReminderShown.current) {
                 const pendingSwaps = (swapRequests || []).filter(
                     (r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending'
@@ -3203,46 +3141,19 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     setPendingSwapCount(pendingSwaps.length);
                     setIsSwapReminderOpen(true);
                     swapReminderShown.current = true;
-                    return; // Show one reminder at a time
+                    return;
                 }
             }
 
-            // 2. If no swap reminders, check for schedule confirmation
-            if (!scheduleReminderShown.current) {
-                if (!schedule?.days) return;
-
-                const start = new Date();
-                const end = new Date();
-                end.setDate(start.getDate() + 13);
-                const startISO = formatDateISO(start);
-                const endISO = formatDateISO(end);
-
-                const startMs = new Date(start).setHours(0, 0, 0, 0);
-                const endMs = new Date(end).setHours(23, 59, 59, 999);
-                
-                const hasShiftsInWindow = schedule.days.some((day: ScheduleDay) => {
-                    const dayDate = new Date(`${new Date().getFullYear()}-${day.date}`);
-                    if(isNaN(dayDate.getTime())) return false;
-                    const scheduleMs = dayDate.getTime();
-                    if (scheduleMs >= startMs && scheduleMs <= endMs) {
-                        return [...day.morning, ...day.evening, ...(day.night || [])].includes(currentUser.name);
-                    }
-                    return false;
-                });
-
-                if (hasShiftsInWindow) {
-                    const confirmation = await Cloud.getScheduleConfirmation(currentUser.id, startISO, endISO);
-                    if (!confirmation) {
-                        setIsScheduleReminderOpen(true);
-                        scheduleReminderShown.current = true;
-                    }
-                }
+            if (!scheduleReminderShown.current && userConfirmation?.status === 'pending') {
+                setIsScheduleReminderOpen(true);
+                scheduleReminderShown.current = true;
             }
         };
 
-        const timer = setTimeout(runChecks, 1500); // Delay to let UI settle
+        const timer = setTimeout(runChecks, 1500);
         return () => clearTimeout(timer);
-    }, [currentUser, swapRequests, schedule, view, deviationData, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder]);
+    }, [currentUser, swapRequests, schedule, view, deviationData, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder, userConfirmation]);
 
 
     const findNextShift = () => {
@@ -3251,11 +3162,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         const year = now.getFullYear();
         now.setHours(0,0,0,0);
 
-        // Sort days chronologically, handling year wrap-around
         const sortedDays = [...schedule.days].sort((a,b) => {
             const dateA = new Date(`${year}-${a.date}`);
             const dateB = new Date(`${year}-${b.date}`);
-            // If date is in the past (e.g., it's Jan and date is Dec), add a year
             if (dateA < now) dateA.setFullYear(year + 1);
             if (dateB < now) dateB.setFullYear(year + 1);
             return dateA.getTime() - dateB.getTime();
@@ -3272,7 +3181,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 const eStart = day.hours?.evening?.start || '14:30';
                 const eEnd = day.hours?.evening?.end || '19:00';
                 
-                // FIX: Recalculate weekday name from the date to prevent mismatches from stale data.
                 const correctDayName = scheduleDate.toLocaleDateString('en-US', { weekday: 'long' });
 
                 if (day.morning.includes(currentUser.name)) {
@@ -3430,43 +3338,17 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
 
     const handleConfirmSchedule = async () => {
-        const start = new Date();
-        const end = new Date();
-        end.setDate(start.getDate() + 13);
-        const startISO = formatDateISO(start);
-        const endISO = formatDateISO(end);
-    
-        const hasShiftsInWindow = (() => {
-            if (!schedule?.days) return false;
-            const startDate = new Date(start);
-            const endDate = new Date(end);
-            const startMs = startDate.setHours(0, 0, 0, 0);
-            const endMs = endDate.setHours(23, 59, 59, 999);
-    
-            return schedule.days.some((day: ScheduleDay) => {
-                const dayDate = new Date(new Date().getFullYear() + '-' + day.date);
-                if(isNaN(dayDate.getTime())) return false;
-                const scheduleMs = dayDate.getTime();
-                
-                if (scheduleMs >= startMs && scheduleMs <= endMs) {
-                    return [...day.morning, ...day.evening, ...(day.night || [])].includes(currentUser.name);
-                }
-                return false;
-            });
-        })();
-        
-        if (!hasShiftsInWindow) {
-            showNotification({ type: 'announcement', title: "No shifts found", message: "You have no shifts in this period to confirm." });
-            return;
-        }
-    
-        const result = await Cloud.saveScheduleConfirmation(currentUser.id, startISO, endISO);
-        if (result.success) {
-            setConfirmationStatus('confirmed');
-            showNotification({ type: 'message', title: "Schedule Confirmed", message: "Thanks for confirming your schedule!" });
-        } else {
-            alert("Error saving confirmation. Please try again.");
-        }
+        if (!currentCycle) return;
+        const updatedCycle = {
+            ...currentCycle,
+            confirmations: {
+                ...currentCycle.confirmations,
+                [currentUser.id]: { status: 'confirmed', viewed: true }
+            }
+        };
+        const updatedCycles = scheduleCycles.map((c: ScheduleCycle) => c.cycleId === updatedCycle.cycleId ? updatedCycle : c);
+        await Cloud.updateScheduleCycles(updatedCycles);
+        showNotification({ type: 'message', title: 'Schedule Confirmed!', message: 'Thank you.' });
     };
 
     const handleSendSwapRequest = async () => {
@@ -3487,8 +3369,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             requesterShift: currentSwap.shift,
             targetId: targetUser.id,
             targetName: targetUser.name,
-            targetDate: null, // One-way for now
-            targetShift: null, // One-way for now
+            targetDate: null, 
+            targetShift: null,
             status: 'pending',
             reason: reason || null,
             timestamp: Date.now(),
@@ -3509,17 +3391,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
 
     const ConfirmationBanner = () => {
-        if (confirmationStatus === 'loading' || confirmationStatus === 'not_applicable') return null;
-        if (confirmationStatus === 'confirmed') return (
-            <div className="bg-green-100 border-l-4 border-green-500 text-green-800 p-4 rounded-lg mb-4 flex items-start gap-3 animate-fade-in">
-                <Icon name="CheckCircle2" size={20} className="text-green-600 mt-0.5 shrink-0" />
-                <div>
-                    <p className="font-bold">Schedule Confirmed</p>
-                    <p className="text-sm mt-1 text-green-700">You can still request to swap individual shifts if needed.</p>
-                </div>
-            </div>
-        );
-        return ( <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in"><div className="flex-1"><h4 className="font-bold">Please Confirm Your Schedule</h4><p className="text-sm mt-1">Review your upcoming shifts and tap confirm.</p></div><button onClick={handleConfirmSchedule} className="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg text-sm whitespace-nowrap hover:bg-blue-600 transition-all shadow-md active:scale-95 w-full sm:w-auto">Confirm Next 2 Weeks</button></div>);
+        if (!currentCycle || !userConfirmation || userConfirmation.status !== 'pending') return null;
+
+        return ( <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in"><div className="flex-1"><h4 className="font-bold">Please Confirm Your Schedule</h4><p className="text-sm mt-1">Review your upcoming shifts for {currentCycle.startDate} to {currentCycle.endDate} and tap confirm.</p></div><button onClick={handleConfirmSchedule} className="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg text-sm whitespace-nowrap hover:bg-blue-600 transition-all shadow-md active:scale-95 w-full sm:w-auto">Confirm Schedule</button></div>);
     };
 
     const LibraryView = ({ data, onOpenChecklist }: { data: any, onOpenChecklist: (key: string) => void }) => {
@@ -3614,7 +3488,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
-            const fourteenDays = Array.from({ length: 14 }).map((_, i) => {
+            const twentyOneDays = Array.from({ length: SCHEDULE_DAYS_LENGTH }).map((_, i) => {
                 const d = new Date(today);
                 d.setDate(d.getDate() + i);
                 return {
@@ -3635,8 +3509,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     <ConfirmationBanner />
                     
                     <div className="space-y-4">
-                        {fourteenDays.map((dayInfo) => {
-                            const daySchedule = scheduleMap.get(dayInfo.date); // dayInfo.date is already normalized
+                        {twentyOneDays.map((dayInfo) => {
+                            const daySchedule = scheduleMap.get(dayInfo.date);
                             const shiftsToRender = daySchedule 
                                 ? (['morning', 'evening', 'night'] as const).filter(shift => (daySchedule as any)[shift] && (daySchedule as any)[shift].length > 0)
                                 : [];
@@ -3732,7 +3606,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                              const statusColors: any = { pending: 'text-yellow-600', rejected: 'text-red-600', accepted_by_peer: 'text-green-600', approved: 'text-blue-600' };
                              return (<div key={req.id} className="bg-surface p-3 rounded-xl border mb-2 text-sm">
                                 <p>To <strong className="text-primary">{req.targetName}</strong> for <span className="font-mono">{req.requesterDate} ({req.requesterShift})</span></p>
-                                <p>Status: <strong className={`${statusColors[req.status] || 'text-gray-500'} capitalize`}>{req.status.replace('_by_peer', ' (Peer)')}</strong></p>
+                                <p>Status: <strong className={`${statusColors[req.status] || 'text-gray-500'} capitalize`}>{req.status.replace(/_/g, ' ')}</strong></p>
                             </div>)
                         }) : <p className="text-sm text-text-light italic">You haven't sent any requests.</p>}
                     </div>
@@ -3847,7 +3721,7 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
         <div className="absolute bottom-0 left-0 right-0 h-20 bg-surface/80 backdrop-blur-lg border-t border-gray-100 flex justify-around items-center max-w-md mx-auto">
             {navItems.map(item => (
                 <button key={item.key} onClick={() => setActiveView(item.key as StaffViewMode)} className={`flex flex-col items-center gap-1 w-16 transition-all relative ${activeView === item.key ? 'text-primary' : 'text-text-light hover:text-primary'}`}>
-                    <Icon name="item.icon" size={22} />
+                    <Icon name={item.icon as any} size={22} />
                     <span className="text-[10px] font-bold">{item.label}</span>
                     {item.key === 'chat' && hasUnreadChat && <div className="absolute top-0 right-3.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-surface"></div>}
                 </button>
@@ -3880,6 +3754,7 @@ const App = () => {
     const [trainingLevels, setTrainingLevels] = useState<TrainingLevel[]>(TRAINING_LEVELS);
     const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
     const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
+    const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
 
 
 
@@ -3894,7 +3769,7 @@ const App = () => {
         schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
         setDirectMessages, swapRequests, setSwapRequests, sales, sopList, 
         setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
-        confirmations
+        confirmations, scheduleCycles, setScheduleCycles
     };
 
     useEffect(() => {
@@ -3910,6 +3785,7 @@ const App = () => {
             Cloud.subscribeToSales(setSales),
             Cloud.subscribeToInventoryHistory(setInventoryHistory),
             Cloud.subscribeToScheduleConfirmations(setConfirmations),
+            Cloud.subscribeToScheduleCycles(setScheduleCycles),
             Cloud.subscribeToContent((data) => {
                 if (data?.sops) setSopList(data.sops);
                 if (data?.training) setTrainingLevels(data.training);
@@ -3955,7 +3831,6 @@ const App = () => {
         setCurrentUser(null);
         setAdminMode(null);
     };
-
 
 
 

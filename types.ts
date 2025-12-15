@@ -261,7 +261,8 @@ export interface SwapRequest {
     targetName: string;
     targetDate: string | null;
     targetShift: 'morning' | 'evening' | 'night' | null;
-    status: 'pending' | 'rejected' | 'accepted_by_peer' | 'approved' | 'cancelled';
+    // FIX: Add 'pending' and 'accepted_by_peer' to the status type to align with usage in App.tsx. This resolves multiple TypeScript errors.
+    status: 'pending' | 'accepted_by_peer' | 'pending_target' | 'pending_manager' | 'completed' | 'rejected' | 'rejected_by_manager' | 'auto_conflict_declined' | 'cancelled';
     reason: string | null;
     timestamp: number;
     appliedToSchedule?: boolean;
@@ -310,4 +311,25 @@ export interface ScheduleConfirmation {
     updatedAt: any;
     type?: 'schedule' | 'new_recipe';
     details?: string;
+}
+
+export interface ScheduleCycle {
+  cycleId: string;
+  startDate: string; // 'YYYY-MM-DD'
+  endDate: string; // 'YYYY-MM-DD'
+  publishedAt: string; // ISO string
+  status: 'draft' | 'published' | 'locked';
+  confirmations: {
+    [userId: string]: {
+      status: 'pending' | 'confirmed' | 'needs_change';
+      viewed: boolean;
+    }
+  };
+  snapshot?: {
+    [date: string]: { // MM-DD
+      morning?: string[]; // user NAMEs
+      evening?: string[]; // user NAMEs
+      night?: string[]; // user NAMEs
+    }
+  };
 }

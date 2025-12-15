@@ -17,7 +17,7 @@ import {
     addDoc
 } from 'firebase/firestore';
 import { INITIAL_MENU_DATA, INITIAL_ANNOUNCEMENT_DATA, INITIAL_WIKI_DATA, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES, USERS } from '../constants';
-import { ChatReadState, User } from '../types';
+import { ChatReadState, ScheduleCycle, User } from '../types';
 
 // --- CONFIG ---
 // Replace with your Firebase Project Config
@@ -448,4 +448,22 @@ export const saveScheduleConfirmation = async (employeeId: string, rangeStart: s
         console.error("Error saving schedule confirmation:", e);
         return { success: false, error: e };
     }
+};
+
+// --- SCHEDULE CYCLES (NEW) ---
+export const subscribeToScheduleCycles = (callback: (data: ScheduleCycle[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'schedule_cycles'), (doc) => {
+        if (doc.exists()) {
+            callback(doc.data().cycles || []);
+        } else {
+            callback([]);
+        }
+    });
+};
+
+export const updateScheduleCycles = async (cycles: ScheduleCycle[]) => {
+    if (!db) return;
+    const docRef = doc(db, 'data', 'schedule_cycles');
+    await setDoc(docRef, { cycles });
 };
