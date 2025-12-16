@@ -88,6 +88,7 @@ export interface DrinkRecipe {
   isPublished?: boolean; // Controls visibility in the staff app
   createdAt?: string; // Timestamp for sorting
   sortOrder?: number;
+  recipeType?: 'product' | 'premix'; // ADDED: New field for recipe type
 }
 
 // FIX: Create a shared type for clock-in/clock-out to prevent type mismatches.

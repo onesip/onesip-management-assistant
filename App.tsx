@@ -1347,7 +1347,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
         }
     };
 
-    const createNewItem = () => { const id = `item_${Date.now()}`; if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', imageUrls: [], content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]}, isNew: false, coverImageUrl: '', tutorialVideoUrl: '', basePreparation: {zh: '', en: ''}, isPublished: true, createdAt: new Date().toISOString() }; return {}; };
+    const createNewItem = () => { const id = `item_${Date.now()}`; if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', imageUrls: [], content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]}, isNew: false, coverImageUrl: '', tutorialVideoUrl: '', basePreparation: {zh: '', en: ''}, isPublished: true, createdAt: new Date().toISOString(), recipeType: 'product' }; return {}; };
     const handleSave = async () => {
         if (!editingItem) return;
 
@@ -1393,6 +1393,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                 ...editingItem,
                 coverImageUrl: editingItem.coverImageUrl?.trim() || undefined,
                 tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() || undefined,
+                recipeType: editingItem.recipeType || 'product', // Ensure recipeType exists
             };
             updatedList = recipes.some((i: any) => i.id === editingItem.id)
                 ? recipes.map((i: any) => (i.id === editingItem.id ? sanitizedItem : i))
@@ -1641,15 +1642,6 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                     </div>
                 </div>
                 <div className="border-t border-white/10 pt-4 mt-2 space-y-3">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                        <input 
-                            type="checkbox" 
-                            checked={!!editingItem.isNew} 
-                            onChange={e => setEditingItem({...editingItem, isNew: e.target.checked})}
-                            className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
-                        />
-                        <span className="font-bold text-dark-accent">标记为新菜谱 / Mark as NEW recipe</span>
-                    </label>
                      <label className="flex items-center gap-3 cursor-pointer">
                         <input 
                             type="checkbox" 
@@ -1658,6 +1650,26 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                             className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
                         />
                         <span className="font-bold text-dark-accent">在员工端显示 / Publish to staff app</span>
+                    </label>
+                    <div>
+                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Recipe Type</label>
+                        <select 
+                            className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" 
+                            value={editingItem.recipeType || 'product'} 
+                            onChange={e => setEditingItem({...editingItem, recipeType: e.target.value})}
+                        >
+                            <option value="product">Product (成品配方)</option>
+                            <option value="premix">Premix (基底/半成品)</option>
+                        </select>
+                    </div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                        <input 
+                            type="checkbox" 
+                            checked={!!editingItem.isNew} 
+                            onChange={e => setEditingItem({...editingItem, isNew: e.target.checked})}
+                            className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
+                        />
+                        <span className="font-bold text-dark-accent">标记为新菜谱 / Mark as NEW recipe</span>
                     </label>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -2941,6 +2953,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
     const [deviationData, setDeviationData] = useState<any | null>(null);
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
+    const [recipeTypeFilter, setRecipeTypeFilter] = useState<'product' | 'premix'>('product');
     
     const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
     const [currentSwap, setCurrentSwap] = useState<{ date: string, shift: 'morning'|'evening'|'night' } | null>(null);
@@ -3589,8 +3602,38 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         />; }
         if (view === 'contact') { return <ContactView t={t} lang={lang} />; }
         if (view === 'recipes') {
-             const filteredRecipes = recipes.filter((r: DrinkRecipe) => r.isPublished !== false && (r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery)));
-             return <div className="h-full overflow-y-auto p-4 pb-24 bg-secondary animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2><div className="sticky top-0 bg-secondary py-2 z-10 -mt-2"><div className="relative"><Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/><input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm"/></div></div>{filteredRecipes.map((r: DrinkRecipe) => <DrinkCard key={r.id} drink={r} lang={lang} t={t} />)}</div>;
+             const filteredRecipes = recipes
+                .filter((r: DrinkRecipe) => r.isPublished !== false)
+                .filter((r: DrinkRecipe) => {
+                    if (recipeTypeFilter === 'premix') {
+                        return r.recipeType === 'premix';
+                    }
+                    return r.recipeType === 'product' || !r.recipeType;
+                })
+                .filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
+
+             return (
+                <div className="h-full flex flex-col bg-secondary animate-fade-in-up text-text">
+                    <div className="p-4 sticky top-0 bg-secondary z-10">
+                        <h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2>
+                        <div className="relative mb-4">
+                            <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+                            <input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm"/>
+                        </div>
+                         <div className="flex gap-2">
+                            <button onClick={() => setRecipeTypeFilter('product')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'product' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>
+                                Product
+                            </button>
+                            <button onClick={() => setRecipeTypeFilter('premix')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'premix' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>
+                                Premix
+                            </button>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 pt-0 pb-24">
+                        {filteredRecipes.map((r: DrinkRecipe) => <DrinkCard key={r.id} drink={r} lang={lang} t={t} />)}
+                    </div>
+                </div>
+            );
         }
         if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
         if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
