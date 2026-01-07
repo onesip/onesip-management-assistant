@@ -1867,7 +1867,7 @@ const OwnerInventoryLogsView = ({ logs, currentUser, onUpdateLogs }: { logs: Log
     );
 };
 
-const OwnerDashboard = ({ data, onExit, adminMode, isLoading }: { data: any, onExit: () => void, adminMode: string | null, isLoading: boolean }) => {
+const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs } = data;
     const { showNotification } = useNotification();
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
@@ -1929,7 +1929,7 @@ const OwnerDashboard = ({ data, onExit, adminMode, isLoading }: { data: any, onE
     };
 
     if (view === 'manager') {
-        return <ManagerDashboard data={data} onExit={() => setView('main')} adminMode={adminMode} isLoading={isLoading} />;
+        return <ManagerDashboard data={data} onExit={() => setView('main')} />;
     }
     
     const InventoryHistoryView = () => (
@@ -2244,134 +2244,8 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
     );
 };
 
-// FIX: Added the missing FinancialReportExporter component definition.
-const FinancialReportExporter = ({ schedule, logs, users, wages, t }: any) => {
-    
-    const calculateHoursAndCosts = () => {
-        const stats: { [key: string]: { estHours: number; actualHours: number; estCost: number; actualCost: number } } = {};
-        const activeStaff = users.filter((u: User) => u.active !== false);
-        activeStaff.forEach((m: User) => {
-            stats[m.name] = { estHours: 0, actualHours: 0, estCost: 0, actualCost: 0 };
-        });
 
-        // Calculate estimated hours from schedule
-        if (schedule?.days) {
-            schedule.days.forEach((day: ScheduleDay) => {
-                const processShift = (shift: 'morning' | 'evening' | 'night') => {
-                    const staffList = day[shift as keyof ScheduleDay];
-                    if (staffList && Array.isArray(staffList) && staffList.length > 0) {
-                        const hours = day.hours?.[shift];
-                        let duration = 0;
-                        if (hours?.start && hours.end) {
-                            const [startH, startM] = hours.start.split(':').map(Number);
-                            const [endH, endM] = hours.end.split(':').map(Number);
-                            duration = (endH - startH) + (endM - startM) / 60;
-                        } else {
-                            if (shift === 'morning') duration = 5;
-                            if (shift === 'evening') duration = 4.5;
-                            if (shift === 'night') duration = 4;
-                        }
-                        staffList.forEach((name: string) => {
-                            if (stats[name]) {
-                                stats[name].estHours += duration;
-                            }
-                        });
-                    }
-                };
-                processShift('morning');
-                processShift('evening');
-                if (day.night) processShift('night');
-            });
-        }
-        
-        // Calculate actual hours from logs
-        const userLogs: Record<string, LogEntry[]> = {};
-        if (logs) {
-            logs.filter((l: LogEntry) => !l.isDeleted && l.name && (l.type === 'clock-in' || l.type === 'clock-out')).forEach((l: LogEntry) => {
-                if (!userLogs[l.name!]) userLogs[l.name!] = [];
-                userLogs[l.name!].push(l);
-            });
-        }
-
-        Object.keys(userLogs).forEach(name => {
-            if (!stats[name]) return;
-            const sorted = userLogs[name].sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-            let lastIn: number | null = null;
-            sorted.forEach(log => {
-                if (log.type === 'clock-in') {
-                    lastIn = new Date(log.time).getTime();
-                } else if (log.type === 'clock-out' && lastIn) {
-                    const diffHrs = (new Date(log.time).getTime() - lastIn) / (1000 * 60 * 60);
-                    if (diffHrs > 0 && diffHrs < 16) {
-                        stats[name].actualHours += diffHrs;
-                    }
-                    lastIn = null;
-                }
-            });
-        });
-        
-        // Calculate costs
-        Object.keys(stats).forEach(name => {
-            const wage = wages[name] || 12;
-            stats[name].estCost = stats[name].estHours * wage;
-            stats[name].actualCost = stats[name].actualHours * wage;
-        });
-
-        return stats;
-    };
-
-
-    const handleExport = () => {
-        const data = calculateHoursAndCosts();
-        
-        const headers = "Staff,Hourly Wage,Scheduled Hours,Estimated Cost,Actual Hours,Actual Cost\n";
-        
-        const csvRows = Object.entries(data).map(([name, values]) => {
-            const wage = wages[name] || 12;
-            return [
-                `"${name.replace(/"/g, '""')}"`,
-                wage.toFixed(2),
-                values.estHours.toFixed(2),
-                values.estCost.toFixed(2),
-                values.actualHours.toFixed(2),
-                values.actualCost.toFixed(2)
-            ].join(',');
-        });
-
-        const totalEstHours = Object.values(data).reduce((sum, s) => sum + s.estHours, 0);
-        const totalActualHours = Object.values(data).reduce((sum, s) => sum + s.actualHours, 0);
-        const totalEstCost = Object.values(data).reduce((sum, s) => sum + s.estCost, 0);
-        const totalActualCost = Object.values(data).reduce((sum, s) => sum + s.actualCost, 0);
-        
-        const summaryRow = [
-            "\"TOTAL\"",
-            "",
-            totalEstHours.toFixed(2),
-            totalEstCost.toFixed(2),
-            totalActualHours.toFixed(2),
-            totalActualCost.toFixed(2)
-        ].join(',');
-
-        const csvString = headers + csvRows.join('\n') + '\n' + summaryRow;
-        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        const date = new Date().toISOString().split('T')[0];
-        link.setAttribute("download", `financial_report_${date}.csv`);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
-    return (
-        <button onClick={handleExport} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-green-700 transition-all">
-            <Icon name="List" size={16} /> {t.download_logs || 'Export Financials'}
-        </button>
-    );
-};
-
-const ManagerDashboard = ({ data, onExit, adminMode, isLoading }: { data: any, onExit: () => void, adminMode: string | null, isLoading: boolean }) => {
+const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { showNotification } = useNotification();
     const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users, scheduleCycles, setScheduleCycles } = data;
@@ -2475,6 +2349,8 @@ const ManagerDashboard = ({ data, onExit, adminMode, isLoading }: { data: any, o
     };
     const { stats, totalEstCost, totalActualCost } = calculateFinancials();
 
+    const exportFinancialCSV = () => { let csv = "Name,Wage,Est.Hours,Est.Cost,Act.Hours,Act.Cost\n"; Object.keys(stats).forEach(name => { const s = stats[name]; csv += `${name},${Number(wages[name] || 0).toFixed(2)},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)}\n`; }); csv += `TOTALS,,${totalEstCost.toFixed(2)},,${totalActualCost.toFixed(2)}\n`; const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "financial_report.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
+    
     const handleApplySwap = async (reqId: string) => {
         const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
         if (!req) { showNotification({ type: 'announcement', title: "Error", message: "Swap request not found." }); return; }
@@ -2894,7 +2770,7 @@ const ManagerDashboard = ({ data, onExit, adminMode, isLoading }: { data: any, o
                                     ))}</tbody>
                                 </table>
                             </div>
-                            <FinancialReportExporter schedule={schedule} logs={logs} users={users} wages={wages} t={t} />
+                            <button onClick={exportFinancialCSV} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-md flex justify-center gap-2 transition-all hover:bg-green-700"><Icon name="List" /> Export Report (CSV)</button>
                         </div>
                     </div>
                 )}
@@ -3077,6 +2953,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
     const [deviationData, setDeviationData] = useState<any | null>(null);
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
+    const [recipeTypeFilter, setRecipeTypeFilter] = useState<'product' | 'premix'>('product');
     
     const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
     const [currentSwap, setCurrentSwap] = useState<{ date: string, shift: 'morning'|'evening'|'night' } | null>(null);
@@ -3725,8 +3602,38 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         />; }
         if (view === 'contact') { return <ContactView t={t} lang={lang} />; }
         if (view === 'recipes') {
-             const filteredRecipes = recipes.filter((r: DrinkRecipe) => r.isPublished !== false && (r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery)));
-             return <div className="h-full overflow-y-auto p-4 pb-24 bg-secondary animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2><div className="sticky top-0 bg-secondary py-2 z-10 -mt-2"><div className="relative"><Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/><input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm"/></div></div>{filteredRecipes.map((r: DrinkRecipe) => <DrinkCard key={r.id} drink={r} lang={lang} t={t} />)}</div>;
+             const filteredRecipes = recipes
+                .filter((r: DrinkRecipe) => r.isPublished !== false)
+                .filter((r: DrinkRecipe) => {
+                    if (recipeTypeFilter === 'premix') {
+                        return r.recipeType === 'premix';
+                    }
+                    return r.recipeType === 'product' || !r.recipeType;
+                })
+                .filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
+
+             return (
+                <div className="h-full flex flex-col bg-secondary animate-fade-in-up text-text">
+                    <div className="p-4 sticky top-0 bg-secondary z-10">
+                        <h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2>
+                        <div className="relative mb-4">
+                            <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+                            <input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm"/>
+                        </div>
+                         <div className="flex gap-2">
+                            <button onClick={() => setRecipeTypeFilter('product')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'product' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>
+                                Product
+                            </button>
+                            <button onClick={() => setRecipeTypeFilter('premix')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'premix' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>
+                                Premix
+                            </button>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 pt-0 pb-24">
+                        {filteredRecipes.map((r: DrinkRecipe) => <DrinkCard key={r.id} drink={r} lang={lang} t={t} />)}
+                    </div>
+                </div>
+            );
         }
         if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
         if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
