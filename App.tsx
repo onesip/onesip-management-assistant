@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 // FIX: Import 'Type' for defining a response schema for structured JSON output.
 import { GoogleGenAI, Type } from "@google/genai";
@@ -2035,13 +2034,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={handleUpdateLogs} />}
             </div>
-            <CustomConfirmModal
-                isOpen={!!reportToDelete}
-                title="删除补料记录"
-                message={<>确定要删除这次补料记录吗？<br/>(由 <strong>{reportToDelete?.submittedBy}</strong> 在 <strong>{reportToDelete?.date ? new Date(reportToDelete.date).toLocaleDateString() : ''}</strong> 提交)<br/>删除后将无法恢复。</>}
-                onConfirm={handleDeleteReport}
-                onCancel={() => setReportToDelete(null)}
-            />
         </div>
     );
 };
@@ -2270,8 +2262,51 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
     
     // Default the current week index to the current week of the month to avoid scrolling
-    const [currentWeekIndex, setCurrentWeekIndex] = useState(() => Math.max(0, Math.floor((new Date().getDate() - 1) / 7)));
-    const totalWeeks = schedule?.days ? Math.ceil(schedule.days.length / 7) : 0;
+    const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+    
+    // Auto-extend schedule logic
+    useEffect(() => {
+        const initSchedule = async () => {
+             await Cloud.ensureScheduleCoverage();
+        };
+        initSchedule();
+    }, []);
+
+    // Filter displayed days to the relevant 2-month window
+    const now = new Date();
+    const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+
+    // FIX: Filter schedule.days to show valid range only, avoiding old data pollution
+    const displayedDays = (schedule?.days || []).filter((day: ScheduleDay) => {
+        // Parse "M-D" date format from DB using current year context
+        // This is a heuristic: if current month is Dec, and data is Jan, it's next year.
+        const [m, d] = day.date.split('-').map(Number);
+        const dayDate = new Date(now.getFullYear(), m - 1, d);
+        
+        // Handle year boundary (e.g. Current Month Dec, Next Month Jan)
+        if (now.getMonth() === 11 && m === 1) {
+            dayDate.setFullYear(now.getFullYear() + 1);
+        }
+        
+        // Handle year boundary reverse check (unlikely but safe)
+        if (now.getMonth() === 0 && m === 12) {
+             dayDate.setFullYear(now.getFullYear() - 1);
+        }
+
+        return dayDate >= startOfCurrentMonth && dayDate <= endOfNextMonth;
+    }).sort((a: ScheduleDay, b: ScheduleDay) => {
+        // Sort explicitly by calculated timestamp
+        const getDateObj = (dateStr: string) => {
+             const [m, d] = dateStr.split('-').map(Number);
+             const date = new Date(now.getFullYear(), m - 1, d);
+             if (now.getMonth() === 11 && m === 1) date.setFullYear(now.getFullYear() + 1);
+             return date;
+        };
+        return getDateObj(a.date).getTime() - getDateObj(b.date).getTime();
+    });
+
+    const totalWeeks = Math.ceil(displayedDays.length / 7);
     const activeStaff = users.filter((u: User) => u.active !== false);
 
      const handleUpdateLogs = async (updatedLogs: LogEntry[]) => {
@@ -2352,7 +2387,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const calculateFinancials = () => {
         const stats: Record<string, any> = {};
         activeStaff.forEach((m:User) => { stats[m.name] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 }; });
-        if (schedule?.days) { schedule.days.forEach((day: ScheduleDay) => { day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ }); day.evening.forEach((p: string) => { if(stats[p]) stats[p].evening++ }); }); }
+        if (displayedDays) { displayedDays.forEach((day: ScheduleDay) => { day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ }); day.evening.forEach((p: string) => { if(stats[p]) stats[p].evening++ }); }); }
         const userLogs: Record<string, LogEntry[]> = {};
         if (logs) { logs.forEach((l: LogEntry) => { if (!l.name) return; if (!userLogs[l.name]) userLogs[l.name] = []; userLogs[l.name].push(l); }); }
         Object.keys(userLogs).forEach(name => { if(!stats[name]) return; const sorted = userLogs[name].sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime()); let lastIn: number | null = null; sorted.forEach(log => { if (log.shift === 'clock-in') { lastIn = new Date(log.time).getTime(); } else if (log.shift === 'clock-out' && lastIn) { const diffHrs = (new Date(log.time).getTime() - lastIn) / (1000 * 60 * 60); if (diffHrs > 0 && diffHrs < 16) { stats[name].actualHours += diffHrs; } lastIn = null; } }); });
@@ -2412,17 +2447,26 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         if (!editingShift) return; 
         const { dayIdx, shift } = editingShift; 
         
+        // Find the index in the original schedule.days array
+        // editingShift.dayIdx now refers to the index in displayedDays
+        const targetDay = displayedDays[dayIdx];
+        
+        // Find the index in the full schedule array
+        const realIndex = schedule.days.findIndex((d: ScheduleDay) => d.date === targetDay.date);
+
+        if (realIndex === -1) return;
+
         const newSched = JSON.parse(JSON.stringify(schedule));
         
-        if (!newSched.days || !newSched.days[dayIdx]) return;
+        if (!newSched.days || !newSched.days[realIndex]) return;
 
-        (newSched.days[dayIdx] as any)[shift] = newStaff; 
+        (newSched.days[realIndex] as any)[shift] = newStaff; 
         
-        if (!newSched.days[dayIdx].hours) {
-            newSched.days[dayIdx].hours = { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end: '19:00'} }; 
+        if (!newSched.days[realIndex].hours) {
+            newSched.days[realIndex].hours = { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end: '19:00'} }; 
         }
         
-        (newSched.days[dayIdx].hours as any)[shift] = newHours; 
+        (newSched.days[realIndex].hours as any)[shift] = newHours; 
         
         setSchedule(newSched); 
         Cloud.saveSchedule(newSched); 
@@ -2445,7 +2489,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
     };
     
-    const totalWeeklyPlanningCost = schedule.days?.reduce((acc: number, day: ScheduleDay) => {
+    const totalWeeklyPlanningCost = displayedDays?.slice(0, 7).reduce((acc: number, day: ScheduleDay) => {
         const m = getShiftCost(day.morning, day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
         const e = getShiftCost(day.evening, day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
         const n = day.night ? getShiftCost(day.night, day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00') : 0;
@@ -2462,15 +2506,18 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     });
 
     const handlePublishSchedule = async () => {
-        if (!window.confirm(`Publish the schedule for the next ${SCHEDULE_DAYS_LENGTH} days? Staff will be notified.`)) return;
+        if (!window.confirm(`Publish schedule for the current view? Staff will be notified.`)) return;
 
-        const startDate = new Date();
-        startDate.setHours(0, 0, 0, 0);
-        const endDate = new Date(startDate);
-        endDate.setDate(startDate.getDate() + SCHEDULE_DAYS_LENGTH - 1);
-        endDate.setHours(23, 59, 59, 999);
+        // Use displayed range
+        const startDate = displayedDays[0].date;
+        const endDate = displayedDays[displayedDays.length - 1].date;
+        const year = new Date().getFullYear();
 
-        const cycleId = `${formatDateISO(startDate)}_${formatDateISO(endDate)}`;
+        // Construct ISO range
+        const startISO = `${year}-${startDate.split('-').map(p=>p.padStart(2,'0')).join('-')}`;
+        const endISO = `${year}-${endDate.split('-').map(p=>p.padStart(2,'0')).join('-')}`;
+        
+        const cycleId = `${startISO}_${endISO}`;
 
         const confirmations: ScheduleCycle['confirmations'] = {};
         activeStaff.forEach((u: User) => {
@@ -2478,7 +2525,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         });
 
         const snapshot: ScheduleCycle['snapshot'] = {};
-        schedule.days.forEach((d: ScheduleDay) => {
+        displayedDays.forEach((d: ScheduleDay) => {
             snapshot[d.date] = {
                 morning: d.morning,
                 evening: d.evening,
@@ -2488,8 +2535,8 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
         const newCycle: ScheduleCycle = {
             cycleId,
-            startDate: formatDateISO(startDate),
-            endDate: formatDateISO(endDate),
+            startDate: startISO,
+            endDate: endISO,
             publishedAt: new Date().toISOString(),
             status: 'published',
             confirmations,
@@ -2582,10 +2629,10 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                             </div>
                             <p className="text-xs text-dark-text-light">Tap on a shift to edit staff & times.</p>
                             <button onClick={handlePublishSchedule} className="w-full mt-3 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2.5 rounded-lg">
-                                Publish 21-Day Schedule
+                                Publish Current View ({displayedDays.length} days)
                             </button>
                         </div>
-                        {schedule.days?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, dayIndexInWeek: number) => {
+                        {displayedDays?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, dayIndexInWeek: number) => {
                             const absoluteDayIndex = currentWeekIndex * 7 + dayIndexInWeek;
                             const isWeekend = ['Friday', 'Saturday', 'Sunday'].includes(day.name);
                             return (
@@ -2622,7 +2669,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                 <Icon name="Briefcase" size={16}/> Staff Planning & Cost
                             </h3>
                             <p className="text-xs text-dark-text-light mb-4">
-                                Live estimate based on current schedule and individual wage settings.
+                                Live estimate based on current schedule (Current Week View).
                             </p>
                             <div className="flex justify-between items-center bg-dark-bg p-4 rounded-xl border border-white/5">
                                 <span className="text-xs font-bold text-dark-text-light uppercase">Total Weekly Forecast</span>
@@ -2630,7 +2677,9 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                             </div>
                         </div>
 
-                        {schedule.days?.slice(0, 7).map((day: ScheduleDay, idx: number) => { // Planning view only shows current week
+                        {displayedDays?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, idxInView: number) => { 
+                            const absoluteIdx = currentWeekIndex * 7 + idxInView;
+                            
                             const mStart = day.hours?.morning?.start || '10:00';
                             const mEnd = day.hours?.morning?.end || '15:00';
                             const eStart = day.hours?.evening?.start || '14:30';
@@ -2645,7 +2694,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                             const isWeekend = ['Friday', 'Saturday', 'Sunday'].includes(day.name);
 
                             return (
-                                <div key={idx} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
+                                <div key={absoluteIdx} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
                                     <div className="flex justify-between items-center mb-3 border-b border-white/5 pb-2">
                                         <div>
                                             <span className="font-bold text-dark-text">{day.name}</span>
@@ -2657,7 +2706,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                         </div>
                                     </div>
                                     
-                                    <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'morning' })} className="mb-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-orange-500/30 cursor-pointer transition-all" >
+                                    <div onClick={() => setEditingShift({ dayIdx: absoluteIdx, shift: 'morning' })} className="mb-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-orange-500/30 cursor-pointer transition-all" >
                                         <div className="flex justify-between items-center mb-2">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded font-bold">AM</span>
@@ -2675,7 +2724,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                         </div>
                                     </div>
 
-                                    <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'evening' })} className="p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-blue-500/30 cursor-pointer transition-all" >
+                                    <div onClick={() => setEditingShift({ dayIdx: absoluteIdx, shift: 'evening' })} className="p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-blue-500/30 cursor-pointer transition-all" >
                                         <div className="flex justify-between items-center mb-2">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-bold">PM</span>
@@ -2694,7 +2743,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                     </div>
                                     
                                     {isWeekend && (
-                                        <div onClick={() => setEditingShift({ dayIdx: idx, shift: 'night' })} className="mt-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-indigo-500/30 cursor-pointer transition-all" >
+                                        <div onClick={() => setEditingShift({ dayIdx: absoluteIdx, shift: 'night' })} className="mt-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-indigo-500/30 cursor-pointer transition-all" >
                                             <div className="flex justify-between items-center mb-2">
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-bold">NIGHT</span>
@@ -2819,7 +2868,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     </div>
                 )}
             </div>
-            {editingShift && <ScheduleEditorModal isOpen={!!editingShift} day={schedule.days[editingShift.dayIdx]} shiftType={editingShift.shift} currentStaff={(schedule.days[editingShift.dayIdx] as any)[editingShift.shift]} currentHours={schedule.days[editingShift.dayIdx].hours?.[editingShift.shift]} onClose={() => setEditingShift(null)} onSave={handleSaveSchedule} teamMembers={activeStaff} />}
+            {editingShift && displayedDays && <ScheduleEditorModal isOpen={!!editingShift} day={displayedDays[editingShift.dayIdx]} shiftType={editingShift.shift} currentStaff={(schedule.days.find((d: any) => d.date === displayedDays[editingShift.dayIdx].date) as any)[editingShift.shift]} currentHours={displayedDays[editingShift.dayIdx].hours?.[editingShift.shift]} onClose={() => setEditingShift(null)} onSave={handleSaveSchedule} teamMembers={activeStaff} />}
             <ManualAddModal isOpen={isAddingManualLog} onClose={() => setIsAddingManualLog(false)} onSave={handleSaveManualLog} users={users} currentUser={managerUser} />
             <InvalidateLogModal isOpen={!!logToInvalidate} log={logToInvalidate} onClose={() => setLogToInvalidate(null)} onConfirm={handleInvalidateConfirm} currentUser={managerUser} />
             <AdjustHoursModal isOpen={!!logPairToAdjust} logPair={logPairToAdjust} onClose={() => setLogPairToAdjust(null)} onSave={handleSaveAdjustedHours} currentUser={managerUser} />

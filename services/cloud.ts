@@ -72,31 +72,11 @@ export const seedInitialData = async () => {
              });
         }
         
-        // Seed Schedule if empty
+        // Seed Schedule if empty - We rely on ensureScheduleCoverage now, but seeding a basic structure is safe
         const schedRef = doc(db, 'config', 'schedule');
         const schedSnap = await getDoc(schedRef);
         if (!schedSnap.exists()) {
-            // Generate basic schedule
-             const days = [];
-             const today = new Date();
-             for (let i = 0; i < 21; i++) {
-                 const d = new Date(today);
-                 d.setDate(today.getDate() + i);
-                 // FIX: Use MM-DD format to be consistent with app logic.
-                 const dateStr = `${d.getMonth() + 1}-${d.getDate()}`;
-                 days.push({
-                     date: dateStr,
-                     name: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()],
-                     zh: '',
-                     morning: [],
-                     evening: [],
-                     hours: {
-                         morning: {start: '10:00', end: '15:00'},
-                         evening: {start: '14:30', end: '19:00'}
-                     }
-                 });
-             }
-             await setDoc(schedRef, { week: { title: 'Weekly Schedule', days } });
+             await setDoc(schedRef, { week: { title: 'Weekly Schedule', days: [] } });
         }
 
         // Seed Users if empty (one-time migration)
@@ -159,6 +139,76 @@ export const subscribeToSchedule = (callback: (data: any) => void) => {
 export const saveSchedule = async (week: any) => {
     if (!db) return;
     await setDoc(doc(db, 'config', 'schedule'), { week }, { merge: true });
+};
+
+// Helper to normalize dates for comparison (e.g. 1-5 to 01-05)
+const padDate = (str: string) => {
+    const [m, d] = str.split('-');
+    return `${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+};
+
+export const ensureScheduleCoverage = async () => {
+    if (!db) return;
+    
+    const schedRef = doc(db, 'config', 'schedule');
+    const docSnap = await getDoc(schedRef);
+    let existingDays = docSnap.exists() ? (docSnap.data().week?.days || []) : [];
+    
+    // Create a Set of existing dates for O(1) lookup
+    const existingDateSet = new Set(existingDays.map((d: any) => padDate(d.date)));
+
+    const daysToAdd: any[] = [];
+    const now = new Date();
+    
+    // Calculate range: 1st of Current Month to End of Next Month
+    const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0); // Day 0 of month +2 is last day of month +1
+
+    const loopDate = new Date(startOfCurrentMonth);
+
+    while (loopDate <= endOfNextMonth) {
+        const month = loopDate.getMonth() + 1;
+        const day = loopDate.getDate();
+        const dateStr = `${month}-${day}`;
+        const paddedDateStr = padDate(dateStr);
+
+        if (!existingDateSet.has(paddedDateStr)) {
+            daysToAdd.push({
+                date: dateStr,
+                // Get day name (e.g., 'Monday')
+                name: loopDate.toLocaleDateString('en-US', { weekday: 'long' }), 
+                zh: '', // Chinese weekday logic can be added if needed, or derived in frontend
+                morning: [],
+                evening: [],
+                night: [], // Ensure night shift is initialized
+                hours: {
+                    morning: {start: '10:00', end: '15:00'},
+                    evening: {start: '14:30', end: '19:00'},
+                    night: {start: '18:00', end: '22:00'}
+                }
+            });
+        }
+        
+        // Move to next day
+        loopDate.setDate(loopDate.getDate() + 1);
+    }
+
+    if (daysToAdd.length > 0) {
+        console.log(`Auto-generating ${daysToAdd.length} schedule days for the upcoming 2 months.`);
+        // Merge and sort
+        const newDays = [...existingDays, ...daysToAdd].sort((a: any, b: any) => {
+            // Very basic sort assuming data is roughly current. 
+            // For rigorous sorting across years, we'd need Year stored in data, but this suffices for the rolling window context.
+            // We use the same 'smart' sort as in App.tsx
+            const dateA = new Date(`${now.getFullYear()}-${a.date}`);
+            const dateB = new Date(`${now.getFullYear()}-${b.date}`);
+            // If date is drastically in past (e.g. Dec when now is Jan), treat as next year? 
+            // For now, simple timestamp sort usually works if seeded sequentially.
+            return dateA.getTime() - dateB.getTime();
+        });
+
+        await setDoc(schedRef, { week: { ...docSnap.data()?.week, days: newDays } }, { merge: true });
+    }
 };
 
 
