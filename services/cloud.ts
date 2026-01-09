@@ -257,12 +257,20 @@ export const updateNotices = async (notices: any[]) => {
     if (!db) return { success: false };
     try {
         if (notices.length === 1) {
-             await updateDoc(doc(db, 'data', 'chat'), { notices: arrayUnion(notices[0]) });
+             // 尝试更新现有文档追加公告
+             await updateDoc(doc(db, 'data', 'chat'), { notices: arrayUnion(notices[0]) })
+                .catch(async () => {
+                    // 【修复核心】：如果更新失败（通常是因为文档不存在），则使用 setDoc 自动创建文档
+                    // merge: true 确保如果未来添加了其他字段，不会被意外覆盖
+                    await setDoc(doc(db, 'data', 'chat'), { notices: notices }, { merge: true });
+                });
         } else {
+             // 如果是全量更新/删除，直接覆盖
              await setDoc(doc(db, 'data', 'chat'), { notices }, { merge: true });
         }
         return { success: true };
     } catch (e) {
+        console.error("Update Notice Error:", e); // 方便在控制台看到具体报错
         return { success: false };
     }
 };
