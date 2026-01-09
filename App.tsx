@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 // FIX: Import 'Type' for defining a response schema for structured JSON output.
 import { GoogleGenAI, Type } from "@google/genai";
@@ -11,7 +12,7 @@ import { useNotification } from './components/GlobalNotification';
 // --- CONSTANTS ---
 const STORE_COORDS = { lat: 51.9207886, lng: 4.4863897 };
 const AI_BOT_ID = 'u_ai_assistant';
-const SCHEDULE_DAYS_LENGTH = 21; // Increased from 14 to 21
+const SCHEDULE_DAYS_LENGTH = 60; // Increased to 60 days (approx 2 months)
 
 // --- HELPERS ---
 function getDistanceFromLatLonInKm(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -2182,7 +2183,9 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
     const [loading, setLoading] = useState(true);
 
     const weekStartISO = formatDateISO(weekStart);
-    const days = Array.from({ length: SCHEDULE_DAYS_LENGTH }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
+    // Explicitly use 14 days (2 weeks) here to prevent the table from becoming too wide
+    // if the global schedule range is larger.
+    const days = Array.from({ length: 14 }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
 
     useEffect(() => {
         setLoading(true);
@@ -2265,7 +2268,8 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
     
-    const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+    // Default the current week index to the current week of the month to avoid scrolling
+    const [currentWeekIndex, setCurrentWeekIndex] = useState(() => Math.max(0, Math.floor((new Date().getDate() - 1) / 7)));
     const totalWeeks = schedule?.days ? Math.ceil(schedule.days.length / 7) : 0;
     const activeStaff = users.filter((u: User) => u.active !== false);
 
@@ -2414,7 +2418,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         (newSched.days[dayIdx] as any)[shift] = newStaff; 
         
         if (!newSched.days[dayIdx].hours) {
-            newSched.days[dayIdx].hours = { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end:'19:00'} }; 
+            newSched.days[dayIdx].hours = { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end: '19:00'} }; 
         }
         
         (newSched.days[dayIdx].hours as any)[shift] = newHours; 

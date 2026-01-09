@@ -1,3 +1,4 @@
+
 // @ts-ignore
 // FIX: Added @ts-ignore to suppress potential module resolution errors in specific build environments.
 import { initializeApp } from 'firebase/app';
@@ -378,7 +379,9 @@ export const getScheduleConfirmation = async (employeeId: string, rangeStart: st
         );
         const querySnapshot = await getDocs(q);
         if (!querySnapshot.empty) {
-            return { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
+            // FIX: Cast data() to any or DocumentData to avoid spread type error.
+            const data = querySnapshot.docs[0].data() as any;
+            return { id: querySnapshot.docs[0].id, ...data };
         }
         return null;
     } catch (e) {
