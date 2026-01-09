@@ -1,7 +1,6 @@
 
-// @ts-ignore
 import { GoogleGenAI } from "@google/genai";
-import { SopItem, TrainingLevel } from "../types";
+import { SopItem, TrainingLevel, LogEntry } from "../types";
 import { DRINK_RECIPES } from "../constants";
 
 // Helper to format data for the AI context
@@ -56,3 +55,31 @@ export const getChatResponse = async (userMessage: string, sopList: SopItem[], t
         return "Sorry, I'm having trouble connecting to the brain. Please check your connection.";
     }
 };
+
+export const getManagerInsights = async (logs: LogEntry[]): Promise<string> => {
+    try {
+        if (!process.env.API_KEY) return "AI Key Missing.";
+
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        
+        // Filter last 50 logs for context
+        const recentLogs = logs.slice(0, 50).map(l => `${l.time}: ${l.name} - ${l.type} (${l.reason || ''})`).join('\n');
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Analyze these recent store logs and provide a brief, bulleted executive summary for the manager. 
+            Focus on:
+            1. Attendance anomalies (late/early).
+            2. Operational issues (inventory notes).
+            3. Any pattern that needs attention.
+            
+            Logs:
+            ${recentLogs}`,
+        });
+        
+        return response.text ?? "No insights available.";
+    } catch (error) {
+        console.error("Gemini Insight Error:", error);
+        return "Unable to generate insights at this time.";
+    }
+}

@@ -22,12 +22,12 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: 'https://cdn-icons-png.flaticon.com/512/924/924514.png', // Temporary placeholder icon
+            src: 'https://cdn-icons-png.flaticon.com/512/924/924514.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'https://cdn-icons-png.flaticon.com/512/924/924514.png', // Temporary placeholder icon
+            src: 'https://cdn-icons-png.flaticon.com/512/924/924514.png',
             sizes: '512x512',
             type: 'image/png'
           }
@@ -35,6 +35,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/cdn\.tailwindcss\.com\/.*/i,
@@ -43,7 +44,7 @@ export default defineConfig({
               cacheName: 'tailwind-cdn-cache',
               expiration: {
                 maxEntries: 10,
-                maxAgeSeconds: 60 * 60 * 24 * 365 // <== 365 days
+                maxAgeSeconds: 60 * 60 * 24 * 365 
               },
               cacheableResponse: {
                 statuses: [0, 200]
@@ -55,7 +56,10 @@ export default defineConfig({
     })
   ],
   define: {
-    // Safely polyfill process.env for browser environments
-    'process.env': JSON.stringify(process.env)
+    // Safely expose only the API Key to the browser bundle
+    'process.env.API_KEY': JSON.stringify(process.env.API_KEY)
+  },
+  build: {
+    target: 'esnext'
   }
 });
