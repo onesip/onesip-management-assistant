@@ -3580,7 +3580,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
     };
     
-    const renderView = () => {
+const renderView = () => {
         if (view === 'team') {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -3653,9 +3653,27 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                                 <div className="space-y-2">
                                                     {shiftsToRender.map(shift => {
                                                         const staffList: string[] = (daySchedule as any)[shift];
+                                                        
+                                                        // --- 修改开始：获取精准时间并格式化 ---
+                                                        const shiftTimes = daySchedule?.hours?.[shift];
+                                                        const timeDisplay = shiftTimes ? `${shiftTimes.start}-${shiftTimes.end}` : '';
+                                                        // --- 修改结束 ---
+
                                                         return (
                                                             <div key={shift} className="flex items-start gap-3">
-                                                                <span className={`text-[10px] font-black uppercase tracking-wider w-14 py-1.5 text-center rounded-md ${shift === 'morning' ? 'bg-orange-50 text-orange-500' : shift === 'evening' ? 'bg-indigo-50 text-indigo-500' : 'bg-purple-50 text-purple-500'}`}>{shift}</span>
+                                                                {/* --- 修改开始：改为垂直布局以显示时间 --- */}
+                                                                <div className="flex flex-col items-center gap-0.5 w-16 shrink-0">
+                                                                    <span className={`text-[10px] font-black uppercase tracking-wider w-full py-1.5 text-center rounded-md ${shift === 'morning' ? 'bg-orange-50 text-orange-500' : shift === 'evening' ? 'bg-indigo-50 text-indigo-500' : 'bg-purple-50 text-purple-500'}`}>
+                                                                        {shift}
+                                                                    </span>
+                                                                    {timeDisplay && (
+                                                                        <span className="text-[9px] text-gray-400 font-mono tracking-tight leading-none">
+                                                                            {timeDisplay}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                {/* --- 修改结束 --- */}
+
                                                                 <div className="flex-1 flex flex-wrap gap-2 items-center">
                                                                     {staffList.map((name: string, i: number) => { 
                                                                         const isMe = name === currentUser.name;
@@ -3687,7 +3705,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             );
         }
-        if (view === 'chat') { return <ChatView 
+            if (view === 'chat') { return <ChatView 
             t={t} 
             currentUser={currentUser} 
             messages={directMessages} 
