@@ -1092,6 +1092,7 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
 
     // --- 修复重点：补充缺失的 handleBroadcast 函数 ---
     const handleBroadcast = async () => {
+        // 如果输入为空，直接返回，不执行任何操作
         if (!broadcastText.trim()) return;
         
         const notice: Notice = { 
@@ -1105,6 +1106,7 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             imageUrl: broadcastImageUrl.trim() || undefined,
         };
 
+        // 调用云端函数保存公告
         const res = await Cloud.updateNotices([notice]); 
         
         if (res.success) {
@@ -1115,7 +1117,6 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             alert("Error: Could not post announcement.");
         }
     };
-
 
     const cancelNotice = async (id: string) => {
         if (!window.confirm("Cancel/Withdraw this announcement?")) return;
