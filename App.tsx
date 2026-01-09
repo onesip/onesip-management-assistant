@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 // FIX: Import 'Type' for defining a response schema for structured JSON output.
 import { GoogleGenAI, Type } from "@google/genai";
@@ -3535,16 +3536,33 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
-            const twentyOneDays = Array.from({ length: SCHEDULE_DAYS_LENGTH }).map((_, i) => {
-                const d = new Date(today);
-                d.setDate(d.getDate() + i);
-                return {
-                    dateObj: d,
-                    date: `${d.getMonth() + 1}-${d.getDate()}`,
-                    name: d.toLocaleDateString('en-US', { weekday: 'long' }),
-                };
-            });
-
+            // Calculate start of current week (Monday)
+            const startOfCurrentWeek = getStartOfWeek(new Date(), 0);
+            const WEEKS_TO_SHOW = 3;
+            
+            const weeksData = [];
+            for(let w=0; w<WEEKS_TO_SHOW; w++) {
+                const weekStart = new Date(startOfCurrentWeek);
+                weekStart.setDate(weekStart.getDate() + (w * 7));
+                const weekDays = [];
+                for(let d=0; d<7; d++) {
+                    const day = new Date(weekStart);
+                    day.setDate(day.getDate() + d);
+                    weekDays.push({
+                         dateObj: day,
+                         dateStr: `${day.getMonth() + 1}-${day.getDate()}`,
+                         dayName: day.toLocaleDateString('en-US', { weekday: 'long' }),
+                         displayDate: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                         isToday: day.toDateString() === today.toDateString()
+                    });
+                }
+                weeksData.push({
+                    id: w,
+                    label: w === 0 ? "Current Week" : `Week ${w + 1}`,
+                    range: `${weekDays[0].displayDate} - ${weekDays[6].displayDate}`,
+                    days: weekDays
+                });
+            }
 
             const scheduleMap = new Map<string, ScheduleDay>(
                 schedule.days?.map((day: ScheduleDay) => [normalizeDateKey(day.date), day]) || []
@@ -3555,47 +3573,67 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-black">{t.team_title}</h2></div>
                     <ConfirmationBanner />
                     
-                    <div className="space-y-4">
-                        {twentyOneDays.map((dayInfo) => {
-                            const daySchedule = scheduleMap.get(dayInfo.date);
-                            const shiftsToRender = daySchedule 
-                                ? (['morning', 'evening', 'night'] as const).filter(shift => (daySchedule as any)[shift] && (daySchedule as any)[shift].length > 0)
-                                : [];
-
-
-                            return (
-                                <div key={dayInfo.date} className="p-4 rounded-xl shadow-sm border bg-surface border-gray-100">
-                                    <div className="flex justify-between items-center mb-3">
-                                        <h3 className="font-bold text-text">{dayInfo.name} <span className="text-text-light font-normal ml-1">{dayInfo.date}</span></h3>
-                                    </div>
-                                    {shiftsToRender.length > 0 ? (
-                                        <div className="space-y-2">
-                                            {shiftsToRender.map(shift => {
-                                                const staffList: string[] = (daySchedule as any)[shift];
-                                                return (
-                                                    <div key={shift} className="flex items-center gap-2">
-                                                        <span className={`text-xs font-bold w-14 text-center capitalize ${shift === 'morning' ? 'text-orange-500' : shift === 'evening' ? 'text-indigo-500' : 'text-purple-500'}`}>{shift}</span>
-                                                        <div className="flex-1 flex flex-wrap gap-2 items-center">
-                                                            {staffList.map((name: string, i: number) => { 
-                                                                const isMe = name === currentUser.name;
-                                                                return (
-                                                                    <div key={i} className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white' : 'bg-secondary text-text-light'}`}>
-                                                                        {name}
-                                                                        {isMe && <button onClick={() => { setCurrentSwap({ date: dayInfo.date, shift }); setIsSwapModalOpen(true); }} className="text-white/70 hover:text-white hover:bg-white/10 rounded-full p-1 -m-1 transition-colors"><Icon name="Refresh" size={12} /></button>}
-                                                                    </div>
-                                                                ); 
-                                                            })}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    ) : (
-                                        <p className="text-sm text-text-light italic">No shifts scheduled.</p>
-                                    )}
+                    <div className="space-y-8">
+                        {weeksData.map((week) => (
+                            <div key={week.id} className="space-y-3">
+                                <div className="sticky top-0 bg-secondary/95 backdrop-blur-sm z-10 py-2 border-b border-gray-200/50 flex justify-between items-end">
+                                    <h3 className="text-lg font-black text-primary">{week.label}</h3>
+                                    <span className="text-xs font-bold text-text-light">{week.range}</span>
                                 </div>
-                            );
-                        })}
+                                <div className="space-y-3">
+                                {week.days.map((dayInfo) => {
+                                    const daySchedule = scheduleMap.get(normalizeDateKey(dayInfo.dateStr));
+                                    const shiftsToRender = daySchedule 
+                                        ? (['morning', 'evening', 'night'] as const).filter(shift => (daySchedule as any)[shift] && (daySchedule as any)[shift].length > 0)
+                                        : [];
+                                    
+                                    const isTodayClass = dayInfo.isToday ? 'ring-2 ring-primary ring-offset-2 border-primary/20' : 'border-gray-100';
+
+                                    return (
+                                        <div key={dayInfo.dateStr} className={`p-4 rounded-xl shadow-sm border bg-surface ${isTodayClass}`}>
+                                             {/* Header */}
+                                            <div className="flex justify-between items-center mb-3">
+                                                <h3 className="font-bold text-text flex items-center gap-2">
+                                                    {dayInfo.dayName} 
+                                                    <span className="text-text-light font-normal text-sm">{dayInfo.dateStr}</span>
+                                                    {dayInfo.isToday && <span className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Today</span>}
+                                                </h3>
+                                            </div>
+                                            {/* Shifts */}
+                                            {shiftsToRender.length > 0 ? (
+                                                <div className="space-y-2">
+                                                    {shiftsToRender.map(shift => {
+                                                        const staffList: string[] = (daySchedule as any)[shift];
+                                                        return (
+                                                            <div key={shift} className="flex items-start gap-3">
+                                                                <span className={`text-[10px] font-black uppercase tracking-wider w-14 py-1.5 text-center rounded-md ${shift === 'morning' ? 'bg-orange-50 text-orange-500' : shift === 'evening' ? 'bg-indigo-50 text-indigo-500' : 'bg-purple-50 text-purple-500'}`}>{shift}</span>
+                                                                <div className="flex-1 flex flex-wrap gap-2 items-center">
+                                                                    {staffList.map((name: string, i: number) => { 
+                                                                        const isMe = name === currentUser.name;
+                                                                        return (
+                                                                            <div key={i} className={`flex items-center gap-1.5 pl-3 pr-2 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white border-primary shadow-sm' : 'bg-secondary text-text-light border-transparent'}`}>
+                                                                                {name}
+                                                                                {isMe && <button onClick={(e) => { e.stopPropagation(); setCurrentSwap({ date: dayInfo.dateStr, shift }); setIsSwapModalOpen(true); }} className="text-white/70 hover:text-white hover:bg-white/20 rounded-full p-1 -mr-1 transition-colors"><Icon name="Refresh" size={10} /></button>}
+                                                                            </div>
+                                                                        ); 
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-2 opacity-50">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-gray-300"></div>
+                                                    <p className="text-xs text-text-light italic">No shifts scheduled</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             );
