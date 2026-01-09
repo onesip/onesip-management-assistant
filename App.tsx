@@ -1023,9 +1023,12 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
 const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isManager, sopList, trainingLevels, allUsers }: any) => {
     const [activeChannel, setActiveChannel] = useState<string | null>(null);
     const [inputText, setInputText] = useState('');
+    
+    // 确保公告相关的 State 定义完整
     const [broadcastText, setBroadcastText] = useState('');
     const [broadcastImageUrl, setBroadcastImageUrl] = useState('');
     const [broadcastFreq, setBroadcastFreq] = useState<'always' | 'daily' | '3days' | 'once'>('always');
+    
     const [isAiTyping, setIsAiTyping] = useState(false);
     const messagesEndRef = useRef<null | HTMLDivElement>(null);
 
@@ -1087,8 +1090,10 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
         }
     };
 
+    // --- 修复重点：补充缺失的 handleBroadcast 函数 ---
     const handleBroadcast = async () => {
         if (!broadcastText.trim()) return;
+        
         const notice: Notice = { 
             id: Date.now().toString(), 
             author: currentUser.name, 
@@ -1099,7 +1104,9 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             status: 'active',
             imageUrl: broadcastImageUrl.trim() || undefined,
         };
+
         const res = await Cloud.updateNotices([notice]); 
+        
         if (res.success) {
             setBroadcastText('');
             setBroadcastImageUrl('');
@@ -1108,6 +1115,7 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
             alert("Error: Could not post announcement.");
         }
     };
+
 
     const cancelNotice = async (id: string) => {
         if (!window.confirm("Cancel/Withdraw this announcement?")) return;
