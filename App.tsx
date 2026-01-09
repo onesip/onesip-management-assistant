@@ -42,15 +42,23 @@ function getYouTubeId(url: string | undefined) {
     return (match && match[2].length === 11) ? match[2] : null;
 }
 
+// FIX: Correct logic for getting the Monday of the week.
 const getStartOfWeek = (date: Date, weekOffset = 0) => {
     const d = new Date(date);
-    d.setDate(d.getDate() - d.getDay() + 1 + (weekOffset * 7)); // +1 for Monday start
-    if (d.getDay() === 0) d.setDate(d.getDate() - 7); // Adjust if getDay() is Sunday
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+    d.setDate(diff + (weekOffset * 7));
     d.setHours(0,0,0,0);
     return d;
 }
 
-const formatDateISO = (date: Date) => date.toISOString().split('T')[0];
+// FIX: Helper to format date as YYYY-MM-DD using local time to prevent timezone shifts.
+const formatDateISO = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 
 const formattedDate = (isoString: string | number) => {
     if (!isoString) return 'No Date';
@@ -621,10 +629,10 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
             );
 
             Promise.all(fetchPromises).then(results => {
-                const mergedSlots = results.reduce((acc, data) => {
+                const mergedSlots = results.reduce((acc: any, data: any) => {
                     return { ...acc, ...(data?.slots || {}) };
                 }, {});
-                setSlots(mergedSlots);
+                setSlots(mergedSlots as StaffAvailability['slots']);
                 setIsLoading(false);
             });
         }
@@ -642,7 +650,7 @@ const AvailabilityModal = ({ isOpen, onClose, t, currentUser }: { isOpen: boolea
 
     const handleSave = async () => {
         const existingDataPromises = weekStartKeys.map(key => Cloud.getStaffAvailability(currentUser.id, key));
-        const existingResults = await Promise.all(existingDataPromises);
+        const existingResults = await Promise.all(existingDataPromises) as any[];
 
         const finalSlotsByWeek: { [key: string]: StaffAvailability['slots'] } = {};
         weekStartKeys.forEach((key, index) => {
@@ -2178,7 +2186,7 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
 
     useEffect(() => {
         setLoading(true);
-        const unsub = Cloud.subscribeToAvailabilitiesForWeek(weekStartISO, (data) => {
+        const unsub = Cloud.subscribeToAvailabilitiesForWeek(weekStartISO, (data: any[]) => {
             setAvailabilities(data);
             setLoading(false);
         });

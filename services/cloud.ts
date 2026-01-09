@@ -14,7 +14,10 @@ import {
     getDocs,
     query,
     where,
-    addDoc
+    addDoc,
+    QuerySnapshot,
+    DocumentData,
+    DocumentSnapshot
 } from 'firebase/firestore';
 import { INITIAL_MENU_DATA, INITIAL_ANNOUNCEMENT_DATA, INITIAL_WIKI_DATA, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES, USERS } from '../constants';
 import { ChatReadState, ScheduleCycle, User } from '../types';
@@ -117,8 +120,8 @@ export const seedInitialData = async () => {
 export const subscribeToUsers = (callback: (data: any) => void) => {
     if (!db) return () => {};
     // Real-time listener for the new 'users' collection
-    return onSnapshot(collection(db, 'users'), (snapshot) => {
-        const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return onSnapshot(collection(db, 'users'), (snapshot: any) => {
+        const users = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
         callback(users);
     });
 };
@@ -134,7 +137,7 @@ export const saveUser = async (user: User) => {
 // --- INVENTORY ---
 export const subscribeToInventory = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'inventory'), (doc) => {
+    return onSnapshot(doc(db, 'data', 'inventory'), (doc: any) => {
         if (doc.exists()) callback(doc.data().items);
     });
 };
@@ -147,7 +150,7 @@ export const saveInventoryList = async (items: any[]) => {
 // --- SCHEDULE ---
 export const subscribeToSchedule = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'config', 'schedule'), (doc) => {
+    return onSnapshot(doc(db, 'config', 'schedule'), (doc: any) => {
         if (doc.exists()) callback(doc.data().week);
     });
 };
@@ -161,7 +164,7 @@ export const saveSchedule = async (week: any) => {
 // --- LOGS (Clock In/Out) ---
 export const subscribeToLogs = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'logs'), (doc) => {
+    return onSnapshot(doc(db, 'data', 'logs'), (doc: any) => {
         if (doc.exists()) callback(doc.data().entries || []);
     });
 };
@@ -185,7 +188,7 @@ export const updateLogs = async (logs: any[]) => {
 // --- CHAT & NOTICES ---
 export const subscribeToChat = (callback: (msgs: any[], notices: any[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'chat'), (doc) => {
+    return onSnapshot(doc(db, 'data', 'chat'), (doc: any) => {
         if (doc.exists()) {
             const d = doc.data();
             callback(d.messages || [], d.notices || []);
@@ -221,7 +224,7 @@ export const clearAllNotices = async () => {
 // --- CHAT READ STATE (NEW) ---
 export const subscribeToChatReadState = (userId: string, callback: (data: ChatReadState | null) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'chat_read_state', userId), (doc) => {
+    return onSnapshot(doc(db, 'chat_read_state', userId), (doc: any) => {
         callback(doc.exists() ? doc.data() as ChatReadState : null);
     });
 };
@@ -241,8 +244,8 @@ export const saveChatReadState = async (userId: string, lastReadAt: Date) => {
 export const subscribeToSwaps = (callback: (reqs: any[]) => void) => {
     if (!db) return () => {};
     // FIX: Changed from listening to a single doc to the entire collection for proper querying.
-    return onSnapshot(collection(db, 'swapRequests'), (snapshot) => {
-        const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return onSnapshot(collection(db, 'swapRequests'), (snapshot: any) => {
+        const requests = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
         callback(requests);
     });
 };
@@ -273,7 +276,7 @@ export const updateSwapRequests = async (requests: any[]) => {
 // --- SALES ---
 export const subscribeToSales = (callback: (sales: any[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'sales'), (doc) => {
+    return onSnapshot(doc(db, 'data', 'sales'), (doc: any) => {
         if (doc.exists()) callback(doc.data().records || []);
     });
 };
@@ -287,7 +290,7 @@ export const saveSalesRecord = async (record: any) => {
 // --- INVENTORY HISTORY ---
 export const subscribeToInventoryHistory = (callback: (reports: any[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'inventory_history'), (doc) => {
+    return onSnapshot(doc(db, 'data', 'inventory_history'), (doc: any) => {
         if (doc.exists()) callback(doc.data().reports || []);
     });
 };
@@ -306,7 +309,7 @@ export const updateInventoryHistory = async (reports: any[]) => {
 // --- CONTENT (SOP/Training/Recipes) ---
 export const subscribeToContent = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'config', 'content'), (doc) => {
+    return onSnapshot(doc(db, 'config', 'content'), (doc: any) => {
         if (doc.exists()) callback(doc.data());
     });
 };
@@ -319,7 +322,7 @@ export const saveContent = async (key: 'sops'|'training'|'recipes', list: any[])
 // --- INVENTORY LOGS ---
 export const subscribeToInventoryLogs = (callback: (logs: any[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'inventory_logs'), (doc) => {
+    return onSnapshot(doc(db, 'data', 'inventory_logs'), (doc: any) => {
         if (doc.exists()) callback(doc.data().entries || []);
     });
 };
@@ -353,9 +356,9 @@ export const saveStaffAvailability = async (userId: string, weekStart: string, s
 export const subscribeToAvailabilitiesForWeek = (weekStart: string, callback: (data: any[]) => void) => {
     if (!db) return () => {};
     const q = query(collection(db, "staff_availability"), where("weekStart", "==", weekStart));
-    return onSnapshot(q, (querySnapshot) => {
+    return onSnapshot(q, (querySnapshot: any) => {
         const availabilities: any[] = [];
-        querySnapshot.forEach((doc) => {
+        querySnapshot.forEach((doc: any) => {
             availabilities.push(doc.data());
         });
         callback(availabilities);
@@ -387,8 +390,8 @@ export const getScheduleConfirmation = async (employeeId: string, rangeStart: st
 export const subscribeToScheduleConfirmations = (callback: (data: any[]) => void) => {
     if (!db) return () => {};
     const q = query(collection(db, "scheduleConfirmations"));
-    return onSnapshot(q, (snapshot) => {
-        const confirmations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return onSnapshot(q, (snapshot: any) => {
+        const confirmations = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
         callback(confirmations);
     });
 };
@@ -453,7 +456,7 @@ export const saveScheduleConfirmation = async (employeeId: string, rangeStart: s
 // --- SCHEDULE CYCLES (NEW) ---
 export const subscribeToScheduleCycles = (callback: (data: ScheduleCycle[]) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'schedule_cycles'), (doc) => {
+    return onSnapshot(doc(db, 'data', 'schedule_cycles'), (doc: any) => {
         if (doc.exists()) {
             callback(doc.data().cycles || []);
         } else {
