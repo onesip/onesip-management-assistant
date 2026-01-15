@@ -2393,21 +2393,201 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const handleWageChange = (name: string, val: string) => { const num = parseFloat(val); const newWages = { ...wages, [name]: isNaN(num) ? 0 : num }; setWages(newWages); localStorage.setItem('onesip_wages', JSON.stringify(newWages)); };
     const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem('onesip_budget_max', b.toString()); };
 
+// --- 1. 辅助函数：计算单次班次成本 ---
+    const getShiftCost = (staff: string[], start: string, end: string) => {
+        if (!staff || staff.length === 0) return 0;
+        if (typeof start !== 'string' || typeof end !== 'string' || !start.includes(':') || !end.includes(':')) return 0;
+        const s = parseInt(start.split(':')[0], 10) + (parseInt(start.split(':')[1] || '0', 10) / 60);
+        const e = parseInt(end.split(':')[0], 10) + (parseInt(end.split(':')[1] || '0', 10) / 60);
+        const duration = Math.max(0, e - s);
+        // 使用当前工资状态计算
+        return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
+    };
+
+    // --- 2. 核心：计算全局财务概览 (Staff Stats) ---
     const calculateFinancials = () => {
         const stats: Record<string, any> = {};
         activeStaff.forEach((m:User) => { stats[m.name] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 }; });
-        if (displayedDays) { displayedDays.forEach((day: ScheduleDay) => { day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ }); day.evening.forEach((p: string) => { if(stats[p]) stats[p].evening++ }); }); }
+        
+        // 预计工时 (基于排班)
+        if (displayedDays) { 
+            displayedDays.forEach((day: ScheduleDay) => { 
+                day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ }); 
+                day.evening.forEach((p: string) => { if(stats[p]) stats[p].evening++ }); 
+            }); 
+        }
+        
+        // 实际工时 (基于打卡 Logs)
         const userLogs: Record<string, LogEntry[]> = {};
         if (logs) { logs.forEach((l: LogEntry) => { if (!l.name) return; if (!userLogs[l.name]) userLogs[l.name] = []; userLogs[l.name].push(l); }); }
-        Object.keys(userLogs).forEach(name => { if(!stats[name]) return; const sorted = userLogs[name].sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime()); let lastIn: number | null = null; sorted.forEach(log => { if (log.shift === 'clock-in') { lastIn = new Date(log.time).getTime(); } else if (log.shift === 'clock-out' && lastIn) { const diffHrs = (new Date(log.time).getTime() - lastIn) / (1000 * 60 * 60); if (diffHrs > 0 && diffHrs < 16) { stats[name].actualHours += diffHrs; } lastIn = null; } }); });
+        
+        Object.keys(userLogs).forEach(name => { 
+            if(!stats[name]) return; 
+            const sorted = userLogs[name].sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime()); 
+            let lastIn: number | null = null; 
+            sorted.forEach(log => { 
+                if (log.type === 'clock-in') { lastIn = new Date(log.time).getTime(); } 
+                else if (log.type === 'clock-out' && lastIn) { 
+                    const diffHrs = (new Date(log.time).getTime() - lastIn) / (1000 * 60 * 60); 
+                    if (diffHrs > 0 && diffHrs < 16) { stats[name].actualHours += diffHrs; } 
+                    lastIn = null; 
+                } 
+            }); 
+        });
+
         let totalEstCost = 0; let totalActualCost = 0;
-        Object.keys(stats).forEach(p => { const estH = (stats[p].morning * 5) + (stats[p].evening * 4.5); const wage = wages[p] || 12; stats[p].estHours = estH; stats[p].estCost = estH * wage; stats[p].actualCost = stats[p].actualHours * wage; totalEstCost += stats[p].estCost; totalActualCost += stats[p].actualCost; });
+        Object.keys(stats).forEach(p => { 
+            // 简单估算：早班5h，晚班4.5h (仅用于概览，具体每一天在 getDailyFinancials 计算)
+            const estH = (stats[p].morning * 5) + (stats[p].evening * 4.5); 
+            const wage = wages[p] || 12; 
+            stats[p].estHours = estH; 
+            stats[p].estCost = estH * wage; 
+            stats[p].actualCost = stats[p].actualHours * wage; 
+            totalEstCost += stats[p].estCost; 
+            totalActualCost += stats[p].actualCost; 
+        });
         return { stats, totalEstCost, totalActualCost };
     };
     const { stats, totalEstCost, totalActualCost } = calculateFinancials();
 
-    const exportFinancialCSV = () => { let csv = "Name,Wage,Est.Hours,Est.Cost,Act.Hours,Act.Cost\n"; Object.keys(stats).forEach(name => { const s = stats[name]; csv += `${name},${Number(wages[name] || 0).toFixed(2)},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)}\n`; }); csv += `TOTALS,,${totalEstCost.toFixed(2)},,${totalActualCost.toFixed(2)}\n`; const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "financial_report.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
-    
+// --- 3. 新增：每日财务明细 (Daily Breakdown) - 增强版 (包含员工明细) ---
+    const getDailyFinancials = () => {
+        return displayedDays.map((day: ScheduleDay) => {
+            const staffMap: Record<string, { est: number, act: number, wage: number }> = {};
+
+            // 1. 计算预计成本 (Schedule) - 细化到人
+            const calcShiftEst = (shift: 'morning'|'evening'|'night', start: string, end: string) => {
+                if (!day[shift] || !start || !end) return;
+                // @ts-ignore
+                const staffList: string[] = day[shift];
+                const s = parseInt(start.split(':')[0], 10) + (parseInt(start.split(':')[1] || '0', 10) / 60);
+                const e = parseInt(end.split(':')[0], 10) + (parseInt(end.split(':')[1] || '0', 10) / 60);
+                const duration = Math.max(0, e - s);
+                
+                staffList.forEach(name => {
+                    if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, wage: wages[name] || 12 };
+                    staffMap[name].est += duration * staffMap[name].wage;
+                });
+            };
+
+            calcShiftEst('morning', day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
+            calcShiftEst('evening', day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
+            if (day.night) calcShiftEst('night', day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00');
+
+            // 2. 计算实际成本 (Logs) - 细化到人
+            const dayLogs = logs.filter(l => {
+                const lDate = new Date(l.time);
+                // 简单日期匹配 (M-D)
+                return `${lDate.getMonth() + 1}-${lDate.getDate()}` === day.date;
+            });
+
+            const logsByUser: Record<string, LogEntry[]> = {};
+            dayLogs.forEach(l => {
+                const uid = l.userId || 'unknown';
+                if (!logsByUser[uid]) logsByUser[uid] = [];
+                logsByUser[uid].push(l);
+            });
+
+            Object.entries(logsByUser).forEach(([uid, userLogs]) => {
+                const userName = users.find(u => u.id === uid)?.name || userLogs[0].name || 'Unknown';
+                if (!staffMap[userName]) staffMap[userName] = { est: 0, act: 0, wage: wages[userName] || 12 };
+
+                userLogs.sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+                let lastIn: number | null = null;
+                let userHours = 0;
+                
+                userLogs.forEach(log => {
+                    if (log.type === 'clock-in') lastIn = new Date(log.time).getTime();
+                    else if (log.type === 'clock-out' && lastIn) {
+                        const diff = (new Date(log.time).getTime() - lastIn) / (1000 * 60 * 60);
+                        if (diff > 0 && diff < 16) userHours += diff;
+                        lastIn = null;
+                    }
+                });
+                staffMap[userName].act += userHours * staffMap[userName].wage;
+            });
+
+            // 3. 汇总与格式化
+            let estTotal = 0;
+            let actTotal = 0;
+            const details = Object.entries(staffMap).map(([name, data]) => {
+                estTotal += data.est;
+                actTotal += data.act;
+                return { name, ...data };
+            }).sort((a, b) => b.act - a.act); // 按实际花费降序排
+
+            return {
+                date: day.date,
+                name: day.name,
+                est: estTotal,
+                act: actTotal,
+                diff: estTotal - actTotal,
+                details: details // 包含了每个员工当天的 est 和 act
+            };
+        });
+    };
+
+    // --- 4. 导出逻辑 ---
+    const handleExportFinancialCSV = () => {
+        const dailyData = getDailyFinancials();
+        
+        let csv = "FINANCIAL REPORT\n";
+        csv += `Budget Max,${budgetMax}\n`;
+        csv += `Total Estimated,${totalEstCost.toFixed(2)}\n`;
+        csv += `Total Actual,${totalActualCost.toFixed(2)}\n`;
+        csv += `Balance,${(budgetMax - totalActualCost).toFixed(2)}\n\n`;
+
+        csv += "STAFF SUMMARY (TOTALS)\nName,Wage,Est.Hrs,Est.Cost,Act.Hrs,Act.Cost\n";
+        Object.keys(stats).forEach(name => {
+            const s = stats[name];
+            csv += `${name},${wages[name] || 0},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)}\n`;
+        });
+
+        csv += "\nDAILY BREAKDOWN (SUMMARY)\nDate,Day,Estimated Cost,Actual Cost,Difference\n";
+        dailyData.forEach(d => {
+            csv += `${d.date},${d.name},${d.est.toFixed(2)},${d.act.toFixed(2)},${d.diff.toFixed(2)}\n`;
+        });
+
+        // 新增：每日详细到人的数据块
+        csv += "\nDAILY BREAKDOWN (DETAILED BY STAFF)\nDate,Staff Name,Wage,Est. Cost,Act. Cost,Notes\n";
+        dailyData.forEach(d => {
+            d.details.forEach((staff: any) => {
+                const note = staff.act > staff.est ? "Over Schedule" : staff.act < staff.est ? "Under Schedule" : "Match";
+                csv += `${d.date},${staff.name},${staff.wage},${staff.est.toFixed(2)},${staff.act.toFixed(2)},${note}\n`;
+            });
+        });
+
+        const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `financial_report_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const handleExportLogsCSV = () => {
+        let csv = "Log ID,Name,User ID,Type,Time,Reason,Edit Note\n";
+        logs.forEach(l => {
+            csv += `${l.id},${l.name},${l.userId},${l.type},"${l.time}","${l.reason || ''}","${l.manualEditReason || ''}"\n`;
+        });
+        const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `attendance_logs_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    // 本周排班预估 (用于 Planning View)
+    const totalWeeklyPlanningCost = displayedDays?.slice(0, 7).reduce((acc: number, day: ScheduleDay) => {
+        const m = getShiftCost(day.morning, day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
+        const e = getShiftCost(day.evening, day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
+        const n = day.night ? getShiftCost(day.night, day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00') : 0;
+        return acc + m + e + n;
+    }, 0) || 0;
+
     const handleApplySwap = async (reqId: string) => {
         const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
         if (!req) { showNotification({ type: 'announcement', title: "Error", message: "Swap request not found." }); return; }
@@ -2483,27 +2663,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     };
     
     const allReqs = swapRequests?.slice().sort((a: SwapRequest, b: SwapRequest) => b.timestamp - a.timestamp) || [];
-
-    const getShiftCost = (staff: string[], start: string, end: string) => {
-        if (!staff || staff.length === 0) return 0;
-        
-        if (typeof start !== 'string' || typeof end !== 'string' || !start.includes(':') || !end.includes(':')) {
-            console.error("Invalid time format passed to getShiftCost", { start, end });
-            return 0;
-        }
-
-        const s = parseInt(start.split(':')[0], 10) + (parseInt(start.split(':')[1] || '0', 10) / 60);
-        const e = parseInt(end.split(':')[0], 10) + (parseInt(end.split(':')[1] || '0', 10) / 60);
-        const duration = Math.max(0, e - s);
-        return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
-    };
-    
-    const totalWeeklyPlanningCost = displayedDays?.slice(0, 7).reduce((acc: number, day: ScheduleDay) => {
-        const m = getShiftCost(day.morning, day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
-        const e = getShiftCost(day.evening, day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
-        const n = day.night ? getShiftCost(day.night, day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00') : 0;
-        return acc + m + e + n;
-    }, 0) || 0;
 
     const visibleLogs = logs?.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
     
@@ -2815,33 +2974,129 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     </div>
                 )}
                 {view === 'financial' && (
-                    <div className="space-y-4">
-                        <div className="bg-dark-surface p-5 rounded-2xl shadow-sm border border-white/10">
-                            <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2"><Icon name="Briefcase"/> Financial Dashboard</h3>
-                            <div className="mb-4"><label className="block text-xs font-bold text-dark-text-light mb-1">Monthly Budget Max (€)</label><input type="number" className="w-full border rounded p-2 text-lg font-bold bg-dark-bg border-white/10" value={budgetMax} onChange={e => handleBudgetChange(e.target.value)} /></div>
-                            <div className="grid grid-cols-2 gap-4 text-center mb-6">
-                                <div className="bg-dark-bg p-3 rounded-xl"><p className="text-xs text-dark-text-light font-bold uppercase">Est. Cost</p><p className="text-xl font-black text-white">€{totalEstCost.toFixed(0)}</p></div>
-                                <div className="bg-dark-bg p-3 rounded-xl"><p className="text-xs text-dark-text-light font-bold uppercase">Actual Cost</p><p className="text-xl font-black text-white">€{totalActualCost.toFixed(0)}</p></div>
-                            </div>
+                    <div className="space-y-4 pb-10">
+                        {/* 1. 顶部概览卡片 */}
+                        <div className="bg-dark-surface p-5 rounded-2xl shadow-lg border border-white/10">
+                            <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Briefcase" size={16}/> Financial Overview</h3>
+                            
                             <div className="mb-6">
-                                <div className="flex justify-between items-center mb-2"><span className="text-sm font-bold text-dark-text-light">Budget Usage</span><span className={`font-bold ${totalActualCost > budgetMax ? 'text-red-400' : 'text-green-400'}`}>{totalActualCost > budgetMax ? 'OVER BUDGET' : `${(budgetMax - totalActualCost).toFixed(0)} Left`}</span></div>
-                                <div className="w-full bg-dark-bg rounded-full h-2.5 overflow-hidden"><div className={`h-2.5 rounded-full ${totalActualCost > budgetMax ? 'bg-red-500' : 'bg-dark-accent'}`} style={{ width: `${Math.min(100, (totalActualCost/budgetMax)*100)}%` }}></div></div>
+                                <label className="block text-xs font-bold text-dark-text-light mb-1 uppercase">Monthly Budget Max (€)</label>
+                                <input type="number" className="w-full border rounded-xl p-3 text-xl font-black bg-dark-bg border-white/10 text-white focus:ring-2 focus:ring-dark-accent outline-none" value={budgetMax} onChange={e => handleBudgetChange(e.target.value)} />
                             </div>
-                            <div className="border border-white/10 rounded-xl overflow-hidden mb-4">
-                                <table className="w-full text-xs"><thead className="bg-dark-bg text-dark-text-light"><tr><th className="p-2 text-left">Staff</th><th className="p-2">Wage/Hr</th><th className="p-2">Act. Hrs</th><th className="p-2">Cost</th></tr></thead>
-                                    <tbody className="divide-y divide-white/10">{Object.keys(stats).map(name => (
-                                        <tr key={name}>
-                                            <td className="p-2 font-bold text-dark-text">{name}</td>
-                                            <td className="p-2 text-center">
-                                                <input type="number" step="0.01" className="w-12 text-center border rounded bg-dark-bg border-white/20 text-dark-text" value={wages[name] || ''} onChange={(e) => handleWageChange(name, e.target.value)}/>
-                                            </td>
-                                            <td className="p-2 text-center text-dark-text-light">{stats[name].actualHours.toFixed(1)}</td>
-                                            <td className="p-2 text-right font-mono text-dark-text">€{stats[name].actualCost.toFixed(0)}</td>
+
+                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5">
+                                    <p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Projected (Sched)</p>
+                                    <p className="text-xl font-black text-white">€{totalEstCost.toFixed(0)}</p>
+                                </div>
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5 relative overflow-hidden">
+                                    <div className="absolute right-0 top-0 p-1"><div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div></div>
+                                    <p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Actual (Logs)</p>
+                                    <p className="text-xl font-black text-white">€{totalActualCost.toFixed(0)}</p>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-xs font-bold text-dark-text-light uppercase">Budget Used</span>
+                                    <span className={`text-xs font-black ${totalActualCost > budgetMax ? 'text-red-400' : 'text-green-400'}`}>
+                                        {totalActualCost > budgetMax ? 'OVER BUDGET' : `€${(budgetMax - totalActualCost).toFixed(0)} Left`}
+                                    </span>
+                                </div>
+                                <div className="w-full bg-dark-bg rounded-full h-3 overflow-hidden border border-white/5">
+                                    <div className={`h-full rounded-full transition-all duration-500 ${totalActualCost > budgetMax ? 'bg-red-500' : 'bg-gradient-to-r from-green-500 to-emerald-400'}`} style={{ width: `${Math.min(100, (totalActualCost/budgetMax)*100)}%` }}></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 2. 员工工资设置 */}
+                        <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
+                            <div className="p-3 bg-white/5 border-b border-white/10"><h4 className="font-bold text-sm text-white">Staff Wage Settings (€/hr)</h4></div>
+                            <table className="w-full text-xs">
+                                <thead className="bg-dark-bg text-dark-text-light uppercase">
+                                    <tr><th className="p-3 text-left">Staff</th><th className="p-3 text-center">Hourly Wage</th><th className="p-3 text-right">Act. Cost</th></tr>
+                                </thead>
+                                <tbody className="divide-y divide-white/10">
+                                    {Object.keys(stats).map(name => (
+                                    <tr key={name}>
+                                        <td className="p-3 font-bold text-dark-text">{name}</td>
+                                        <td className="p-3 text-center">
+                                            <input type="number" step="0.5" className="w-16 text-center py-1 rounded bg-dark-bg border border-white/20 text-white font-mono focus:border-dark-accent outline-none" value={wages[name] || ''} onChange={(e) => handleWageChange(name, e.target.value)}/>
+                                        </td>
+                                        <td className="p-3 text-right font-mono text-dark-text-light">€{stats[name].actualCost.toFixed(0)}</td>
+                                    </tr>
+                                ))}</tbody>
+                            </table>
+                        </div>
+
+                        {/* 3. 每日用度详情 (Daily Breakdown) */}
+                        <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
+                            <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center">
+                                <h4 className="font-bold text-sm text-white">Daily Breakdown (2 Months)</h4>
+                                <span className="text-[10px] text-dark-text-light bg-dark-bg px-2 py-1 rounded">Est vs Act</span>
+                            </div>
+                            <div className="max-h-64 overflow-y-auto">
+                                <table className="w-full text-xs">
+                                    <thead className="bg-dark-bg text-dark-text-light uppercase sticky top-0 z-10">
+                                        <tr>
+                                            <th className="p-3 text-left">Date</th>
+                                            <th className="p-3 text-right">Est.</th>
+                                            <th className="p-3 text-right">Act.</th>
+                                            <th className="p-3 text-right">Diff</th>
                                         </tr>
-                                    ))}</tbody>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/10">
+                                        {getDailyFinancials().map((d: any) => (
+                                            <React.Fragment key={d.date}>
+                                                {/* 汇总行 */}
+                                                <tr className="hover:bg-white/5 transition-colors bg-white/5 border-b border-white/5">
+                                                    <td className="p-3">
+                                                        <div className="font-bold text-white">{d.date}</div>
+                                                        <div className="text-[10px] text-dark-text-light">{d.name}</div>
+                                                    </td>
+                                                    <td className="p-3 text-right font-mono text-dark-text-light">€{d.est.toFixed(0)}</td>
+                                                    <td className="p-3 text-right font-mono font-bold text-white">€{d.act.toFixed(0)}</td>
+                                                    <td className="p-3 text-right font-mono">
+                                                        <span className={`px-1.5 py-0.5 rounded ${Math.abs(d.diff) < 1 ? 'bg-white/5 text-gray-400' : d.diff < 0 ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+                                                            {d.diff > 0 ? '+' : ''}{d.diff.toFixed(0)}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                                {/* 员工明细行 */}
+                                                {d.details.length > 0 && (
+                                                    <tr>
+                                                        <td colSpan={4} className="p-2 pl-4 border-b border-white/10 bg-dark-bg/30">
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                {d.details.map((staff: any, idx: number) => (
+                                                                    <div key={idx} className="flex justify-between items-center text-[10px] bg-dark-surface p-1.5 rounded border border-white/5">
+                                                                        <span className="text-dark-text font-bold">{staff.name}</span>
+                                                                        <div className="flex gap-2 font-mono">
+                                                                            <span className="text-dark-text-light">E:{staff.est.toFixed(0)}</span>
+                                                                            <span className={`font-bold ${staff.act > staff.est ? 'text-red-400' : staff.act < staff.est ? 'text-blue-300' : 'text-green-400'}`}>
+                                                                                A:{staff.act.toFixed(0)}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
+                                        ))}
+                                    </tbody>
                                 </table>
                             </div>
-                            <button onClick={exportFinancialCSV} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-md flex justify-center gap-2 transition-all hover:bg-green-700"><Icon name="List" /> Export Report (CSV)</button>
+                        </div>
+
+                        {/* 4. 导出按钮 */}
+                        <div className="grid grid-cols-2 gap-3 pt-2">
+                            <button onClick={handleExportLogsCSV} className="bg-white/10 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-white/20 transition-all border border-white/5">
+                                <Icon name="Clock" size={16} /> Export Logs CSV
+                            </button>
+                            <button onClick={handleExportFinancialCSV} className="bg-green-600 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-green-700 transition-all shadow-lg">
+                                <Icon name="List" size={16} /> Export Report CSV
+                            </button>
                         </div>
                     </div>
                 )}
