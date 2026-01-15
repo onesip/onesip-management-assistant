@@ -61,6 +61,38 @@ const formatDateISO = (date: Date) => {
     return `${year}-${month}-${day}`;
 };
 
+// --- 新增：强力日期解析器，解决 14-1-2026 这种格式无法识别的问题 ---
+const safeParseDate = (dateStr: string | number): Date | null => {
+    if (!dateStr) return null;
+    // 如果已经是数字(时间戳)，直接转
+    if (typeof dateStr === 'number') return new Date(dateStr);
+    
+    // 尝试标准解析
+    let date = new Date(dateStr);
+    if (!isNaN(date.getTime())) return date;
+
+    // 如果标准解析失败，处理常见的手动格式 (如 DD-MM-YYYY 或 DD/MM/YYYY)
+    if (typeof dateStr === 'string') {
+        // 替换所有 / 为 - 方便统一处理
+        const parts = dateStr.replace(/\//g, '-').split(' ')[0].split('-'); // 仅取日期部分
+        if (parts.length === 3) {
+            // 假设格式为 DD-MM-YYYY (例如 14-1-2026)
+            // 如果第一位大于12，肯定是日期；如果第三位是4位数，肯定是年份
+            const p1 = parseInt(parts[0]);
+            const p2 = parseInt(parts[1]);
+            const p3 = parseInt(parts[2]);
+
+            // 尝试重组为 YYYY-MM-DD (ISO格式，JS最喜欢这个)
+            if (p3 > 1000) { 
+                // 格式: 14-1-2026 -> 2026-01-14
+                date = new Date(`${p3}-${p2}-${p1}T00:00:00`); 
+            }
+        }
+    }
+    
+    return isNaN(date.getTime()) ? null : date;
+};
+
 const formattedDate = (isoString: string | number) => {
     if (!isoString) return 'No Date';
     try {
@@ -2411,12 +2443,11 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
     };
 
-    // --- 2. 核心：计算全局财务概览 (Staff Stats) ---
+// --- 2. 核心：计算全局财务概览 (Staff Stats) - 最终修复版 ---
     const calculateFinancials = () => {
         const stats: Record<string, any> = {};
         activeStaff.forEach((m:User) => { stats[m.name] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 }; });
         
-        // 预计工时 (基于排班)
         if (displayedDays) { 
             displayedDays.forEach((day: ScheduleDay) => { 
                 day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ }); 
@@ -2424,19 +2455,43 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             }); 
         }
         
-        // 实际工时 (基于打卡 Logs)
-        const userLogs: Record<string, LogEntry[]> = {};
-        if (logs) { logs.forEach((l: LogEntry) => { if (!l.name) return; if (!userLogs[l.name]) userLogs[l.name] = []; userLogs[l.name].push(l); }); }
+        const logsByUser: Record<string, LogEntry[]> = {};
+        if (logs) { 
+            logs.forEach((l: LogEntry) => { 
+                if (l.isDeleted) return; 
+                // 只有日期有效的才计入
+                if (!safeParseDate(l.time)) return;
+                
+                const key = l.userId || l.name || 'unknown';
+                if (!logsByUser[key]) logsByUser[key] = []; 
+                logsByUser[key].push(l); 
+            }); 
+        }
         
-        Object.keys(userLogs).forEach(name => { 
-            if(!stats[name]) return; 
-            const sorted = userLogs[name].sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime()); 
+        Object.entries(logsByUser).forEach(([key, userLogs]) => { 
+            let userObj = users.find(u => u.id === key);
+            if (!userObj) userObj = users.find(u => u.name === key);
+            const userName = userObj ? userObj.name : (userLogs[0].name || 'Unknown');
+
+            if(!stats[userName]) {
+                 stats[userName] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 };
+            }
+
+            const sorted = userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0)); 
             let lastIn: number | null = null; 
+            
             sorted.forEach(log => { 
-                if (log.type === 'clock-in') { lastIn = new Date(log.time).getTime(); } 
+                const t = safeParseDate(log.time)?.getTime();
+                if (!t) return;
+
+                if (log.type === 'clock-in') { 
+                    lastIn = t; 
+                } 
                 else if (log.type === 'clock-out' && lastIn) { 
-                    const diffHrs = (new Date(log.time).getTime() - lastIn) / (1000 * 60 * 60); 
-                    if (diffHrs > 0 && diffHrs < 16) { stats[name].actualHours += diffHrs; } 
+                    const diffHrs = (t - lastIn) / (1000 * 60 * 60); 
+                    if (diffHrs > 0.016 && diffHrs < 24) { 
+                        stats[userName].actualHours += diffHrs; 
+                    } 
                     lastIn = null; 
                 } 
             }); 
@@ -2444,25 +2499,28 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
         let totalEstCost = 0; let totalActualCost = 0;
         Object.keys(stats).forEach(p => { 
-            // 简单估算：早班5h，晚班4.5h (仅用于概览，具体每一天在 getDailyFinancials 计算)
             const estH = (stats[p].morning * 5) + (stats[p].evening * 4.5); 
             const wage = wages[p] || 12; 
+            
             stats[p].estHours = estH; 
             stats[p].estCost = estH * wage; 
             stats[p].actualCost = stats[p].actualHours * wage; 
+            
             totalEstCost += stats[p].estCost; 
             totalActualCost += stats[p].actualCost; 
         });
         return { stats, totalEstCost, totalActualCost };
     };
+    
+    // 【关键修复】必须加上这一行，把计算结果解构出来，否则下面会报 ReferenceError
     const { stats, totalEstCost, totalActualCost } = calculateFinancials();
 
-// --- 3. 新增：每日财务明细 (Daily Breakdown) - 增强版 (包含员工明细) ---
+// --- 3. 新增：每日财务明细 (Daily Breakdown) - 最终修复版 (含强力日期解析) ---
     const getDailyFinancials = () => {
         return displayedDays.map((day: ScheduleDay) => {
             const staffMap: Record<string, { est: number, act: number, wage: number }> = {};
 
-            // 1. 计算预计成本 (Schedule) - 细化到人
+            // 1. 计算预计成本 (Schedule)
             const calcShiftEst = (shift: 'morning'|'evening'|'night', start: string, end: string) => {
                 if (!day[shift] || !start || !end) return;
                 // @ts-ignore
@@ -2481,47 +2539,69 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             calcShiftEst('evening', day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
             if (day.night) calcShiftEst('night', day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00');
 
-            // 2. 计算实际成本 (Logs) - 细化到人
+            // 2. 计算实际成本 (Logs)
+            // 使用 safeParseDate 处理各种奇怪的日期格式
             const dayLogs = logs.filter(l => {
-                const lDate = new Date(l.time);
-                // 简单日期匹配 (M-D)
+                const lDate = safeParseDate(l.time);
+                if (!lDate) return false;
+                // 匹配 M-D，例如 1-15
                 return `${lDate.getMonth() + 1}-${lDate.getDate()}` === day.date;
             });
 
             const logsByUser: Record<string, LogEntry[]> = {};
             dayLogs.forEach(l => {
-                const uid = l.userId || 'unknown';
+                const uid = l.userId || l.name || 'unknown';
                 if (!logsByUser[uid]) logsByUser[uid] = [];
                 logsByUser[uid].push(l);
             });
 
             Object.entries(logsByUser).forEach(([uid, userLogs]) => {
-                const userName = users.find(u => u.id === uid)?.name || userLogs[0].name || 'Unknown';
+                // 尝试匹配用户姓名以获取工资
+                let userObj = users.find(u => u.id === uid);
+                if (!userObj) userObj = users.find(u => u.name === uid);
+                const userName = userObj ? userObj.name : (userLogs[0].name || 'Unknown');
+                
                 if (!staffMap[userName]) staffMap[userName] = { est: 0, act: 0, wage: wages[userName] || 12 };
 
-                userLogs.sort((a,b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+                // 按时间排序
+                userLogs.sort((a,b) => {
+                    const ta = safeParseDate(a.time)?.getTime() || 0;
+                    const tb = safeParseDate(b.time)?.getTime() || 0;
+                    return ta - tb;
+                });
+                
                 let lastIn: number | null = null;
                 let userHours = 0;
                 
                 userLogs.forEach(log => {
-                    if (log.type === 'clock-in') lastIn = new Date(log.time).getTime();
+                    if (log.isDeleted) return;
+                    const t = safeParseDate(log.time)?.getTime();
+                    if (!t) return;
+
+                    if (log.type === 'clock-in') {
+                        lastIn = t;
+                    } 
                     else if (log.type === 'clock-out' && lastIn) {
-                        const diff = (new Date(log.time).getTime() - lastIn) / (1000 * 60 * 60);
-                        if (diff > 0 && diff < 16) userHours += diff;
+                        const diffHrs = (t - lastIn) / (1000 * 60 * 60);
+                        // 宽松限制：只要 > 1分钟 且 < 24小时
+                        if (diffHrs > 0.016 && diffHrs < 24) {
+                            userHours += diffHrs;
+                        }
                         lastIn = null;
                     }
                 });
+                
                 staffMap[userName].act += userHours * staffMap[userName].wage;
             });
 
-            // 3. 汇总与格式化
+            // 3. 汇总
             let estTotal = 0;
             let actTotal = 0;
             const details = Object.entries(staffMap).map(([name, data]) => {
                 estTotal += data.est;
                 actTotal += data.act;
                 return { name, ...data };
-            }).sort((a, b) => b.act - a.act); // 按实际花费降序排
+            }).sort((a, b) => b.act - a.act); 
 
             return {
                 date: day.date,
@@ -2529,7 +2609,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 est: estTotal,
                 act: actTotal,
                 diff: estTotal - actTotal,
-                details: details // 包含了每个员工当天的 est 和 act
+                details: details 
             };
         });
     };
