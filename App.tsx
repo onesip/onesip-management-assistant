@@ -64,32 +64,23 @@ const formatDateISO = (date: Date) => {
 // --- 新增：强力日期解析器，解决 14-1-2026 这种格式无法识别的问题 ---
 const safeParseDate = (dateStr: string | number): Date | null => {
     if (!dateStr) return null;
-    // 如果已经是数字(时间戳)，直接转
     if (typeof dateStr === 'number') return new Date(dateStr);
     
-    // 尝试标准解析
     let date = new Date(dateStr);
     if (!isNaN(date.getTime())) return date;
 
-    // 如果标准解析失败，处理常见的手动格式 (如 DD-MM-YYYY 或 DD/MM/YYYY)
     if (typeof dateStr === 'string') {
-        // 替换所有 / 为 - 方便统一处理
-        const parts = dateStr.replace(/\//g, '-').split(' ')[0].split('-'); // 仅取日期部分
+        // 尝试处理 DD-MM-YYYY 或 DD/MM/YYYY
+        const parts = dateStr.replace(/\//g, '-').split(' ')[0].split('-');
         if (parts.length === 3) {
-            // 假设格式为 DD-MM-YYYY (例如 14-1-2026)
-            // 如果第一位大于12，肯定是日期；如果第三位是4位数，肯定是年份
             const p1 = parseInt(parts[0]);
             const p2 = parseInt(parts[1]);
             const p3 = parseInt(parts[2]);
-
-            // 尝试重组为 YYYY-MM-DD (ISO格式，JS最喜欢这个)
-            if (p3 > 1000) { 
-                // 格式: 14-1-2026 -> 2026-01-14
+            if (p3 > 1000) { // p3是年份：14-01-2026 -> 2026-01-14
                 date = new Date(`${p3}-${p2}-${p1}T00:00:00`); 
             }
         }
     }
-    
     return isNaN(date.getTime()) ? null : date;
 };
 
@@ -2459,9 +2450,10 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         if (logs) { 
             logs.forEach((l: LogEntry) => { 
                 if (l.isDeleted) return; 
-                // 只有日期有效的才计入
+                // 使用 safeParseDate 过滤无效日期
                 if (!safeParseDate(l.time)) return;
                 
+                // 优先使用 ID 匹配，没有则用 Name
                 const key = l.userId || l.name || 'unknown';
                 if (!logsByUser[key]) logsByUser[key] = []; 
                 logsByUser[key].push(l); 
@@ -2469,6 +2461,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         }
         
         Object.entries(logsByUser).forEach(([key, userLogs]) => { 
+            // 尝试匹配用户姓名以获取工资
             let userObj = users.find(u => u.id === key);
             if (!userObj) userObj = users.find(u => u.name === key);
             const userName = userObj ? userObj.name : (userLogs[0].name || 'Unknown');
@@ -2477,6 +2470,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                  stats[userName] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 };
             }
 
+            // 使用 safeParseDate 进行排序
             const sorted = userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0)); 
             let lastIn: number | null = null; 
             
@@ -2489,7 +2483,8 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 } 
                 else if (log.type === 'clock-out' && lastIn) { 
                     const diffHrs = (t - lastIn) / (1000 * 60 * 60); 
-                    if (diffHrs > 0.016 && diffHrs < 24) { 
+                    // 【关键修复】宽松限制：只要 > 0.01小时 (约36秒) 且 < 24小时都算有效
+                    if (diffHrs > 0.01 && diffHrs < 24) { 
                         stats[userName].actualHours += diffHrs; 
                     } 
                     lastIn = null; 
@@ -2511,8 +2506,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         });
         return { stats, totalEstCost, totalActualCost };
     };
-    
-    // 【关键修复】必须加上这一行，把计算结果解构出来，否则下面会报 ReferenceError
     const { stats, totalEstCost, totalActualCost } = calculateFinancials();
 
 // --- 3. 新增：每日财务明细 (Daily Breakdown) - 最终修复版 (含强力日期解析) ---
@@ -2540,11 +2533,10 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             if (day.night) calcShiftEst('night', day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00');
 
             // 2. 计算实际成本 (Logs)
-            // 使用 safeParseDate 处理各种奇怪的日期格式
             const dayLogs = logs.filter(l => {
-                const lDate = safeParseDate(l.time);
+                const lDate = safeParseDate(l.time); // 使用强力解析
                 if (!lDate) return false;
-                // 匹配 M-D，例如 1-15
+                // 匹配 M-D
                 return `${lDate.getMonth() + 1}-${lDate.getDate()}` === day.date;
             });
 
@@ -2556,19 +2548,13 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             });
 
             Object.entries(logsByUser).forEach(([uid, userLogs]) => {
-                // 尝试匹配用户姓名以获取工资
                 let userObj = users.find(u => u.id === uid);
                 if (!userObj) userObj = users.find(u => u.name === uid);
                 const userName = userObj ? userObj.name : (userLogs[0].name || 'Unknown');
                 
                 if (!staffMap[userName]) staffMap[userName] = { est: 0, act: 0, wage: wages[userName] || 12 };
 
-                // 按时间排序
-                userLogs.sort((a,b) => {
-                    const ta = safeParseDate(a.time)?.getTime() || 0;
-                    const tb = safeParseDate(b.time)?.getTime() || 0;
-                    return ta - tb;
-                });
+                userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
                 
                 let lastIn: number | null = null;
                 let userHours = 0;
@@ -2583,8 +2569,8 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     } 
                     else if (log.type === 'clock-out' && lastIn) {
                         const diffHrs = (t - lastIn) / (1000 * 60 * 60);
-                        // 宽松限制：只要 > 1分钟 且 < 24小时
-                        if (diffHrs > 0.016 && diffHrs < 24) {
+                        // 【关键修复】宽松限制
+                        if (diffHrs > 0.01 && diffHrs < 24) {
                             userHours += diffHrs;
                         }
                         lastIn = null;
@@ -2594,7 +2580,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 staffMap[userName].act += userHours * staffMap[userName].wage;
             });
 
-            // 3. 汇总
             let estTotal = 0;
             let actTotal = 0;
             const details = Object.entries(staffMap).map(([name, data]) => {
