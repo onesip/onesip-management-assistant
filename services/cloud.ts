@@ -258,19 +258,20 @@ export const updateNotices = async (notices: any[]) => {
     try {
         if (notices.length === 1) {
              // 尝试更新现有文档追加公告
+             // 如果 updateDoc 失败（例如文档不存在），catch 会捕获错误并执行 setDoc 创建文档
              await updateDoc(doc(db, 'data', 'chat'), { notices: arrayUnion(notices[0]) })
-                .catch(async () => {
-                    // 【修复核心】：如果更新失败（通常是因为文档不存在），则使用 setDoc 自动创建文档
-                    // merge: true 确保如果未来添加了其他字段，不会被意外覆盖
+                .catch(async (err) => {
+                    console.log("Document does not exist, creating new one...", err);
+                    // 【关键修复】：使用 setDoc 自动创建文档，并使用 merge: true 防止覆盖其他字段
                     await setDoc(doc(db, 'data', 'chat'), { notices: notices }, { merge: true });
                 });
         } else {
-             // 如果是全量更新/删除，直接覆盖
+             // 如果是全量更新/删除操作，直接覆盖/合并
              await setDoc(doc(db, 'data', 'chat'), { notices }, { merge: true });
         }
         return { success: true };
     } catch (e) {
-        console.error("Update Notice Error:", e); // 方便在控制台看到具体报错
+        console.error("Update Notice Error:", e);
         return { success: false };
     }
 };

@@ -64,18 +64,25 @@ const formatDateISO = (date: Date) => {
 const formattedDate = (isoString: string | number) => {
     if (!isoString) return 'No Date';
     try {
+        // 尝试构建日期对象
         const date = new Date(isoString);
+        
+        // 检查日期是否有效
         if (isNaN(date.getTime())) {
-            return 'Invalid Date';
+            // 如果解析失败，尝试直接返回原始字符串（可能本身就是人类可读的）
+            // 或者如果它是 undefined/null，返回 '-'
+            return String(isoString) || '-';
         }
+
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
         const day = String(date.getDate()).padStart(2, '0');
         const hours = String(date.getHours()).padStart(2, '0');
         const minutes = String(date.getMinutes()).padStart(2, '0');
         return `${year}/${month}/${day} ${hours}:${minutes}`;
-    } catch {
-        return String(isoString); // Fallback
+    } catch (e) {
+        console.error("Date parsing error:", e, isoString);
+        return String(isoString); // 发生异常时的回退显示
     }
 }
 
@@ -2941,22 +2948,29 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                 <Icon name="Plus" size={16} /> Add Manual Attendance
                             </button>
                         </div>
-                        {visibleLogs.map((log: LogEntry) => {
+                    </div>
+                    {visibleLogs.map((log: LogEntry) => {
                             const isAttendance = log.type === 'clock-in' || log.type === 'clock-out';
                             const isInventory = log.type === 'inventory';
 
                             return (
                                 <div key={log.id} className={`bg-dark-surface p-3 rounded-lg shadow-sm text-sm border-l-4 ${log.isDeleted ? 'border-gray-500 opacity-60' : 'border-dark-accent'}`}>
+                                    {/* 第一行：名字和时间 */}
                                     <div className="flex justify-between mb-1">
                                         <span className="font-bold text-dark-text">{log.name}</span>
-                                        <span className="text-xs text-dark-text-light">{new Date(log.time).toLocaleString()}</span>
+                                        <span className="text-xs text-dark-text-light">{formattedDate(log.time)}</span>
                                     </div>
+                                    
+                                    {/* 第二行：类型标签 和 操作按钮 */}
                                     <div className="flex justify-between items-center">
+                                        {/* 左侧：类型和状态 */}
                                         <div>
                                             <span className={`px-2 py-0.5 rounded text-[10px] ${log.type?.includes('in') ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{log.type}</span>
                                             {log.isDeleted && <span className="ml-2 text-[10px] font-bold text-gray-400">[INVALIDATED]</span>}
                                             {log.isManual && <span className="ml-2 text-[10px] font-bold text-yellow-400">[MANUAL]</span>}
                                         </div>
+
+                                        {/* 右侧：地点和按钮 */}
                                         <div className="flex items-center gap-2">
                                             <span className="text-[10px] text-dark-text-light font-mono">{log.reason || 'No Location'}</span>
                                             {!log.isDeleted && (
@@ -2967,11 +2981,13 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                             )}
                                         </div>
                                     </div>
-                                     {log.isDeleted && <p className="text-xs mt-2 text-gray-400 border-t border-white/10 pt-2">Reason: {log.deleteReason}</p>}
+                                    
+                                    {/* 第三行（可选）：删除原因或编辑备注 */}
+                                    {log.isDeleted && <p className="text-xs mt-2 text-gray-400 border-t border-white/10 pt-2">Reason: {log.deleteReason}</p>}
+                                    {log.manualInventoryEdited && <p className="text-xs mt-2 text-yellow-500 border-t border-white/10 pt-2">Edit Note: {log.manualInventoryEditReason}</p>}
                                 </div>
                             );
                         })}
-                    </div>
                 )}
                 {view === 'financial' && (
                     <div className="space-y-4 pb-10">
