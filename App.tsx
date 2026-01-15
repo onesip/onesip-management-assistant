@@ -3007,14 +3007,16 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     </div>
                 )}
                 {view === 'logs' && (
-                     <div className="space-y-2">
+                    <div className="space-y-2">
+                        {/* 顶部按钮区 */}
                         <div className="flex justify-end mb-4">
                             <button onClick={() => setIsAddingManualLog(true)} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all">
                                 <Icon name="Plus" size={16} /> Add Manual Attendance
                             </button>
                         </div>
-                    </div>
-                    {visibleLogs.map((log: LogEntry) => {
+
+                        {/* 日志列表循环 - 必须放在 div 内部 */}
+                        {visibleLogs.map((log: LogEntry) => {
                             const isAttendance = log.type === 'clock-in' || log.type === 'clock-out';
                             const isInventory = log.type === 'inventory';
 
@@ -3053,7 +3055,9 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                 </div>
                             );
                         })}
+                    </div>
                 )}
+                
                 {view === 'financial' && (
                     <div className="space-y-4 pb-10">
                         {/* 1. 顶部概览卡片 */}
