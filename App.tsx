@@ -562,60 +562,114 @@ const AdminLoginModal = ({ isOpen, onClose, onLogin }: { isOpen: boolean, onClos
     );
 };
 
-const ScheduleEditorModal = ({ isOpen, day, shiftType, currentStaff, currentHours, onClose, onSave, teamMembers }: any) => {
-    const [selectedStaff, setSelectedStaff] = useState<string[]>(currentStaff || []);
-    const [startTime, setStartTime] = useState(currentHours?.start || (shiftType === 'morning' ? '10:00' : shiftType === 'evening' ? '14:30' : '18:00'));
-    const [endTime, setEndTime] = useState(currentHours?.end || (shiftType === 'morning' ? '15:00' : shiftType === 'evening' ? '19:00' : '22:00'));
+const ScheduleEditorModal = ({ isOpen, day, onClose, onSave, teamMembers }: any) => {
+    // 初始化班次数据：如果有新结构用新结构，否则尝试从旧结构迁移
+    const [shifts, setShifts] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (day) {
+            if (day.shifts && day.shifts.length > 0) {
+                setShifts(JSON.parse(JSON.stringify(day.shifts)));
+            } else {
+                // 兼容旧数据：把 morning/evening/night 转换为 list
+                const migratedShifts = [];
+                if (day.morning) migratedShifts.push({ id: 's1', name: 'Shift 1', start: day.hours?.morning?.start || '10:00', end: day.hours?.morning?.end || '15:00', staff: day.morning });
+                if (day.evening) migratedShifts.push({ id: 's2', name: 'Shift 2', start: day.hours?.evening?.start || '14:30', end: day.hours?.evening?.end || '19:00', staff: day.evening });
+                if (day.night) migratedShifts.push({ id: 's3', name: 'Shift 3', start: day.hours?.night?.start || '18:00', end: day.hours?.night?.end || '22:00', staff: day.night });
+                
+                // 如果是全新的一天，没有任何数据，默认加一个空班次
+                if (migratedShifts.length === 0) {
+                    migratedShifts.push({ id: `s_${Date.now()}`, name: 'Shift 1', start: '10:00', end: '15:00', staff: [] });
+                }
+                setShifts(migratedShifts);
+            }
+        }
+    }, [day]);
 
     if (!isOpen) return null;
 
-    const toggleStaff = (name: string) => {
-        if (selectedStaff.includes(name)) {
-            setSelectedStaff(selectedStaff.filter(s => s !== name));
-        } else {
-            if (selectedStaff.length >= 4) return alert("Max 4 staff per shift");
-            setSelectedStaff([...selectedStaff, name]);
+    const handleAddShift = () => {
+        const newId = `s_${Date.now()}`;
+        const nextNum = shifts.length + 1;
+        setShifts([...shifts, { id: newId, name: `Shift ${nextNum}`, start: '12:00', end: '16:00', staff: [] }]);
+    };
+
+    const handleRemoveShift = (idx: number) => {
+        if (window.confirm("Delete this shift slot?")) {
+            const newShifts = [...shifts];
+            newShifts.splice(idx, 1);
+            // 重命名以保持顺序
+            newShifts.forEach((s, i) => s.name = `Shift ${i + 1}`);
+            setShifts(newShifts);
         }
+    };
+
+    const toggleStaff = (shiftIndex: number, staffName: string) => {
+        const newShifts = [...shifts];
+        const currentStaff = newShifts[shiftIndex].staff;
+        if (currentStaff.includes(staffName)) {
+            newShifts[shiftIndex].staff = currentStaff.filter((n: string) => n !== staffName);
+        } else {
+            newShifts[shiftIndex].staff = [...currentStaff, staffName];
+        }
+        setShifts(newShifts);
+    };
+
+    const updateTime = (index: number, field: 'start' | 'end', value: string) => {
+        const newShifts = [...shifts];
+        newShifts[index][field] = value;
+        setShifts(newShifts);
     };
 
     return (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-            <div className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-pop-in">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-black text-text">{day.name} - <span className="capitalize text-primary">{shiftType}</span></h3>
+            <div className="bg-surface rounded-2xl p-6 w-full max-w-md shadow-2xl animate-pop-in max-h-[90vh] flex flex-col">
+                <div className="flex justify-between items-center mb-4 shrink-0">
+                    <h3 className="text-lg font-black text-text">{day.name} ({day.date})</h3>
                     <button onClick={onClose}><Icon name="X" /></button>
                 </div>
 
-                <div className="mb-4 bg-secondary p-3 rounded-xl border border-gray-100">
-                    <label className="block text-xs font-bold text-text-light mb-2 uppercase">Shift Hours</label>
-                    <div className="flex gap-2 items-center">
-                        <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="bg-surface border rounded p-2 text-sm font-bold flex-1" />
-                        <span className="text-gray-400">-</span>
-                        <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="bg-surface border rounded p-2 text-sm font-bold flex-1" />
-                    </div>
+                <div className="flex-1 overflow-y-auto space-y-6 pr-2">
+                    {shifts.map((shift, idx) => (
+                        <div key={shift.id} className="bg-secondary p-3 rounded-xl border border-gray-200 relative">
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="font-bold text-primary text-sm uppercase">班次 {idx + 1}</span>
+                                <button onClick={() => handleRemoveShift(idx)} className="text-red-400 hover:text-red-600"><Icon name="Trash" size={14} /></button>
+                            </div>
+                            
+                            <div className="flex gap-2 items-center mb-3">
+                                <input type="time" value={shift.start} onChange={e => updateTime(idx, 'start', e.target.value)} className="bg-surface border rounded p-1.5 text-sm font-bold flex-1 text-center" />
+                                <span className="text-gray-400">-</span>
+                                <input type="time" value={shift.end} onChange={e => updateTime(idx, 'end', e.target.value)} className="bg-surface border rounded p-1.5 text-sm font-bold flex-1 text-center" />
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                                {teamMembers.map((member: User) => (
+                                    <button 
+                                        key={member.id} 
+                                        onClick={() => toggleStaff(idx, member.name)}
+                                        className={`p-1.5 rounded-lg text-[10px] font-bold transition-all truncate ${shift.staff.includes(member.name) ? 'bg-primary text-white shadow-md' : 'bg-surface text-text-light hover:bg-gray-200'}`}
+                                    >
+                                        {member.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                    
+                    <button onClick={handleAddShift} className="w-full py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 font-bold hover:border-primary hover:text-primary transition-all flex items-center justify-center gap-2">
+                        <Icon name="Plus" size={18} /> 添加班次 (Add Shift)
+                    </button>
                 </div>
 
-                <div className="mb-6">
-                    <label className="block text-xs font-bold text-text-light mb-2 uppercase">Select Staff</label>
-                    <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
-                        {teamMembers.map((member: User) => (
-                            <button 
-                                key={member.id} 
-                                onClick={() => toggleStaff(member.name)}
-                                className={`p-2 rounded-lg text-xs font-bold transition-all ${selectedStaff.includes(member.name) ? 'bg-primary text-white shadow-md' : 'bg-secondary text-text-light hover:bg-gray-200'}`}
-                            >
-                                {member.name}
-                            </button>
-                        ))}
-                    </div>
+                <div className="mt-4 pt-4 border-t shrink-0">
+                    <button 
+                        onClick={() => onSave(shifts)} 
+                        className="w-full bg-primary text-white py-3 rounded-xl font-bold shadow-lg hover:bg-primary-dark transition-all"
+                    >
+                        Save All Shifts
+                    </button>
                 </div>
-
-                <button 
-                    onClick={() => onSave(selectedStaff, { start: startTime, end: endTime })} 
-                    className="w-full bg-primary text-white py-3 rounded-xl font-bold shadow-lg"
-                >
-                    Save Schedule
-                </button>
             </div>
         </div>
     );
@@ -2704,36 +2758,30 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     };
 
 
-    const handleSaveSchedule = (newStaff: string[], newHours: {start:string, end:string}) => { 
+    const handleSaveSchedule = (updatedShifts: any[]) => { 
         if (!editingShift) return; 
-        const { dayIdx, shift } = editingShift; 
+        const { dayIdx } = editingShift; // 现在我们只需要 dayIdx
         
-        // Find the index in the original schedule.days array
-        // editingShift.dayIdx now refers to the index in displayedDays
         const targetDay = displayedDays[dayIdx];
-        
-        // Find the index in the full schedule array
         const realIndex = schedule.days.findIndex((d: ScheduleDay) => d.date === targetDay.date);
 
         if (realIndex === -1) return;
 
         const newSched = JSON.parse(JSON.stringify(schedule));
         
-        if (!newSched.days || !newSched.days[realIndex]) return;
+        // 更新新的 shifts 字段
+        newSched.days[realIndex].shifts = updatedShifts;
 
-        (newSched.days[realIndex] as any)[shift] = newStaff; 
-        
-        if (!newSched.days[realIndex].hours) {
-            newSched.days[realIndex].hours = { morning: {start:'10:00', end:'15:00'}, evening: {start:'14:30', end: '19:00'} }; 
-        }
-        
-        (newSched.days[realIndex].hours as any)[shift] = newHours; 
+        // 同时清空旧字段以避免混淆 (可选，为了数据干净建议做)
+        newSched.days[realIndex].morning = [];
+        newSched.days[realIndex].evening = [];
+        newSched.days[realIndex].night = [];
         
         setSchedule(newSched); 
         Cloud.saveSchedule(newSched); 
         setEditingShift(null); 
     };
-    
+
     const allReqs = swapRequests?.slice().sort((a: SwapRequest, b: SwapRequest) => b.timestamp - a.timestamp) || [];
 
     const visibleLogs = logs?.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
@@ -2867,35 +2915,46 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                                     <button onClick={() => setCurrentWeekIndex(Math.min(totalWeeks - 1, currentWeekIndex + 1))} disabled={currentWeekIndex >= totalWeeks - 1} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronRight" size={16}/></button>
                                 </div>
                             </div>
-                            <p className="text-xs text-dark-text-light">Tap on a shift to edit staff & times.</p>
+                            <p className="text-xs text-dark-text-light">Tap "Edit" to manage shifts.</p>
                             <button onClick={handlePublishSchedule} className="w-full mt-3 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2.5 rounded-lg">
                                 Publish Current View ({displayedDays.length} days)
                             </button>
                         </div>
                         {displayedDays?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, dayIndexInWeek: number) => {
                             const absoluteDayIndex = currentWeekIndex * 7 + dayIndexInWeek;
-                            const isWeekend = ['Friday', 'Saturday', 'Sunday'].includes(day.name);
+                            // 数据兼容：如果只有旧数据，临时转换一下显示（不存库）
+                            let displayShifts = day.shifts || [];
+                            if (displayShifts.length === 0) {
+                                if (day.morning && day.morning.length) displayShifts.push({ name: 'Shift 1', start: day.hours?.morning?.start||'10:00', end: day.hours?.morning?.end||'15:00', staff: day.morning });
+                                if (day.evening && day.evening.length) displayShifts.push({ name: 'Shift 2', start: day.hours?.evening?.start||'14:30', end: day.hours?.evening?.end||'19:00', staff: day.evening });
+                                if (day.night && day.night.length) displayShifts.push({ name: 'Shift 3', start: day.hours?.night?.start||'18:00', end: day.hours?.night?.end||'22:00', staff: day.night });
+                            }
+
                             return (
                                 <div key={absoluteDayIndex} className="bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10">
-                                    <div className="flex justify-between mb-2">
-                                        <span className="font-bold text-dark-text">{day.name}</span>
-                                        <span className="text-xs text-dark-text-light">{day.date}</span>
+                                    <div className="flex justify-between mb-3 items-center">
+                                        <div>
+                                            <span className="font-bold text-dark-text mr-2">{day.name}</span>
+                                            <span className="text-xs text-dark-text-light">{day.date}</span>
+                                        </div>
+                                        {/* 点击 Edit 按钮触发新的全天编辑器，不再区分 shiftType */}
+                                        <button onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'all' })} className="px-3 py-1 bg-white/10 rounded text-[10px] font-bold text-white hover:bg-white/20">Edit Shifts</button>
                                     </div>
-                                    <div className={`grid ${isWeekend ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2'} gap-2`}>
-                                        <div onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'morning' })} className="p-2 bg-orange-500/10 rounded border border-orange-500/20 cursor-pointer hover:bg-orange-500/20 transition-all">
-                                            <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-orange-400 font-bold">MORNING</div><div className="text-[10px] text-dark-text-light">{day.hours?.morning?.start || '10:00'}-{day.hours?.morning?.end || '15:00'}</div></div>
-                                            <div className="text-xs text-dark-text-light font-medium">{day.morning.length > 0 ? day.morning.join(', ') : <span className="italic">Empty</span>}</div>
-                                        </div>
-                                        <div onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'evening' })} className="p-2 bg-blue-500/10 rounded border border-blue-500/20 cursor-pointer hover:bg-blue-500/20 transition-all">
-                                            <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-blue-400 font-bold">EVENING</div><div className="text-[10px] text-dark-text-light">{day.hours?.evening?.start || '14:30'}-{day.hours?.evening?.end || '19:00'}</div></div>
-                                            <div className="text-xs text-dark-text-light font-medium">{day.evening.length > 0 ? day.evening.join(', ') : <span className="italic">Empty</span>}</div>
-                                        </div>
-                                        {isWeekend && (
-                                            <div onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'night' })} className="p-2 bg-indigo-500/10 rounded border border-indigo-500/20 cursor-pointer hover:bg-indigo-500/20 transition-all">
-                                                <div className="flex justify-between items-center mb-1"><div className="text-[10px] text-indigo-400 font-bold uppercase">Night</div><div className="text-[10px] text-dark-text-light">{day.hours?.night?.start || '18:00'}-{day.hours?.night?.end || '22:00'}</div></div>
-                                                <div className="text-xs text-dark-text-light font-medium">{day.night && day.night.length > 0 ? day.night.join(', ') : <span className="italic">Empty</span>}</div>
+                                    
+                                    <div className="space-y-2">
+                                        {displayShifts.length > 0 ? displayShifts.map((shift: any, idx: number) => (
+                                            <div key={idx} className="flex items-center gap-3 bg-dark-bg p-2 rounded border border-white/5">
+                                                <div className="w-16 shrink-0 flex flex-col items-center">
+                                                    <span className="text-[9px] font-bold text-dark-accent bg-dark-accent/10 px-1.5 py-0.5 rounded uppercase">班次 {idx + 1}</span>
+                                                    <span className="text-[9px] text-dark-text-light font-mono mt-0.5">{shift.start}-{shift.end}</span>
+                                                </div>
+                                                <div className="flex-1 flex flex-wrap gap-1">
+                                                    {shift.staff.length > 0 ? shift.staff.map((s: string, i: number) => (
+                                                        <span key={i} className="text-xs text-white bg-white/10 px-2 py-0.5 rounded">{s}</span>
+                                                    )) : <span className="text-xs text-dark-text-light italic">Empty</span>}
+                                                </div>
                                             </div>
-                                        )}
+                                        )) : <p className="text-xs text-dark-text-light italic p-2">No shifts scheduled.</p>}
                                     </div>
                                 </div>
                             )
@@ -3981,10 +4040,17 @@ const renderView = () => {
                                 <div className="space-y-3">
                                 {week.days.map((dayInfo) => {
                                     const daySchedule = scheduleMap.get(normalizeDateKey(dayInfo.dateStr));
-                                    const shiftsToRender = daySchedule 
-                                        ? (['morning', 'evening', 'night'] as const).filter(shift => (daySchedule as any)[shift] && (daySchedule as any)[shift].length > 0)
-                                        : [];
                                     
+                                    // 核心修改：兼容新旧数据，优先使用 shifts 数组
+                                    let shiftsToRender = daySchedule?.shifts || [];
+                                    
+                                    // 如果没有新数据，尝试回退到旧数据格式以便平滑过渡
+                                    if (shiftsToRender.length === 0 && daySchedule) {
+                                        if (daySchedule.morning && daySchedule.morning.length) shiftsToRender.push({ name: 'Shift 1', start: daySchedule.hours?.morning?.start, end: daySchedule.hours?.morning?.end, staff: daySchedule.morning });
+                                        if (daySchedule.evening && daySchedule.evening.length) shiftsToRender.push({ name: 'Shift 2', start: daySchedule.hours?.evening?.start, end: daySchedule.hours?.evening?.end, staff: daySchedule.evening });
+                                        if (daySchedule.night && daySchedule.night.length) shiftsToRender.push({ name: 'Shift 3', start: daySchedule.hours?.night?.start, end: daySchedule.hours?.night?.end, staff: daySchedule.night });
+                                    }
+
                                     const isTodayClass = dayInfo.isToday ? 'ring-2 ring-primary ring-offset-2 border-primary/20' : 'border-gray-100';
 
                                     return (
@@ -4000,28 +4066,23 @@ const renderView = () => {
                                             {/* Shifts */}
                                             {shiftsToRender.length > 0 ? (
                                                 <div className="space-y-2">
-                                                    {shiftsToRender.map(shift => {
-                                                        const staffList: string[] = (daySchedule as any)[shift];
-                                                        
-                                                        // --- 修改开始：获取精准时间并格式化 ---
-                                                        const shiftTimes = daySchedule?.hours?.[shift];
-                                                        const timeDisplay = shiftTimes ? `${shiftTimes.start}-${shiftTimes.end}` : '';
-                                                        // --- 修改结束 ---
+                                                    {shiftsToRender.map((shift: any, sIdx: number) => {
+                                                        const staffList: string[] = shift.staff || [];
+                                                        const timeDisplay = shift.start && shift.end ? `${shift.start}-${shift.end}` : '';
 
                                                         return (
-                                                            <div key={shift} className="flex items-start gap-3">
-                                                                {/* --- 修改开始：改为垂直布局以显示时间 --- */}
+                                                            <div key={sIdx} className="flex items-start gap-3">
                                                                 <div className="flex flex-col items-center gap-0.5 w-16 shrink-0">
-                                                                    <span className={`text-[10px] font-black uppercase tracking-wider w-full py-1.5 text-center rounded-md ${shift === 'morning' ? 'bg-orange-50 text-orange-500' : shift === 'evening' ? 'bg-indigo-50 text-indigo-500' : 'bg-purple-50 text-purple-500'}`}>
-                                                                        {shift}
+                                                                    {/* 动态班次名 */}
+                                                                    <span className={`text-[10px] font-black uppercase tracking-wider w-full py-1.5 text-center rounded-md ${sIdx === 0 ? 'bg-orange-50 text-orange-500' : sIdx === 1 ? 'bg-indigo-50 text-indigo-500' : 'bg-purple-50 text-purple-500'}`}>
+                                                                        班次 {sIdx + 1}
                                                                     </span>
                                                                     {timeDisplay && (
-                                                                        <span className="text-[9px] text-gray-400 font-mono tracking-tight leading-none">
+                                                                        <span className="text-[9px] text-text-light font-mono tracking-tight leading-none">
                                                                             {timeDisplay}
                                                                         </span>
                                                                     )}
                                                                 </div>
-                                                                {/* --- 修改结束 --- */}
 
                                                                 <div className="flex-1 flex flex-wrap gap-2 items-center">
                                                                     {staffList.map((name: string, i: number) => { 
@@ -4029,7 +4090,8 @@ const renderView = () => {
                                                                         return (
                                                                             <div key={i} className={`flex items-center gap-1.5 pl-3 pr-2 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white border-primary shadow-sm' : 'bg-secondary text-text-light border-transparent'}`}>
                                                                                 {name}
-                                                                                {isMe && <button onClick={(e) => { e.stopPropagation(); setCurrentSwap({ date: dayInfo.dateStr, shift }); setIsSwapModalOpen(true); }} className="text-white/70 hover:text-white hover:bg-white/20 rounded-full p-1 -mr-1 transition-colors"><Icon name="Refresh" size={10} /></button>}
+                                                                                {/* 注意：这里的 swap 逻辑暂时只支持前三个班次，如果需要支持无限班次换班，需要更复杂的逻辑，目前仅作展示 */}
+                                                                                {isMe && <button onClick={(e) => { e.stopPropagation(); alert("Please contact manager to swap dynamic shifts."); }} className="text-white/70 hover:text-white hover:bg-white/20 rounded-full p-1 -mr-1 transition-colors"><Icon name="Refresh" size={10} /></button>}
                                                                             </div>
                                                                         ); 
                                                                     })}

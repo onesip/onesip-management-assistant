@@ -209,17 +209,28 @@ export interface WeeklySchedule {
     }
 }
 
+export interface ScheduleShift {
+    id: string;
+    name: string;
+    start: string;
+    end: string;
+    staff: string[];
+}
+
 export interface ScheduleDay {
     date: string;
     name: string;
-    morning: string[];
-    evening: string[];
+    // --- 旧字段（保留为可选，为了兼容历史数据不报错）---
+    morning?: string[];
+    evening?: string[];
     night?: string[];
     hours?: {
         morning?: { start: string; end: string };
         evening?: { start: string; end: string };
         night?: { start: string; end: string };
     };
+    // --- 新字段：动态班次 ---
+    shifts?: ScheduleShift[];
 }
 
 export interface ToppingSlot {

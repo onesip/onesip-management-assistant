@@ -173,19 +173,18 @@ export const ensureScheduleCoverage = async () => {
         const paddedDateStr = padDate(dateStr);
 
         if (!existingDateSet.has(paddedDateStr)) {
+            // 这里修改为：默认创建3个通用班次，符合新的数据结构
             daysToAdd.push({
                 date: dateStr,
-                // Get day name (e.g., 'Monday')
                 name: loopDate.toLocaleDateString('en-US', { weekday: 'long' }), 
-                zh: '', // Chinese weekday logic can be added if needed, or derived in frontend
-                morning: [],
-                evening: [],
-                night: [], // Ensure night shift is initialized
-                hours: {
-                    morning: {start: '10:00', end: '15:00'},
-                    evening: {start: '14:30', end: '19:00'},
-                    night: {start: '18:00', end: '22:00'}
-                }
+                zh: '', 
+                // 不再初始化 morning/evening/night，而是直接初始化 shifts 数组
+                shifts: [
+                    { id: 's1', name: 'Shift 1', start: '10:00', end: '15:00', staff: [] },
+                    { id: 's2', name: 'Shift 2', start: '14:30', end: '19:00', staff: [] },
+                    { id: 's3', name: 'Shift 3', start: '18:00', end: '22:00', staff: [] }
+                ],
+                // 此时旧字段留空或不写即可，前端已有兼容逻辑
             });
         }
         
