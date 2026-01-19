@@ -61,26 +61,35 @@ const formatDateISO = (date: Date) => {
     return `${year}-${month}-${day}`;
 };
 
-// --- 新增：强力日期解析器，解决 14-1-2026 这种格式无法识别的问题 ---
+// --- 新增：终极日期解析器 (支持 DD/MM/YYYY + 保留时间) ---
 const safeParseDate = (dateStr: string | number): Date | null => {
     if (!dateStr) return null;
     if (typeof dateStr === 'number') return new Date(dateStr);
     
-    let date = new Date(dateStr);
-    if (!isNaN(date.getTime())) return date;
-
+    // 如果是字符串，先尝试匹配我们系统生成的常见格式
     if (typeof dateStr === 'string') {
-        // 尝试处理 DD-MM-YYYY 或 DD/MM/YYYY
-        const parts = dateStr.replace(/\//g, '-').split(' ')[0].split('-');
-        if (parts.length === 3) {
-            const p1 = parseInt(parts[0]);
-            const p2 = parseInt(parts[1]);
-            const p3 = parseInt(parts[2]);
-            if (p3 > 1000) { // p3是年份：14-01-2026 -> 2026-01-14
-                date = new Date(`${p3}-${p2}-${p1}T00:00:00`); 
-            }
+        const cleanStr = dateStr.trim();
+
+        // 针对 "DD/MM/YYYY, HH:mm:ss" 或 "DD-MM-YYYY HH:mm" 的正则
+        // 捕获组: 1=日, 2=月, 3=年, 4=时, 5=分, 6=秒(可选)
+        const dmyPattern = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:[,\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
+        const match = cleanStr.match(dmyPattern);
+
+        if (match) {
+            const day = parseInt(match[1], 10);
+            const month = parseInt(match[2], 10) - 1; // JS月份从0开始
+            const year = parseInt(match[3], 10);
+            const hour = match[4] ? parseInt(match[4], 10) : 0;
+            const minute = match[5] ? parseInt(match[5], 10) : 0;
+            const second = match[6] ? parseInt(match[6], 10) : 0;
+
+            const date = new Date(year, month, day, hour, minute, second);
+            if (!isNaN(date.getTime())) return date;
         }
     }
+
+    // 如果正则没匹配上（比如是 ISO 格式 2026-01-01...），回退到标准解析
+    const date = new Date(dateStr);
     return isNaN(date.getTime()) ? null : date;
 };
 
@@ -2356,7 +2365,12 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     
     // Default the current week index to the current week of the month to avoid scrolling
     const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+
     
+    // 【新增】导出月份选择，默认当前月 (格式: YYYY-MM)
+    const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7));
+
+
     // Auto-extend schedule logic
     useEffect(() => {
         const initSchedule = async () => {
@@ -2488,26 +2502,31 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
     };
 
-// --- 2. 核心：计算全局财务概览 (Staff Stats) - 最终修复版 ---
+// --- 2. 核心：计算全局财务概览 (Staff Stats) - 暴力配对版 ---
     const calculateFinancials = () => {
         const stats: Record<string, any> = {};
         activeStaff.forEach((m:User) => { stats[m.name] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 }; });
         
+        // 1. 预计工时
         if (displayedDays) { 
             displayedDays.forEach((day: ScheduleDay) => { 
-                day.morning.forEach((p: string) => { if(stats[p]) stats[p].morning++ }); 
-                day.evening.forEach((p: string) => { if(stats[p]) stats[p].evening++ }); 
+                // 兼容新旧数据结构
+                const shifts = day.shifts || [];
+                if(shifts.length === 0) {
+                     if(day.morning) day.morning.forEach(p => { if(stats[p]) stats[p].morning++ });
+                     if(day.evening) day.evening.forEach(p => { if(stats[p]) stats[p].evening++ });
+                } else {
+                     shifts.forEach((s:any) => s.staff.forEach((p:string) => { if(stats[p]) stats[p].morning++ }));
+                }
             }); 
         }
         
+        // 2. 实际工时 (暴力配对)
         const logsByUser: Record<string, LogEntry[]> = {};
         if (logs) { 
             logs.forEach((l: LogEntry) => { 
                 if (l.isDeleted) return; 
-                // 使用 safeParseDate 过滤无效日期
                 if (!safeParseDate(l.time)) return;
-                
-                // 优先使用 ID 匹配，没有则用 Name
                 const key = l.userId || l.name || 'unknown';
                 if (!logsByUser[key]) logsByUser[key] = []; 
                 logsByUser[key].push(l); 
@@ -2515,7 +2534,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         }
         
         Object.entries(logsByUser).forEach(([key, userLogs]) => { 
-            // 尝试匹配用户姓名以获取工资
             let userObj = users.find(u => u.id === key);
             if (!userObj) userObj = users.find(u => u.name === key);
             const userName = userObj ? userObj.name : (userLogs[0].name || 'Unknown');
@@ -2524,37 +2542,44 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                  stats[userName] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 };
             }
 
-            // 使用 safeParseDate 进行排序
             const sorted = userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0)); 
-            let lastIn: number | null = null; 
             
-            sorted.forEach(log => { 
-                const t = safeParseDate(log.time)?.getTime();
-                if (!t) return;
+            const processedInIds = new Set<number>();
 
-                if (log.type === 'clock-in') { 
-                    lastIn = t; 
-                } 
-                else if (log.type === 'clock-out' && lastIn) { 
-                    const diffHrs = (t - lastIn) / (1000 * 60 * 60); 
-                    // 【关键修复】宽松限制：只要 > 0.01小时 (约36秒) 且 < 24小时都算有效
-                    if (diffHrs > 0.01 && diffHrs < 24) { 
-                        stats[userName].actualHours += diffHrs; 
-                    } 
-                    lastIn = null; 
-                } 
-            }); 
+            sorted.forEach((outLog) => {
+                if (outLog.type === 'clock-out') {
+                    const outTime = safeParseDate(outLog.time)?.getTime() || 0;
+                    const outDateStr = new Date(outTime).toDateString();
+
+                    // 寻找：同天 + 类型是clock-in + 未被使用 + 时间早于outLog
+                    const matchingIn = sorted
+                        .filter(l => l.type === 'clock-in' && !processedInIds.has(l.id))
+                        .filter(l => {
+                            const t = safeParseDate(l.time)?.getTime() || 0;
+                            const dStr = new Date(t).toDateString();
+                            return t < outTime && dStr === outDateStr; 
+                        })
+                        .sort((a, b) => (safeParseDate(b.time)?.getTime()||0) - (safeParseDate(a.time)?.getTime()||0))[0]; 
+
+                    if (matchingIn) {
+                        const inTime = safeParseDate(matchingIn.time)?.getTime() || 0;
+                        const diffHrs = (outTime - inTime) / (1000 * 60 * 60);
+                        if (diffHrs > 0) {
+                            stats[userName].actualHours += diffHrs;
+                            processedInIds.add(matchingIn.id);
+                        }
+                    }
+                }
+            });
         });
 
         let totalEstCost = 0; let totalActualCost = 0;
         Object.keys(stats).forEach(p => { 
-            const estH = (stats[p].morning * 5) + (stats[p].evening * 4.5); 
+            const estH = (stats[p].morning + stats[p].evening) * 5; 
             const wage = wages[p] || 12; 
-            
             stats[p].estHours = estH; 
             stats[p].estCost = estH * wage; 
             stats[p].actualCost = stats[p].actualHours * wage; 
-            
             totalEstCost += stats[p].estCost; 
             totalActualCost += stats[p].actualCost; 
         });
@@ -2562,37 +2587,61 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     };
     const { stats, totalEstCost, totalActualCost } = calculateFinancials();
 
-// --- 3. 新增：每日财务明细 (Daily Breakdown) - 最终修复版 (含强力日期解析) ---
+// --- 3. 新增：每日财务明细 (Daily Breakdown) - 终极无敌版 (双向时间戳匹配) ---
     const getDailyFinancials = () => {
         return displayedDays.map((day: ScheduleDay) => {
             const staffMap: Record<string, { est: number, act: number, wage: number }> = {};
 
             // 1. 计算预计成本 (Schedule)
-            const calcShiftEst = (shift: 'morning'|'evening'|'night', start: string, end: string) => {
-                if (!day[shift] || !start || !end) return;
-                // @ts-ignore
-                const staffList: string[] = day[shift];
-                const s = parseInt(start.split(':')[0], 10) + (parseInt(start.split(':')[1] || '0', 10) / 60);
-                const e = parseInt(end.split(':')[0], 10) + (parseInt(end.split(':')[1] || '0', 10) / 60);
+            const scheduleShifts = day.shifts || [];
+            if (scheduleShifts.length === 0) {
+                if (day.morning && day.morning.length) scheduleShifts.push({ id: 'm', name: 'S1', start: day.hours?.morning?.start||'10:00', end: day.hours?.morning?.end||'15:00', staff: day.morning });
+                if (day.evening && day.evening.length) scheduleShifts.push({ id: 'e', name: 'S2', start: day.hours?.evening?.start||'14:30', end: day.hours?.evening?.end||'19:00', staff: day.evening });
+                if (day.night && day.night.length) scheduleShifts.push({ id: 'n', name: 'S3', start: day.hours?.night?.start||'18:00', end: day.hours?.night?.end||'22:00', staff: day.night });
+            }
+
+            scheduleShifts.forEach((shift: any) => {
+                const s = parseInt(shift.start.split(':')[0], 10) + (parseInt(shift.start.split(':')[1] || '0', 10) / 60);
+                const e = parseInt(shift.end.split(':')[0], 10) + (parseInt(shift.end.split(':')[1] || '0', 10) / 60);
                 const duration = Math.max(0, e - s);
-                
-                staffList.forEach(name => {
+                shift.staff.forEach((name: string) => {
                     if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, wage: wages[name] || 12 };
                     staffMap[name].est += duration * staffMap[name].wage;
                 });
-            };
-
-            calcShiftEst('morning', day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
-            calcShiftEst('evening', day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
-            if (day.night) calcShiftEst('night', day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00');
+            });
 
             // 2. 计算实际成本 (Logs)
+            // 【核心修复】：先把 Schedule 的日期转换成“绝对准确”的“月-日”特征字符串
+            // 我们假设 day.date 至少包含了 月和日，例如 "1-14", "01-14", "2026-01-14"
+            // 为了万无一失，我们用 safeParseDate 解析它，如果解析不了，就尝试手动修正格式
+            // 这里的策略是：构造一个标准日期对象，然后取 .toDateString() 的一部分，或者 simple month-day 匹配
+            
+            // 既然 displayedDays 已经是过滤好的日期对象（虽然存的是字符串），我们利用当前年份上下文来解析它
+            const parseScheduleDate = (dStr: string) => {
+                const parts = dStr.split('-');
+                const now = new Date();
+                // 假设是 M-D 格式 (onesip 默认格式)
+                if(parts.length === 2) {
+                     return new Date(now.getFullYear(), parseInt(parts[0])-1, parseInt(parts[1]));
+                }
+                // 假设是 YYYY-MM-DD
+                return new Date(dStr);
+            };
+
+            const scheduleDateObj = parseScheduleDate(day.date);
+            // 生成唯一指纹： "Month-Day" (e.g. "0-14" for Jan 14th)
+            // getMonth() 返回 0-11
+            const targetFingerprint = `${scheduleDateObj.getMonth()}-${scheduleDateObj.getDate()}`;
+
             const dayLogs = logs.filter(l => {
-                const lDate = safeParseDate(l.time); // 使用强力解析
-                if (!lDate) return false;
-                // 匹配 M-D
-                return `${lDate.getMonth() + 1}-${lDate.getDate()}` === day.date;
-            });
+                const lDate = safeParseDate(l.time);
+                if (!lDate || l.isDeleted) return false;
+                
+                // 对 Log 日期也生成同样的指纹
+                const logFingerprint = `${lDate.getMonth()}-${lDate.getDate()}`;
+                
+                return logFingerprint === targetFingerprint;
+            }).sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
 
             const logsByUser: Record<string, LogEntry[]> = {};
             dayLogs.forEach(l => {
@@ -2608,32 +2657,35 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 
                 if (!staffMap[userName]) staffMap[userName] = { est: 0, act: 0, wage: wages[userName] || 12 };
 
-                userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
-                
-                let lastIn: number | null = null;
                 let userHours = 0;
-                
-                userLogs.forEach(log => {
-                    if (log.isDeleted) return;
-                    const t = safeParseDate(log.time)?.getTime();
-                    if (!t) return;
+                const processedInIds = new Set<number>(); 
 
-                    if (log.type === 'clock-in') {
-                        lastIn = t;
-                    } 
-                    else if (log.type === 'clock-out' && lastIn) {
-                        const diffHrs = (t - lastIn) / (1000 * 60 * 60);
-                        // 【关键修复】宽松限制
-                        if (diffHrs > 0.01 && diffHrs < 24) {
-                            userHours += diffHrs;
+                userLogs.forEach((outLog) => {
+                    if (outLog.type === 'clock-out') {
+                        const outTime = safeParseDate(outLog.time)?.getTime() || 0;
+                        const matchingIn = userLogs
+                            .filter(l => l.type === 'clock-in' && !processedInIds.has(l.id))
+                            .filter(l => {
+                                const t = safeParseDate(l.time)?.getTime() || 0;
+                                return t < outTime;
+                            })
+                            .sort((a, b) => (safeParseDate(b.time)?.getTime()||0) - (safeParseDate(a.time)?.getTime()||0))[0];
+
+                        if (matchingIn) {
+                            const inTime = safeParseDate(matchingIn.time)?.getTime() || 0;
+                            const diffHrs = (outTime - inTime) / (1000 * 60 * 60);
+                            if (diffHrs > 0) {
+                                userHours += diffHrs;
+                                processedInIds.add(matchingIn.id); 
+                            }
                         }
-                        lastIn = null;
                     }
                 });
                 
                 staffMap[userName].act += userHours * staffMap[userName].wage;
             });
 
+            // 3. 汇总
             let estTotal = 0;
             let actTotal = 0;
             const details = Object.entries(staffMap).map(([name, data]) => {
@@ -2692,20 +2744,133 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         document.body.removeChild(link);
     };
 
+    // --- 导出优化版打卡记录 (按月筛选 + GPS校验) ---
     const handleExportLogsCSV = () => {
-        let csv = "Log ID,Name,User ID,Type,Time,Reason,Edit Note\n";
+        let csv = "Date,Staff Name,User ID,Hourly Wage,Clock In,Clock Out,Duration (Hrs),Cost,Status/Note\n";
+        const allRows: { timestamp: number; csvLine: string }[] = [];
+
+        // 1. 数据准备
+        const logsByUser: Record<string, LogEntry[]> = {};
         logs.forEach(l => {
-            csv += `${l.id},${l.name},${l.userId},${l.type},"${l.time}","${l.reason || ''}","${l.manualEditReason || ''}"\n`;
+            if (l.isDeleted) return; 
+            if (!safeParseDate(l.time)) return;
+
+            const uid = l.userId || l.name || 'unknown';
+            if (!logsByUser[uid]) logsByUser[uid] = [];
+            logsByUser[uid].push(l);
         });
+
+        // 2. 遍历处理
+        Object.entries(logsByUser).forEach(([uid, userLogs]) => {
+            let userObj = users.find(u => u.id === uid);
+            if (!userObj) userObj = users.find(u => u.name === uid);
+            const userName = userObj ? userObj.name : (userLogs[0].name || 'Unknown');
+            const wage = wages[userName] || 12;
+
+            // 按时间正序排列
+            userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
+
+            const processedIds = new Set<number>();
+
+            userLogs.forEach((log, index) => {
+                if (processedIds.has(log.id)) return;
+
+                const logTime = safeParseDate(log.time);
+                if (!logTime) return;
+                
+                // --- 核心筛选：只导出选中的月份 ---
+                const y = logTime.getFullYear();
+                const m = String(logTime.getMonth() + 1).padStart(2, '0');
+                const currentMonthStr = `${y}-${m}`;
+                if (currentMonthStr !== exportMonth) return; // 不是这个月的跳过
+
+                const d = String(logTime.getDate()).padStart(2, '0');
+                const dateStr = `${y}-${m}-${d}`;
+                const timeStr = logTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+                // --- 辅助函数：判断 GPS 状态 ---
+                const getGeoStatus = (l: LogEntry) => {
+                    if (l.isManual) return 'Manual'; // 手动录入
+                    const r = l.reason || '';
+                    if (r.includes('In Range') || r.includes('<500m')) return 'OK'; // 成功
+                    if (r.includes('GPS Error')) return 'Check'; // 需核对
+                    return 'Fail'; // 其他情况 (Out Range > 500m) 视为失败
+                };
+
+                if (log.type === 'clock-in') {
+                    const matchingOut = userLogs.slice(index + 1).find(l => 
+                        l.type === 'clock-out' && 
+                        !processedIds.has(l.id) &&
+                        safeParseDate(l.time)?.toDateString() === logTime.toDateString()
+                    );
+
+                    if (matchingOut) {
+                        // --- 配对成功，计算状态 ---
+                        const outTimeObj = safeParseDate(matchingOut.time);
+                        const outTimeStr = outTimeObj?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) || '-';
+                        const duration = ((outTimeObj?.getTime() || 0) - logTime.getTime()) / (1000 * 60 * 60);
+                        const cost = duration * wage;
+
+                        const inStatus = getGeoStatus(log);
+                        const outStatus = getGeoStatus(matchingOut);
+                        
+                        let finalStatus = 'Normal'; // 默认成功
+                        if (inStatus === 'Manual' || outStatus === 'Manual') {
+                            finalStatus = 'Manual Entry';
+                        } else if (inStatus === 'Fail' || outStatus === 'Fail') {
+                            finalStatus = 'Location Failed (>500m)'; // 只要有一个不在范围内，就算失败
+                        } else if (inStatus === 'Check' || outStatus === 'Check') {
+                            finalStatus = 'GPS Check Needed'; // GPS 报错需核对
+                        }
+
+                        allRows.push({
+                            timestamp: logTime.getTime(),
+                            csvLine: `${dateStr},"${userName}",${uid},${wage},${timeStr},${outTimeStr},${duration.toFixed(2)},${cost.toFixed(2)},${finalStatus}\n`
+                        });
+                        
+                        processedIds.add(log.id);
+                        processedIds.add(matchingOut.id);
+                    } else {
+                        // --- 只有进没有出 ---
+                        allRows.push({
+                            timestamp: logTime.getTime(),
+                            csvLine: `${dateStr},"${userName}",${uid},${wage},${timeStr},-,0.00,0.00,Missing Clock-Out\n`
+                        });
+                        processedIds.add(log.id);
+                    }
+                } else if (log.type === 'clock-out') {
+                    // --- 只有出没有进 ---
+                    allRows.push({
+                        timestamp: logTime.getTime(),
+                        csvLine: `${dateStr},"${userName}",${uid},${wage},-,${timeStr},0.00,0.00,Missing Clock-In\n`
+                    });
+                    processedIds.add(log.id);
+                }
+            });
+        });
+
+        // 3. 排序 (最新的在最上面)
+        allRows.sort((a, b) => b.timestamp - a.timestamp);
+
+        if (allRows.length === 0) {
+            alert(`No logs found for ${exportMonth}`);
+            return;
+        }
+
+        // 4. 生成 CSV
+        allRows.forEach(row => {
+            csv += row.csvLine;
+        });
+
         const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `attendance_logs_${new Date().toISOString().split('T')[0]}.csv`);
+        link.setAttribute("download", `attendance_${exportMonth}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     };
-
+    
     // 本周排班预估 (用于 Planning View)
     const totalWeeklyPlanningCost = displayedDays?.slice(0, 7).reduce((acc: number, day: ScheduleDay) => {
         const m = getShiftCost(day.morning, day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
@@ -3116,7 +3281,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         })}
                     </div>
                 )}
-                
+
                 {view === 'financial' && (
                     <div className="space-y-4 pb-10">
                         {/* 1. 顶部概览卡片 */}
@@ -3233,17 +3398,30 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                             </div>
                         </div>
 
-                        {/* 4. 导出按钮 */}
-                        <div className="grid grid-cols-2 gap-3 pt-2">
-                            <button onClick={handleExportLogsCSV} className="bg-white/10 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-white/20 transition-all border border-white/5">
-                                <Icon name="Clock" size={16} /> Export Logs CSV
-                            </button>
-                            <button onClick={handleExportFinancialCSV} className="bg-green-600 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-green-700 transition-all shadow-lg">
-                                <Icon name="List" size={16} /> Export Report CSV
-                            </button>
+                        {/* 4. 导出控制区 */}
+                        <div className="bg-dark-surface p-4 rounded-xl border border-white/10 mt-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <span className="text-xs font-bold text-dark-text-light uppercase">Select Export Month</span>
+                                {/* 月份选择器 */}
+                                <input 
+                                    type="month" 
+                                    value={exportMonth} 
+                                    onChange={(e) => setExportMonth(e.target.value)} 
+                                    className="bg-dark-bg border border-white/20 rounded-lg px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-dark-accent"
+                                />
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3">
+                                <button onClick={handleExportLogsCSV} className="bg-white/10 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-white/20 transition-all border border-white/5">
+                                    <Icon name="Clock" size={16} /> Export Logs ({exportMonth})
+                                </button>
+                                <button onClick={handleExportFinancialCSV} className="bg-green-600 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-green-700 transition-all shadow-lg">
+                                    <Icon name="List" size={16} /> Export Summary
+                                </button>
+                            </div>
                         </div>
                     </div>
-                )}
+                )}                
                 {view === 'confirmations' && (
                     <div className="space-y-4">
                         <div className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
