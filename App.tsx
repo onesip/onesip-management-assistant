@@ -3,8 +3,8 @@ import React, { useState, useEffect, useRef } from 'react';
 // FIX: Import 'Type' for defining a response schema for structured JSON output.
 import { GoogleGenAI, Type } from "@google/genai";
 import { Icon } from './components/Icons';
-import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, USERS as STATIC_USERS } from './constants';
-import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState, UserRole, ClockType, ScheduleConfirmation, ScheduleCycle } from './types';
+import { TRANSLATIONS, CHECKLIST_TEMPLATES, DRINK_RECIPES, TRAINING_LEVELS, SOP_DATABASE, CONTACTS_DATA, INVENTORY_ITEMS, USERS as STATIC_USERS, SMART_INVENTORY_MASTER_DATA } from './constants';
+import { Lang, LogEntry, DrinkRecipe, TrainingLevel, InventoryItem, Notice, InventoryReport, SopItem, User, DirectMessage, SwapRequest, SalesRecord, StaffViewMode, ScheduleDay, InventoryLog, StaffAvailability, ChatReadState, UserRole, ClockType, ScheduleConfirmation, ScheduleCycle, SmartInventoryItem, SmartInventoryLog, SmartInventoryReport } from './types';
 import * as Cloud from './services/cloud';
 import { getChatResponse } from './services/geminiService';
 import { useNotification } from './components/GlobalNotification';
@@ -1983,7 +1983,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
     const { showNotification } = useNotification();
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
-    const [ownerSubView, setOwnerSubView] = useState<'logs' | 'presets' | 'history' | 'staff'>('logs');
+    const [ownerSubView, setOwnerSubView] = useState<'logs' | 'presets' | 'history' | 'staff' | 'smart'>('smart');
     const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
     const [reportToDelete, setReportToDelete] = useState<InventoryReport | null>(null);
 
@@ -2119,6 +2119,9 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                  <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
                     Staff Mgmt
                 </button>
+                <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Smart Inv
+                </button>
             </div>
             <div className="flex-1 overflow-y-auto">
                 {ownerSubView === 'presets' && (
@@ -2135,6 +2138,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 {ownerSubView === 'history' && <InventoryHistoryView />}
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={handleUpdateLogs} />}
+                {ownerSubView === 'smart' && <SmartInventoryView data={data} />}
             </div>
         </div>
     );
@@ -2213,6 +2217,213 @@ const StaffManagementView = ({ users }: { users: User[] }) => {
         </div>
     );
 };
+
+// ... StaffManagementView 结束 ...
+
+// 【插入在这里】
+const SmartInventoryView = ({ data }: { data: any }) => {
+    const { smartInventoryReports } = data;
+    const [areaFilter, setAreaFilter] = useState<'Storage' | 'Shop'>('Storage');
+    const [supplierFilter, setSupplierFilter] = useState<string>('All');
+    const [inputs, setInputs] = useState<Record<string, { pre: number, restock: number }>>({});
+    
+    // Get latest report for consumption calc
+    const latestReport = (smartInventoryReports || []).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    const previousLogsMap = new Map<string, SmartInventoryLog>();
+    if (latestReport) {
+        latestReport.logs.forEach((log: SmartInventoryLog) => {
+            previousLogsMap.set(log.itemId, log);
+        });
+    }
+
+    const items = SMART_INVENTORY_MASTER_DATA.filter(item => item.area === areaFilter);
+    const suppliers = ['All', ...Array.from(new Set(items.map(i => i.supplier).filter(Boolean))) as string[]];
+
+    const filteredItems = supplierFilter === 'All' 
+        ? items 
+        : items.filter(i => i.supplier === supplierFilter);
+
+    const handleInputChange = (itemId: string, field: 'pre' | 'restock', value: string) => {
+        const num = parseFloat(value);
+        setInputs(prev => ({
+            ...prev,
+            [itemId]: {
+                ...prev[itemId],
+                [field]: isNaN(num) ? 0 : num
+            }
+        }));
+    };
+
+    const calculatePostStock = (pre: number, restock: number) => pre + restock;
+    
+    const calculateConsumption = (itemId: string, currentPre: number) => {
+        const prevLog = previousLogsMap.get(itemId);
+        if (!prevLog) return 0; 
+        return Math.max(0, prevLog.postStock - currentPre); 
+    };
+
+    const handleSubmit = () => {
+        if (!window.confirm("Submit Weekly Inventory Report? This will save current stock and calculate consumption.")) return;
+
+        const timestamp = new Date();
+        const logs: SmartInventoryLog[] = SMART_INVENTORY_MASTER_DATA.map(item => {
+            const input = inputs[item.id] || { pre: 0, restock: 0 };
+            const post = calculatePostStock(input.pre, input.restock);
+            const consumption = calculateConsumption(item.id, input.pre);
+            
+            return {
+                itemId: item.id,
+                itemName: item.name.en,
+                area: item.area,
+                preStock: input.pre,
+                restockQty: input.restock,
+                postStock: post,
+                consumption: consumption
+            };
+        });
+
+        // 简单的周数计算 (ISO周太复杂，这里用简单的第几周)
+        const weekNum = Math.ceil((timestamp.getDate() + 6 - timestamp.getDay()) / 7);
+        const report: SmartInventoryReport = {
+            id: timestamp.getTime().toString(),
+            date: timestamp.toISOString(),
+            weekStr: `${timestamp.getFullYear()}-W${weekNum}`,
+            submittedBy: 'Owner',
+            logs: logs
+        };
+
+        Cloud.saveSmartInventoryReport(report);
+        alert("Inventory Saved!");
+        setInputs({});
+    };
+
+    const handleExport = () => {
+        let csv = "Date,Week,Area,Item,Supplier,Safe Stock,Pre-Stock,Restock,Post-Stock,Consumption,Status\n";
+        
+        (smartInventoryReports || []).forEach((rep: SmartInventoryReport) => {
+            rep.logs.forEach(log => {
+                const itemDef = SMART_INVENTORY_MASTER_DATA.find(i => i.id === log.itemId);
+                const safe = itemDef?.safeStock || 0;
+                const supplier = itemDef?.supplier || '';
+                const status = log.postStock < safe ? "LOW" : "OK";
+                
+                csv += `${rep.date},${rep.weekStr},${log.area},"${log.itemName}",${supplier},${safe},${log.preStock},${log.restockQty},${log.postStock},${log.consumption},${status}\n`;
+            });
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', 'smart_inventory_history.csv');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    return (
+        <div className="h-full flex flex-col bg-dark-bg text-dark-text animate-fade-in">
+            <div className="p-4 bg-dark-surface border-b border-white/10 flex justify-between items-center shadow-lg z-10">
+                <div>
+                    <h2 className="text-xl font-black text-white flex items-center gap-2">
+                        <Icon name="Briefcase" className="text-dark-accent" /> Smart Inventory
+                    </h2>
+                    <p className="text-xs text-dark-text-light">Weekly Restock & Analysis</p>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={handleExport} className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-xs font-bold transition-all">
+                        Export CSV
+                    </button>
+                    <button onClick={handleSubmit} className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg text-sm font-bold text-white shadow-lg transition-all">
+                        Submit Week
+                    </button>
+                </div>
+            </div>
+
+            <div className="p-4 flex gap-2 overflow-x-auto border-b border-white/10 bg-dark-bg">
+                <div className="flex bg-dark-surface rounded-lg p-1 mr-4 shrink-0">
+                    <button onClick={() => setAreaFilter('Storage')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${areaFilter === 'Storage' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Storage</button>
+                    <button onClick={() => setAreaFilter('Shop')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${areaFilter === 'Shop' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Shop</button>
+                </div>
+                {suppliers.map(s => (
+                    <button key={s} onClick={() => setSupplierFilter(s)} className={`px-3 py-1 rounded-full text-xs border transition-all whitespace-nowrap ${supplierFilter === s ? 'bg-white text-dark-bg border-white font-bold' : 'text-dark-text-light border-white/20 hover:border-white/50'}`}>
+                        {s || 'All'}
+                    </button>
+                ))}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 pb-20">
+                <div className="grid gap-2">
+                    {filteredItems.map(item => {
+                        const input = inputs[item.id] || { pre: 0, restock: 0 };
+                        const post = calculatePostStock(input.pre, input.restock);
+                        const prevLog = previousLogsMap.get(item.id);
+                        const consumption = calculateConsumption(item.id, input.pre);
+                        const isLow = post < item.safeStock;
+
+                        return (
+                            <div key={item.id} className="bg-dark-surface p-3 rounded-xl border border-white/5 flex flex-col gap-2 shadow-sm">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light font-mono">{item.position}</span>
+                                            <span className="font-bold text-sm text-white">{item.name.en}</span>
+                                        </div>
+                                        <div className="text-xs text-dark-text-light mt-1 flex flex-wrap gap-2">
+                                            <span>Unit: {item.unit}</span>
+                                            <span>•</span>
+                                            <span>Safe: {item.safeStock}</span>
+                                            <span>•</span>
+                                            <span>Prev Post: {prevLog?.postStock ?? '-'}</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className={`text-xs font-bold px-2 py-1 rounded inline-block ${isLow ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+                                            {isLow ? 'LOW' : 'OK'}
+                                        </div>
+                                        <div className="text-[10px] text-dark-text-light mt-1">
+                                            Cons: {consumption}
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className="grid grid-cols-3 gap-2 mt-1 bg-dark-bg/50 p-2 rounded-lg">
+                                    <div>
+                                        <label className="text-[10px] text-dark-text-light block mb-1">Pre-Stock</label>
+                                        <input 
+                                            type="number" 
+                                            className="w-full bg-dark-surface border border-white/20 rounded p-1.5 text-center font-bold text-white focus:border-dark-accent outline-none text-sm"
+                                            value={inputs[item.id]?.pre ?? ''}
+                                            onChange={(e) => handleInputChange(item.id, 'pre', e.target.value)}
+                                            placeholder="0"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-dark-text-light block mb-1">Restock (+)</label>
+                                        <input 
+                                            type="number" 
+                                            className="w-full bg-dark-surface border border-white/20 rounded p-1.5 text-center font-bold text-green-400 focus:border-green-500 outline-none text-sm"
+                                            value={inputs[item.id]?.restock ?? ''}
+                                            onChange={(e) => handleInputChange(item.id, 'restock', e.target.value)}
+                                            placeholder="0"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-dark-text-light block mb-1">Post (=)</label>
+                                        <div className="w-full bg-white/5 border border-transparent rounded p-1.5 text-center font-bold text-white text-sm">
+                                            {post}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (user: User) => void, onClose: () => void }) => {
     const isNew = user === 'new';
@@ -4526,6 +4737,7 @@ const App = () => {
     const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
     const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
     const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
+    const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
 
 
 
@@ -4540,7 +4752,7 @@ const App = () => {
         schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
         setDirectMessages, swapRequests, setSwapRequests, sales, sopList, 
         setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
-        confirmations, scheduleCycles, setScheduleCycles
+        confirmations, scheduleCycles, setScheduleCycles, smartInventoryReports
     };
 
     useEffect(() => {
@@ -4561,7 +4773,8 @@ const App = () => {
                 if (data?.sops) setSopList(data.sops);
                 if (data?.training) setTrainingLevels(data.training);
                 if (data?.recipes) setRecipes(data.recipes);
-            })
+            }),
+            Cloud.subscribeToSmartInventoryReports(setSmartInventoryReports)
         ];
 
 

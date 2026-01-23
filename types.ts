@@ -345,3 +345,38 @@ export interface ScheduleCycle {
     }
   };
 }
+
+// ... existing types ...
+
+// --- NEW SMART INVENTORY TYPES ---
+
+export interface SmartInventoryItem {
+    id: string; // Key_AP (e.g., "Storage|Jasmine tea")
+    area: string; // "Storage" or "Shop"
+    name: Translation;
+    unit: string;
+    position: string;
+    category: string; // "Type" in CSV
+    supplier: string; // "Where" in CSV
+    delivery: string; // "Delivery" in CSV
+    safeStock: number;
+}
+
+export interface SmartInventoryLog {
+    itemId: string;
+    itemName: string;
+    area: string;
+    preStock: number; // Count before restock
+    restockQty: number; // Amount added
+    postStock: number; // Final count (Pre + Restock)
+    consumption: number; // Calculated (Prev Post - Curr Pre)
+    note?: string;
+}
+
+export interface SmartInventoryReport {
+    id: string; // Timestamp ID
+    date: string; // ISO Date
+    weekStr: string; // e.g., "2023-W42"
+    submittedBy: string;
+    logs: SmartInventoryLog[];
+}

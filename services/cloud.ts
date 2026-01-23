@@ -22,6 +22,7 @@ import {
 } from 'firebase/firestore';
 import { INITIAL_MENU_DATA, INITIAL_ANNOUNCEMENT_DATA, INITIAL_WIKI_DATA, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES, USERS } from '../constants';
 import { ChatReadState, ScheduleCycle, User } from '../types';
+import { SmartInventoryReport } from '../types';
 
 // --- CONFIG ---
 // Replace with your Firebase Project Config
@@ -530,4 +531,21 @@ export const updateScheduleCycles = async (cycles: ScheduleCycle[]) => {
     if (!db) return;
     const docRef = doc(db, 'data', 'schedule_cycles');
     await setDoc(docRef, { cycles });
+};
+
+
+// --- SMART INVENTORY (NEW) ---
+export const subscribeToSmartInventoryReports = (callback: (data: SmartInventoryReport[]) => void) => {
+    if (!db) return () => {};
+    // Listen to the smart_inventory_reports collection
+    return onSnapshot(collection(db, 'smart_inventory_reports'), (snapshot: any) => {
+        const reports = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+        callback(reports);
+    });
+};
+
+export const saveSmartInventoryReport = async (report: SmartInventoryReport) => {
+    if (!db) return;
+    const docRef = doc(db, 'smart_inventory_reports', report.id);
+    await setDoc(docRef, report);
 };
