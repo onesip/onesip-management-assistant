@@ -346,20 +346,36 @@ export interface ScheduleCycle {
   };
 }
 
-// ... existing types ...
+// ... (在 SmartInventoryItem 上方添加)
+export interface DailyTarget {
+    morning: number;
+    evening: number;
+}
+
+export interface WeeklyTargets {
+    mon_thu: DailyTarget;
+    fri: DailyTarget;
+    sat: DailyTarget;
+    sun: DailyTarget;
+}
+
+
 
 // --- NEW SMART INVENTORY TYPES ---
 
+// ... (修改 SmartInventoryItem 接口)
 export interface SmartInventoryItem {
-    id: string; // Key_AP (e.g., "Storage|Jasmine tea")
-    area: string; // "Storage" or "Shop"
+    id: string; 
+    area: string; 
     name: Translation;
     unit: string;
     position: string;
-    category: string; // "Type" in CSV
-    supplier: string; // "Where" in CSV
-    delivery: string; // "Delivery" in CSV
+    category: string; 
+    supplier: string; 
+    delivery: string; 
     safeStock: number;
+    // 【新增】每日备料目标 (可选，仅 Prep 类物品有)
+    dailyTargets?: WeeklyTargets;
 }
 
 export interface SmartInventoryLog {

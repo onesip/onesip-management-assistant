@@ -2221,16 +2221,81 @@ const StaffManagementView = ({ users }: { users: User[] }) => {
 // ... StaffManagementView 结束 ...
 
 // 【插入在这里】
+// ============================================================================
+// 【升级版 SmartInventoryView 组件：支持每日备料目标】
+// ============================================================================
+
 const SmartInventoryView = ({ data }: { data: any }) => {
     const { smartInventoryReports } = data;
-    const [areaFilter, setAreaFilter] = useState<'Storage' | 'Shop'>('Storage');
+    const [areaFilter, setAreaFilter] = useState<'Storage' | 'Shop' | 'Prep'>('Storage'); // 新增 Prep
     const [supplierFilter, setSupplierFilter] = useState<string>('All');
     const [inputs, setInputs] = useState<Record<string, { pre: number, restock: number }>>({});
     
-    // Get latest report for consumption calc
-    const latestReport = (smartInventoryReports || []).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    // 【新增】每日目标状态管理
+    const [isEditingTargets, setIsEditingTargets] = useState(false);
+    const [targetOverrides, setTargetOverrides] = useState<Record<string, any>>(() => {
+        const saved = localStorage.getItem('onesip_prep_targets');
+        return saved ? JSON.parse(saved) : {};
+    });
+
+    // 自动计算今天是周几 (0=Sun, 1=Mon ... 6=Sat)
+    const today = new Date().getDay();
+    let defaultDayGroup: 'mon_thu' | 'fri' | 'sat' | 'sun' = 'mon_thu';
+    if (today === 5) defaultDayGroup = 'fri';
+    if (today === 6) defaultDayGroup = 'sat';
+    if (today === 0) defaultDayGroup = 'sun';
+
+    const [dayGroup, setDayGroup] = useState(defaultDayGroup);
+
+    // 获取某个物品在当前选定日期的目标 (Morning + Evening)
+    const getTarget = (item: SmartInventoryItem) => {
+        // 先看有没有本地覆盖的设置
+        const saved = targetOverrides[item.id];
+        const targets = saved || item.dailyTargets;
+        
+        if (!targets) return item.safeStock || 0;
+        
+        const dayTarget = targets[dayGroup];
+        // 默认显示全天总目标 (Morning + Evening)，或者你也可以只显示 Morning
+        // 这里我们显示 "早: x / 晚: y" 的总和，或者作为参考
+        return dayTarget ? (dayTarget.morning + dayTarget.evening) : 0;
+    };
+
+    // 获取详细目标文本 (用于显示)
+    const getTargetLabel = (item: SmartInventoryItem) => {
+        const saved = targetOverrides[item.id];
+        const targets = saved || item.dailyTargets;
+        if (!targets) return `Safe: ${item.safeStock}`;
+        const t = targets[dayGroup];
+        return `☀️${t.morning} / 🌙${t.evening}`;
+    };
+
+    const handleTargetChange = (itemId: string, period: 'morning'|'evening', val: string) => {
+        const num = parseFloat(val) || 0;
+        setTargetOverrides(prev => {
+            const itemDef = SMART_INVENTORY_MASTER_DATA.find(i => i.id === itemId);
+            const currentTargets = prev[itemId] || itemDef?.dailyTargets || {
+                mon_thu: {morning:0, evening:0}, fri: {morning:0, evening:0}, sat: {morning:0, evening:0}, sun: {morning:0, evening:0}
+            };
+            
+            const updated = {
+                ...currentTargets,
+                [dayGroup]: {
+                    ...currentTargets[dayGroup],
+                    [period]: num
+                }
+            };
+            
+            const newState = { ...prev, [itemId]: updated };
+            localStorage.setItem('onesip_prep_targets', JSON.stringify(newState));
+            return newState;
+        });
+    };
+
+    // ... (Log 处理逻辑保持不变)
+    const latestReport = (smartInventoryReports || []).slice().sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
     const previousLogsMap = new Map<string, SmartInventoryLog>();
-    if (latestReport) {
+    if (latestReport && latestReport.logs) {
         latestReport.logs.forEach((log: SmartInventoryLog) => {
             previousLogsMap.set(log.itemId, log);
         });
@@ -2238,183 +2303,183 @@ const SmartInventoryView = ({ data }: { data: any }) => {
 
     const items = SMART_INVENTORY_MASTER_DATA.filter(item => item.area === areaFilter);
     const suppliers = ['All', ...Array.from(new Set(items.map(i => i.supplier).filter(Boolean))) as string[]];
-
-    const filteredItems = supplierFilter === 'All' 
-        ? items 
-        : items.filter(i => i.supplier === supplierFilter);
+    const filteredItems = supplierFilter === 'All' ? items : items.filter(i => i.supplier === supplierFilter);
 
     const handleInputChange = (itemId: string, field: 'pre' | 'restock', value: string) => {
         const num = parseFloat(value);
-        setInputs(prev => ({
-            ...prev,
-            [itemId]: {
-                ...prev[itemId],
-                [field]: isNaN(num) ? 0 : num
-            }
-        }));
+        setInputs(prev => ({ ...prev, [itemId]: { ...prev[itemId], [field]: isNaN(num) ? 0 : num } }));
     };
-
     const calculatePostStock = (pre: number, restock: number) => pre + restock;
-    
     const calculateConsumption = (itemId: string, currentPre: number) => {
         const prevLog = previousLogsMap.get(itemId);
         if (!prevLog) return 0; 
         return Math.max(0, prevLog.postStock - currentPre); 
     };
 
-    const handleSubmit = () => {
-        if (!window.confirm("Submit Weekly Inventory Report? This will save current stock and calculate consumption.")) return;
-
+    const handleSubmit = async () => {
+        if (!window.confirm(`Submit Inventory for ${dayGroup.toUpperCase()}?`)) return;
         const timestamp = new Date();
         const logs: SmartInventoryLog[] = SMART_INVENTORY_MASTER_DATA.map(item => {
             const input = inputs[item.id] || { pre: 0, restock: 0 };
             const post = calculatePostStock(input.pre, input.restock);
             const consumption = calculateConsumption(item.id, input.pre);
-            
             return {
-                itemId: item.id,
-                itemName: item.name.en,
-                area: item.area,
-                preStock: input.pre,
-                restockQty: input.restock,
-                postStock: post,
-                consumption: consumption
+                itemId: item.id, itemName: item.name.en, area: item.area, preStock: input.pre, restockQty: input.restock, postStock: post, consumption: consumption
             };
         });
 
-        // 简单的周数计算 (ISO周太复杂，这里用简单的第几周)
-        const weekNum = Math.ceil((timestamp.getDate() + 6 - timestamp.getDay()) / 7);
+        const oneJan = new Date(timestamp.getFullYear(), 0, 1);
+        const numberOfDays = Math.floor((timestamp.getTime() - oneJan.getTime()) / (24 * 60 * 60 * 1000));
+        const weekNum = Math.ceil((timestamp.getDay() + 1 + numberOfDays) / 7);
+
         const report: SmartInventoryReport = {
-            id: timestamp.getTime().toString(),
-            date: timestamp.toISOString(),
-            weekStr: `${timestamp.getFullYear()}-W${weekNum}`,
-            submittedBy: 'Owner',
-            logs: logs
+            id: timestamp.getTime().toString(), date: timestamp.toISOString(), weekStr: `${timestamp.getFullYear()}-W${weekNum}`, submittedBy: 'Owner', logs: logs
         };
 
-        Cloud.saveSmartInventoryReport(report);
-        alert("Inventory Saved!");
-        setInputs({});
+        try { await Cloud.saveSmartInventoryReport(report); alert("Saved!"); setInputs({}); } catch (error) { console.error(error); alert("Error"); }
     };
 
     const handleExport = () => {
-        let csv = "Date,Week,Area,Item,Supplier,Safe Stock,Pre-Stock,Restock,Post-Stock,Consumption,Status\n";
-        
+        let csv = "Date,Week,Area,Item,Supplier,Target(Day),Pre-Stock,Restock,Post-Stock,Consumption,Status\n";
         (smartInventoryReports || []).forEach((rep: SmartInventoryReport) => {
             rep.logs.forEach(log => {
                 const itemDef = SMART_INVENTORY_MASTER_DATA.find(i => i.id === log.itemId);
-                const safe = itemDef?.safeStock || 0;
-                const supplier = itemDef?.supplier || '';
+                // 导出时尝试获取那天的目标（这里简单起见，导出当前的配置作为参考，或者 safeStock）
+                // 更严谨的做法是在保存 Log 时把当天的 Target 也存进去。这里先用 safeStock 或 current target
+                const safe = itemDef?.safeStock || 0; 
                 const status = log.postStock < safe ? "LOW" : "OK";
-                
-                csv += `${rep.date},${rep.weekStr},${log.area},"${log.itemName}",${supplier},${safe},${log.preStock},${log.restockQty},${log.postStock},${log.consumption},${status}\n`;
+                const cleanName = log.itemName.replace(/"/g, '""');
+                csv += `${rep.date.split('T')[0]},${rep.weekStr},${log.area},"${cleanName}",${itemDef?.supplier},${safe},${log.preStock},${log.restockQty},${log.postStock},${log.consumption},${status}\n`;
             });
         });
-
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', 'smart_inventory_history.csv');
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
+        const link = document.createElement("a"); link.href = encodedUri; link.download = `smart_inventory_${new Date().toISOString().split('T')[0]}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
     return (
         <div className="h-full flex flex-col bg-dark-bg text-dark-text animate-fade-in">
-            <div className="p-4 bg-dark-surface border-b border-white/10 flex justify-between items-center shadow-lg z-10">
+            {/* Header */}
+            <div className="p-4 bg-dark-surface border-b border-white/10 flex justify-between items-center shadow-lg z-10 shrink-0">
                 <div>
                     <h2 className="text-xl font-black text-white flex items-center gap-2">
-                        <Icon name="Briefcase" className="text-dark-accent" /> Smart Inventory
+                        <Icon name="Briefcase" size={24} className="text-dark-accent" /> Smart Inventory
                     </h2>
-                    <p className="text-xs text-dark-text-light">Weekly Restock & Analysis</p>
+                    <p className="text-xs text-dark-text-light flex items-center gap-2">
+                        <span>Today: {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][today]}</span>
+                        <span className="bg-white/10 px-1 rounded text-white font-mono">{dayGroup.toUpperCase().replace('_', '-')}</span>
+                    </p>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={handleExport} className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-xs font-bold transition-all">
-                        Export CSV
-                    </button>
-                    <button onClick={handleSubmit} className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg text-sm font-bold text-white shadow-lg transition-all">
-                        Submit Week
-                    </button>
+                    <button onClick={handleExport} className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-white/5 text-white">Export</button>
+                    <button onClick={handleSubmit} className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg text-sm font-bold text-white shadow-lg transition-all">Submit</button>
                 </div>
             </div>
 
-            <div className="p-4 flex gap-2 overflow-x-auto border-b border-white/10 bg-dark-bg">
-                <div className="flex bg-dark-surface rounded-lg p-1 mr-4 shrink-0">
-                    <button onClick={() => setAreaFilter('Storage')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${areaFilter === 'Storage' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Storage</button>
-                    <button onClick={() => setAreaFilter('Shop')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${areaFilter === 'Shop' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Shop</button>
+            {/* Filters & Day Selector */}
+            <div className="p-3 flex flex-col gap-2 border-b border-white/10 bg-dark-bg shrink-0">
+                <div className="flex gap-2 justify-between">
+                    <div className="flex bg-dark-surface rounded-lg p-1 border border-white/5">
+                        <button onClick={() => setAreaFilter('Storage')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${areaFilter === 'Storage' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Storage</button>
+                        <button onClick={() => setAreaFilter('Shop')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${areaFilter === 'Shop' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Shop</button>
+                        <button onClick={() => setAreaFilter('Prep')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${areaFilter === 'Prep' ? 'bg-purple-500 text-white' : 'text-dark-text-light'}`}>Prep (每日备料)</button>
+                    </div>
+                    {/* Day Selector (Only meaningful for Prep, but shown for context) */}
+                    <div className="flex bg-dark-surface rounded-lg p-1 border border-white/5">
+                        <button onClick={() => setDayGroup('mon_thu')} className={`px-2 py-1.5 rounded-md text-[10px] font-bold ${dayGroup==='mon_thu'?'bg-white text-dark-bg':'text-dark-text-light'}`}>Mon-Thu</button>
+                        <button onClick={() => setDayGroup('fri')} className={`px-2 py-1.5 rounded-md text-[10px] font-bold ${dayGroup==='fri'?'bg-white text-dark-bg':'text-dark-text-light'}`}>Fri</button>
+                        <button onClick={() => setDayGroup('sat')} className={`px-2 py-1.5 rounded-md text-[10px] font-bold ${dayGroup==='sat'?'bg-white text-dark-bg':'text-dark-text-light'}`}>Sat</button>
+                        <button onClick={() => setDayGroup('sun')} className={`px-2 py-1.5 rounded-md text-[10px] font-bold ${dayGroup==='sun'?'bg-white text-dark-bg':'text-dark-text-light'}`}>Sun</button>
+                    </div>
                 </div>
-                {suppliers.map(s => (
-                    <button key={s} onClick={() => setSupplierFilter(s)} className={`px-3 py-1 rounded-full text-xs border transition-all whitespace-nowrap ${supplierFilter === s ? 'bg-white text-dark-bg border-white font-bold' : 'text-dark-text-light border-white/20 hover:border-white/50'}`}>
-                        {s || 'All'}
-                    </button>
-                ))}
+                
+                {areaFilter === 'Prep' && (
+                    <div className="flex justify-between items-center bg-purple-500/10 p-2 rounded-lg border border-purple-500/20">
+                        <span className="text-xs text-purple-200 font-bold flex gap-2 items-center">
+                            <Icon name="List" size={14}/> 
+                            {isEditingTargets ? "Editing Targets (修改预设值)" : `Targets for ${dayGroup.replace('_', '-')}`}
+                        </span>
+                        <button onClick={() => setIsEditingTargets(!isEditingTargets)} className="text-[10px] underline text-purple-300 hover:text-white">
+                            {isEditingTargets ? "Done" : "Edit Presets"}
+                        </button>
+                    </div>
+                )}
             </div>
 
+            {/* Grid */}
             <div className="flex-1 overflow-y-auto p-2 pb-20">
-                <div className="grid gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {filteredItems.map(item => {
                         const input = inputs[item.id] || { pre: 0, restock: 0 };
                         const post = calculatePostStock(input.pre, input.restock);
-                        const prevLog = previousLogsMap.get(item.id);
-                        const consumption = calculateConsumption(item.id, input.pre);
-                        const isLow = post < item.safeStock;
+                        const targetVal = getTarget(item);
+                        const isLow = post < targetVal;
+                        // 获取当前日期的具体配置
+                        const saved = targetOverrides[item.id];
+                        const targets = saved || item.dailyTargets;
+                        const currentDayTargets = targets ? targets[dayGroup] : null;
 
                         return (
-                            <div key={item.id} className="bg-dark-surface p-3 rounded-xl border border-white/5 flex flex-col gap-2 shadow-sm">
+                            <div key={item.id} className={`bg-dark-surface p-3 rounded-xl border flex flex-col gap-2 shadow-sm transition-all ${isLow ? 'border-red-500/30' : 'border-white/5'}`}>
                                 <div className="flex justify-between items-start">
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light font-mono">{item.position}</span>
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
                                             <span className="font-bold text-sm text-white">{item.name.en}</span>
+                                            {item.area === 'Prep' && <span className="text-[9px] bg-purple-500 text-white px-1 rounded">PREP</span>}
                                         </div>
-                                        <div className="text-xs text-dark-text-light mt-1 flex flex-wrap gap-2">
+                                        <div className="text-[10px] text-dark-text-light flex flex-wrap gap-x-3">
                                             <span>Unit: {item.unit}</span>
-                                            <span>•</span>
-                                            <span>Safe: {item.safeStock}</span>
-                                            <span>•</span>
-                                            <span>Prev Post: {prevLog?.postStock ?? '-'}</span>
+                                            {/* 非编辑模式显示目标 */}
+                                            {!isEditingTargets && <span>Target: <span className="text-white font-bold">{getTargetLabel(item)}</span></span>}
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <div className={`text-xs font-bold px-2 py-1 rounded inline-block ${isLow ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+                                        <div className={`text-[10px] font-black px-2 py-1 rounded border ${isLow ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
                                             {isLow ? 'LOW' : 'OK'}
                                         </div>
-                                        <div className="text-[10px] text-dark-text-light mt-1">
-                                            Cons: {consumption}
-                                        </div>
                                     </div>
                                 </div>
+
+                                {/* 编辑目标模式 (仅 Prep 物品) */}
+                                {isEditingTargets && item.dailyTargets && currentDayTargets && (
+                                    <div className="grid grid-cols-2 gap-2 bg-purple-500/20 p-2 rounded mb-1">
+                                        <div>
+                                            <label className="text-[9px] text-purple-200 block">Morning Target</label>
+                                            <input type="number" className="w-full bg-dark-bg border border-purple-500/30 rounded px-1 text-white text-xs" 
+                                                value={currentDayTargets.morning}
+                                                onChange={(e) => handleTargetChange(item.id, 'morning', e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] text-purple-200 block">Evening Target</label>
+                                            <input type="number" className="w-full bg-dark-bg border border-purple-500/30 rounded px-1 text-white text-xs" 
+                                                value={currentDayTargets.evening}
+                                                onChange={(e) => handleTargetChange(item.id, 'evening', e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                                 
-                                <div className="grid grid-cols-3 gap-2 mt-1 bg-dark-bg/50 p-2 rounded-lg">
-                                    <div>
-                                        <label className="text-[10px] text-dark-text-light block mb-1">Pre-Stock</label>
-                                        <input 
-                                            type="number" 
-                                            className="w-full bg-dark-surface border border-white/20 rounded p-1.5 text-center font-bold text-white focus:border-dark-accent outline-none text-sm"
-                                            value={inputs[item.id]?.pre ?? ''}
-                                            onChange={(e) => handleInputChange(item.id, 'pre', e.target.value)}
-                                            placeholder="0"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] text-dark-text-light block mb-1">Restock (+)</label>
-                                        <input 
-                                            type="number" 
-                                            className="w-full bg-dark-surface border border-white/20 rounded p-1.5 text-center font-bold text-green-400 focus:border-green-500 outline-none text-sm"
-                                            value={inputs[item.id]?.restock ?? ''}
-                                            onChange={(e) => handleInputChange(item.id, 'restock', e.target.value)}
-                                            placeholder="0"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] text-dark-text-light block mb-1">Post (=)</label>
-                                        <div className="w-full bg-white/5 border border-transparent rounded p-1.5 text-center font-bold text-white text-sm">
-                                            {post}
+                                {/* 正常输入模式 */}
+                                {!isEditingTargets && (
+                                    <div className="grid grid-cols-3 gap-2 mt-1 bg-dark-bg/50 p-2 rounded-lg border border-white/5">
+                                        <div>
+                                            <label className="text-[9px] uppercase font-bold text-dark-text-light block mb-1 text-center">Pre-Stock</label>
+                                            <input type="number" className="w-full bg-dark-surface border border-white/10 rounded p-1.5 text-center font-bold text-white outline-none text-sm"
+                                                value={inputs[item.id]?.pre === undefined ? '' : inputs[item.id].pre}
+                                                onChange={(e) => handleInputChange(item.id, 'pre', e.target.value)} placeholder="0" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] uppercase font-bold text-dark-text-light block mb-1 text-center">Restock (+)</label>
+                                            <input type="number" className="w-full bg-dark-surface border border-white/10 rounded p-1.5 text-center font-bold text-green-400 outline-none text-sm"
+                                                value={inputs[item.id]?.restock === undefined ? '' : inputs[item.id].restock}
+                                                onChange={(e) => handleInputChange(item.id, 'restock', e.target.value)} placeholder="0" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[9px] uppercase font-bold text-dark-text-light block mb-1 text-center">Post (=)</label>
+                                            <div className="w-full bg-white/5 border border-white/5 rounded p-1.5 text-center font-black text-white text-sm">{post}</div>
                                         </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
                         );
                     })}
@@ -2423,7 +2488,6 @@ const SmartInventoryView = ({ data }: { data: any }) => {
         </div>
     );
 };
-
 
 const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (user: User) => void, onClose: () => void }) => {
     const isNew = user === 'new';
@@ -2569,18 +2633,138 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability' | 'confirmations'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
-    const [wages, setWages] = useState<Record<string, number>>(() => { const saved = localStorage.getItem('onesip_wages'); const def: any = {}; users.forEach((m:User) => def[m.name] = 12); return saved ? { ...def, ...JSON.parse(saved) } : def; });
+    // 【升级】工资状态：支持 { type: 'hourly'|'fixed', value: number }
+    // 兼容旧数据：如果 localStorage 里存的是纯数字，自动转换为 hourly
+    const [wages, setWages] = useState<Record<string, { type: 'hourly'|'fixed', value: number }>>(() => {
+        const saved = localStorage.getItem('onesip_wages_v2');
+        if (saved) return JSON.parse(saved);
+        
+        // 尝试读取旧版本数据进行迁移
+        const oldSaved = localStorage.getItem('onesip_wages');
+        const def: any = {};
+        users.forEach((m: User) => {
+            // 默认设置：Linda 和 Manager 可能经常是固定薪资，这里先默认 hourly，用户可在界面改
+            def[m.name] = { type: 'hourly', value: 12 };
+        });
+        
+        if (oldSaved) {
+            const oldObj = JSON.parse(oldSaved);
+            Object.keys(oldObj).forEach(key => {
+                def[key] = { type: 'hourly', value: oldObj[key] }; // 旧数据视为时薪
+            });
+        }
+        return def;
+    });
+
+    // 辅助：保存工资设置
+    const saveWages = (newWages: any) => {
+        setWages(newWages);
+        localStorage.setItem('onesip_wages_v2', JSON.stringify(newWages));
+    };
+
+    // 辅助：获取某个人的“周成本” (用于计算)
+    // 如果是月薪，自动换算成周：(月薪 * 12) / 52
+    const getWageRateForCalc = (name: string) => {
+        const setting = wages[name] || { type: 'hourly', value: 12 };
+        if (setting.type === 'fixed') {
+            return (setting.value * 12) / 52; // 把月薪摊薄到每周
+        }
+        return setting.value; // 时薪
+    };
     const [isAddingManualLog, setIsAddingManualLog] = useState(false);
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
     
     // Default the current week index to the current week of the month to avoid scrolling
     const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
-
     
     // 【新增】导出月份选择，默认当前月 (格式: YYYY-MM)
     const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7));
 
+    // 【新增】名字清洗/标准化函数
+    const normalizeName = (name: string) => {
+        if (!name) return "Unknown";
+        const clean = name.trim();
+        
+        const mapping: Record<string, string> = {
+            "Linda": "Linda No.10",
+            "Linda No.10": "Linda No.10",
+            "Najat": "Najat no.11",
+            "Najata": "Najat no.11",
+            "Najat no.11": "Najat no.11",
+            "Xinrui": "Xinrui no.8",
+            "Xinrui no.8": "Xinrui no.8",
+            "Tingshan": "T. Meng",
+            "T.Meng": "T. Meng",
+            "T. Meng": "T. Meng",
+            "C.Y. Huang": "Zhiyi",
+            "Zhiyi": "Zhiyi",
+            "Y. Huang": "Kloe",
+            "Kloe": "Kloe",
+            "Fatima": "Fatima 015",
+            "Allysha": "Allysha 016",
+        };
+
+        if (mapping[clean]) return mapping[clean];
+        // 模糊匹配 (防止大小写或空格差异，只针对特定名字)
+        if (clean.includes("Linda")) return "Linda No.10";
+        if (clean.includes("Najat")) return "Najat no.11";
+        if (clean.includes("Xinrui")) return "Xinrui no.8";
+        if (clean.includes("Tingshan")) return "T. Meng";
+        
+        return clean; 
+    };
+  
+    // Auto-extend schedule logic (Updated with name cleaning)
+    useEffect(() => {
+        const initSchedule = async () => {
+             await Cloud.ensureScheduleCoverage();
+        };
+        initSchedule();
+
+        // 【自动清洗排班表中的旧名字】
+        if (schedule?.days?.length > 0) {
+            let needsUpdate = false;
+            const newDays = schedule.days.map((day: ScheduleDay) => {
+                let dayUpdated = false;
+                
+                // 清洗 shifts 里的名字
+                const newShifts = (day.shifts || []).map((shift: any) => {
+                    const newStaff = shift.staff.map((name: string) => {
+                        const fixed = normalizeName(name);
+                        if (fixed !== name) { dayUpdated = true; needsUpdate = true; }
+                        return fixed;
+                    });
+                    return { ...shift, staff: newStaff };
+                });
+
+                // 兼容旧字段 (morning/evening/night)
+                const cleanLegacy = (list: string[] = []) => list.map(n => {
+                    const fixed = normalizeName(n);
+                    if (fixed !== n) { dayUpdated = true; needsUpdate = true; }
+                    return fixed;
+                });
+
+                if (dayUpdated) {
+                    return { 
+                        ...day, 
+                        shifts: newShifts,
+                        morning: cleanLegacy(day.morning),
+                        evening: cleanLegacy(day.evening),
+                        night: cleanLegacy(day.night)
+                    };
+                }
+                return day;
+            });
+
+            if (needsUpdate) {
+                console.log("Performing schedule name normalization...");
+                const newSchedule = { ...schedule, days: newDays };
+                setSchedule(newSchedule);
+                Cloud.saveSchedule(newSchedule);
+            }
+        }
+    }, [schedule, setSchedule]);
 
     // Auto-extend schedule logic
     useEffect(() => {
@@ -2713,70 +2897,78 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
     };
 
-// --- 2. 核心：计算全局财务概览 (Staff Stats) - 暴力配对版 ---
+// --- 2. 核心：计算全局财务概览 (支持固定薪资/时薪) ---
     const calculateFinancials = () => {
         const stats: Record<string, any> = {};
-        activeStaff.forEach((m:User) => { stats[m.name] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 }; });
+
+        const getStats = (rawName: string) => {
+            const name = normalizeName(rawName);
+            if (!stats[name]) {
+                stats[name] = { estHours: 0, estCost: 0, actualHours: 0, actualCost: 0, wageType: 'hourly' };
+            }
+            return stats[name];
+        };
+
+        // 1. 初始化
+        activeStaff.forEach((m: User) => {
+            const s = getStats(m.name);
+            const setting = wages[m.name] || { type: 'hourly', value: 12 };
+            s.wageType = setting.type;
+        });
         
-        // 1. 预计工时
+        // 2. 预计工时 (排班) - 只对 hourly 累加时长
         if (displayedDays) { 
             displayedDays.forEach((day: ScheduleDay) => { 
-                // 兼容新旧数据结构
                 const shifts = day.shifts || [];
-                if(shifts.length === 0) {
-                     if(day.morning) day.morning.forEach(p => { if(stats[p]) stats[p].morning++ });
-                     if(day.evening) day.evening.forEach(p => { if(stats[p]) stats[p].evening++ });
+                if (shifts.length > 0) {
+                    shifts.forEach((s: any) => {
+                        let hours = 5; 
+                        if (s.start && s.end) {
+                            const startH = parseInt(s.start.split(':')[0]) + (parseInt(s.start.split(':')[1]||'0')/60);
+                            const endH = parseInt(s.end.split(':')[0]) + (parseInt(s.end.split(':')[1]||'0')/60);
+                            hours = Math.max(0, endH - startH);
+                        }
+                        if (Array.isArray(s.staff)) s.staff.forEach((p: string) => getStats(p).estHours += hours);
+                    });
                 } else {
-                     shifts.forEach((s:any) => s.staff.forEach((p:string) => { if(stats[p]) stats[p].morning++ }));
+                    // Fallback
+                    (day.morning || []).forEach(p => getStats(p).estHours += 5);
+                    (day.evening || []).forEach(p => getStats(p).estHours += 5);
+                    (day.night || []).forEach(p => getStats(p).estHours += 5);
                 }
             }); 
         }
         
-        // 2. 实际工时 (暴力配对)
+        // 3. 实际工时 (Logs)
         const logsByUser: Record<string, LogEntry[]> = {};
         if (logs) { 
             logs.forEach((l: LogEntry) => { 
                 if (l.isDeleted) return; 
                 if (!safeParseDate(l.time)) return;
-                const key = l.userId || l.name || 'unknown';
-                if (!logsByUser[key]) logsByUser[key] = []; 
-                logsByUser[key].push(l); 
+                let rawName = l.name || 'Unknown';
+                if (l.userId) { const u = users.find(user => user.id === l.userId); if (u) rawName = u.name; }
+                const finalName = normalizeName(rawName);
+                if (!logsByUser[finalName]) logsByUser[finalName] = []; 
+                logsByUser[finalName].push(l); 
             }); 
         }
         
-        Object.entries(logsByUser).forEach(([key, userLogs]) => { 
-            let userObj = users.find(u => u.id === key);
-            if (!userObj) userObj = users.find(u => u.name === key);
-            const userName = userObj ? userObj.name : (userLogs[0].name || 'Unknown');
-
-            if(!stats[userName]) {
-                 stats[userName] = { morning: 0, evening: 0, estHours: 0, estCost: 0, actualHours: 0, actualCost: 0 };
-            }
-
-            const sorted = userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0)); 
-            
+        // 4. 配对计算实际时长
+        Object.entries(logsByUser).forEach(([userName, userLogs]) => { 
+            const s = getStats(userName);
+            const sorted = userLogs.sort((a, b) => (safeParseDate(a.time)?.getTime() || 0) - (safeParseDate(b.time)?.getTime() || 0)); 
             const processedInIds = new Set<number>();
 
             sorted.forEach((outLog) => {
                 if (outLog.type === 'clock-out') {
                     const outTime = safeParseDate(outLog.time)?.getTime() || 0;
                     const outDateStr = new Date(outTime).toDateString();
-
-                    // 寻找：同天 + 类型是clock-in + 未被使用 + 时间早于outLog
-                    const matchingIn = sorted
-                        .filter(l => l.type === 'clock-in' && !processedInIds.has(l.id))
-                        .filter(l => {
-                            const t = safeParseDate(l.time)?.getTime() || 0;
-                            const dStr = new Date(t).toDateString();
-                            return t < outTime && dStr === outDateStr; 
-                        })
+                    const matchingIn = sorted.filter(l => l.type === 'clock-in' && !processedInIds.has(l.id) && safeParseDate(l.time)?.toDateString() === outDateStr && (safeParseDate(l.time)?.getTime()||0) < outTime)
                         .sort((a, b) => (safeParseDate(b.time)?.getTime()||0) - (safeParseDate(a.time)?.getTime()||0))[0]; 
-
                     if (matchingIn) {
-                        const inTime = safeParseDate(matchingIn.time)?.getTime() || 0;
-                        const diffHrs = (outTime - inTime) / (1000 * 60 * 60);
-                        if (diffHrs > 0) {
-                            stats[userName].actualHours += diffHrs;
+                        const duration = (outTime - (safeParseDate(matchingIn.time)?.getTime()||0)) / (1000 * 60 * 60);
+                        if (duration > 0) {
+                            s.actualHours += duration;
                             processedInIds.add(matchingIn.id);
                         }
                     }
@@ -2784,88 +2976,97 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             });
         });
 
-        let totalEstCost = 0; let totalActualCost = 0;
-        Object.keys(stats).forEach(p => { 
-            const estH = (stats[p].morning + stats[p].evening) * 5; 
-            const wage = wages[p] || 12; 
-            stats[p].estHours = estH; 
-            stats[p].estCost = estH * wage; 
-            stats[p].actualCost = stats[p].actualHours * wage; 
-            totalEstCost += stats[p].estCost; 
-            totalActualCost += stats[p].actualCost; 
+        // 5. 汇总金额 (区分 Fixed 和 Hourly)
+        let totalEstCost = 0; 
+        let totalActualCost = 0;
+        
+        Object.keys(stats).forEach(name => { 
+            const s = stats[name];
+            const setting = wages[name] || { type: 'hourly', value: 12 };
+            
+            if (setting.type === 'fixed') {
+                // 【固定月薪逻辑】：
+                // 不管排班多少小时、打卡多少小时，成本都是固定的
+                // 将月薪转换为周成本：Value * 12 / 52
+                const weeklyFixedCost = (setting.value * 12) / 52;
+                s.estCost = weeklyFixedCost;
+                s.actualCost = weeklyFixedCost;
+                // 对于固定薪资，工时仅供参考，不参与成本计算
+            } else {
+                // 【时薪逻辑】：正常计算
+                s.estCost = s.estHours * setting.value;
+                s.actualCost = s.actualHours * setting.value;
+            }
+            
+            totalEstCost += s.estCost; 
+            totalActualCost += s.actualCost; 
         });
+
         return { stats, totalEstCost, totalActualCost };
     };
+    
+    // 【👇 必须补上这一行，否则 totalEstCost 就没有定义 👇】
     const { stats, totalEstCost, totalActualCost } = calculateFinancials();
 
-// --- 3. 新增：每日财务明细 (Daily Breakdown) - 终极无敌版 (双向时间戳匹配) ---
+
+// --- 3. 新增：每日财务明细 (Daily Breakdown) - 名字清洗版 ---
     const getDailyFinancials = () => {
         return displayedDays.map((day: ScheduleDay) => {
             const staffMap: Record<string, { est: number, act: number, wage: number }> = {};
 
-            // 1. 计算预计成本 (Schedule)
+            // 1. 预计成本
             const scheduleShifts = day.shifts || [];
+            // ... (兼容旧数据的逻辑保持不变，省略以节省空间，直接用 scheduleShifts.forEach)
             if (scheduleShifts.length === 0) {
-                if (day.morning && day.morning.length) scheduleShifts.push({ id: 'm', name: 'S1', start: day.hours?.morning?.start||'10:00', end: day.hours?.morning?.end||'15:00', staff: day.morning });
-                if (day.evening && day.evening.length) scheduleShifts.push({ id: 'e', name: 'S2', start: day.hours?.evening?.start||'14:30', end: day.hours?.evening?.end||'19:00', staff: day.evening });
-                if (day.night && day.night.length) scheduleShifts.push({ id: 'n', name: 'S3', start: day.hours?.night?.start||'18:00', end: day.hours?.night?.end||'22:00', staff: day.night });
+                 // 如果需要兼容旧数据，请保留之前的 fallback 代码
+                 if (day.morning && day.morning.length) scheduleShifts.push({ id: 'm', name: 'S1', start: day.hours?.morning?.start||'10:00', end: day.hours?.morning?.end||'15:00', staff: day.morning });
+                 if (day.evening && day.evening.length) scheduleShifts.push({ id: 'e', name: 'S2', start: day.hours?.evening?.start||'14:30', end: day.hours?.evening?.end||'19:00', staff: day.evening });
+                 if (day.night && day.night.length) scheduleShifts.push({ id: 'n', name: 'S3', start: day.hours?.night?.start||'18:00', end: day.hours?.night?.end||'22:00', staff: day.night });
             }
 
             scheduleShifts.forEach((shift: any) => {
                 const s = parseInt(shift.start.split(':')[0], 10) + (parseInt(shift.start.split(':')[1] || '0', 10) / 60);
                 const e = parseInt(shift.end.split(':')[0], 10) + (parseInt(shift.end.split(':')[1] || '0', 10) / 60);
                 const duration = Math.max(0, e - s);
-                shift.staff.forEach((name: string) => {
+                
+                shift.staff.forEach((rawName: string) => {
+                    const name = normalizeName(rawName); // 清洗名字
                     if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, wage: wages[name] || 12 };
                     staffMap[name].est += duration * staffMap[name].wage;
                 });
             });
 
-            // 2. 计算实际成本 (Logs)
-            // 【核心修复】：先把 Schedule 的日期转换成“绝对准确”的“月-日”特征字符串
-            // 我们假设 day.date 至少包含了 月和日，例如 "1-14", "01-14", "2026-01-14"
-            // 为了万无一失，我们用 safeParseDate 解析它，如果解析不了，就尝试手动修正格式
-            // 这里的策略是：构造一个标准日期对象，然后取 .toDateString() 的一部分，或者 simple month-day 匹配
-            
-            // 既然 displayedDays 已经是过滤好的日期对象（虽然存的是字符串），我们利用当前年份上下文来解析它
+            // 2. 实际成本
             const parseScheduleDate = (dStr: string) => {
                 const parts = dStr.split('-');
                 const now = new Date();
-                // 假设是 M-D 格式 (onesip 默认格式)
-                if(parts.length === 2) {
-                     return new Date(now.getFullYear(), parseInt(parts[0])-1, parseInt(parts[1]));
-                }
-                // 假设是 YYYY-MM-DD
+                if(parts.length === 2) return new Date(now.getFullYear(), parseInt(parts[0])-1, parseInt(parts[1]));
                 return new Date(dStr);
             };
-
             const scheduleDateObj = parseScheduleDate(day.date);
-            // 生成唯一指纹： "Month-Day" (e.g. "0-14" for Jan 14th)
-            // getMonth() 返回 0-11
             const targetFingerprint = `${scheduleDateObj.getMonth()}-${scheduleDateObj.getDate()}`;
 
             const dayLogs = logs.filter(l => {
                 const lDate = safeParseDate(l.time);
                 if (!lDate || l.isDeleted) return false;
-                
-                // 对 Log 日期也生成同样的指纹
-                const logFingerprint = `${lDate.getMonth()}-${lDate.getDate()}`;
-                
-                return logFingerprint === targetFingerprint;
+                return `${lDate.getMonth()}-${lDate.getDate()}` === targetFingerprint;
             }).sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
 
             const logsByUser: Record<string, LogEntry[]> = {};
             dayLogs.forEach(l => {
-                const uid = l.userId || l.name || 'unknown';
-                if (!logsByUser[uid]) logsByUser[uid] = [];
-                logsByUser[uid].push(l);
+                // 【核心】：名字清洗
+                let finalName = 'Unknown';
+                if (l.userId) {
+                    const u = users.find(user => user.id === l.userId);
+                    if (u) finalName = u.name;
+                }
+                if (finalName === 'Unknown' && l.name) finalName = normalizeName(l.name);
+
+                if (!logsByUser[finalName]) logsByUser[finalName] = [];
+                logsByUser[finalName].push(l);
             });
 
-            Object.entries(logsByUser).forEach(([uid, userLogs]) => {
-                let userObj = users.find(u => u.id === uid);
-                if (!userObj) userObj = users.find(u => u.name === uid);
-                const userName = userObj ? userObj.name : (userLogs[0].name || 'Unknown');
-                
+            Object.entries(logsByUser).forEach(([userName, userLogs]) => {
                 if (!staffMap[userName]) staffMap[userName] = { est: 0, act: 0, wage: wages[userName] || 12 };
 
                 let userHours = 0;
@@ -2892,13 +3093,10 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         }
                     }
                 });
-                
                 staffMap[userName].act += userHours * staffMap[userName].wage;
             });
 
-            // 3. 汇总
-            let estTotal = 0;
-            let actTotal = 0;
+            let estTotal = 0; let actTotal = 0;
             const details = Object.entries(staffMap).map(([name, data]) => {
                 estTotal += data.est;
                 actTotal += data.act;
@@ -2916,96 +3114,94 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         });
     };
 
-    // --- 4. 导出逻辑 ---
+// --- 4. 导出逻辑：财务汇总报表 (名字清洗版) ---
     const handleExportFinancialCSV = () => {
-        const dailyData = getDailyFinancials();
-        
-        let csv = "FINANCIAL REPORT\n";
+        let csv = "FINANCIAL SUMMARY REPORT\n";
+        csv += `Report Date,${new Date().toLocaleDateString()}\n`;
         csv += `Budget Max,${budgetMax}\n`;
-        csv += `Total Estimated,${totalEstCost.toFixed(2)}\n`;
-        csv += `Total Actual,${totalActualCost.toFixed(2)}\n`;
-        csv += `Balance,${(budgetMax - totalActualCost).toFixed(2)}\n\n`;
+        csv += `Total Estimated Cost (Schedule),${totalEstCost.toFixed(2)}\n`;
+        csv += `Total Actual Cost (Logs),${totalActualCost.toFixed(2)}\n`;
+        csv += `Balance (Budget - Actual),${(budgetMax - totalActualCost).toFixed(2)}\n\n`;
 
-        csv += "STAFF SUMMARY (TOTALS)\nName,Wage,Est.Hrs,Est.Cost,Act.Hrs,Act.Cost\n";
+        csv += "STAFF PAYROLL SUMMARY\n";
+        csv += "Name,Hourly Wage,Est. Hours,Est. Cost,Act. Hours,Act. Cost,Difference (Act - Est)\n";
+        
+        // stats 对象已经在 calculateFinancials 里被 normalizeName 清洗过了，所以这里直接用
         Object.keys(stats).forEach(name => {
             const s = stats[name];
-            csv += `${name},${wages[name] || 0},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)}\n`;
-        });
-
-        csv += "\nDAILY BREAKDOWN (SUMMARY)\nDate,Day,Estimated Cost,Actual Cost,Difference\n";
-        dailyData.forEach(d => {
-            csv += `${d.date},${d.name},${d.est.toFixed(2)},${d.act.toFixed(2)},${d.diff.toFixed(2)}\n`;
-        });
-
-        // 新增：每日详细到人的数据块
-        csv += "\nDAILY BREAKDOWN (DETAILED BY STAFF)\nDate,Staff Name,Wage,Est. Cost,Act. Cost,Notes\n";
-        dailyData.forEach(d => {
-            d.details.forEach((staff: any) => {
-                const note = staff.act > staff.est ? "Over Schedule" : staff.act < staff.est ? "Under Schedule" : "Match";
-                csv += `${d.date},${staff.name},${staff.wage},${staff.est.toFixed(2)},${staff.act.toFixed(2)},${note}\n`;
-            });
+            if (s.estHours > 0 || s.actualHours > 0) {
+                const diffCost = s.actualCost - s.estCost;
+                csv += `"${name}",${wages[name] || 0},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)},${diffCost.toFixed(2)}\n`;
+            }
         });
 
         const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `financial_report_${new Date().toISOString().split('T')[0]}.csv`);
+        link.setAttribute("download", `financial_summary_${new Date().toISOString().split('T')[0]}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     };
 
-    // --- 导出优化版打卡记录 (按月筛选 + GPS校验) ---
+// --- 导出优化版打卡记录 (名字清洗版) ---
     const handleExportLogsCSV = () => {
         let csv = "Date,Staff Name,User ID,Hourly Wage,Clock In,Clock Out,Duration (Hrs),Cost,Status/Note\n";
         const allRows: { timestamp: number; csvLine: string }[] = [];
 
-        // 1. 数据准备
+        // 1. 数据准备 (清洗名字)
         const logsByUser: Record<string, LogEntry[]> = {};
         logs.forEach(l => {
             if (l.isDeleted) return; 
             if (!safeParseDate(l.time)) return;
 
-            const uid = l.userId || l.name || 'unknown';
-            if (!logsByUser[uid]) logsByUser[uid] = [];
-            logsByUser[uid].push(l);
+            // 【核心】：名字清洗
+            let finalName = 'Unknown';
+            let finalId = l.userId || 'unknown';
+            
+            if (l.userId) {
+                const u = users.find(user => user.id === l.userId);
+                if (u) finalName = u.name;
+            }
+            if (finalName === 'Unknown' && l.name) finalName = normalizeName(l.name);
+
+            // 用清洗后的名字作为 Key，合并同一个人
+            // 为了防止 ID 不同但名字相同的人被分开，我们统一用名字分组（或者你自己决定）
+            // 这里为了安全，我们用 Name 分组
+            if (!logsByUser[finalName]) logsByUser[finalName] = [];
+            logsByUser[finalName].push(l);
         });
 
         // 2. 遍历处理
-        Object.entries(logsByUser).forEach(([uid, userLogs]) => {
-            let userObj = users.find(u => u.id === uid);
-            if (!userObj) userObj = users.find(u => u.name === uid);
-            const userName = userObj ? userObj.name : (userLogs[0].name || 'Unknown');
+        Object.entries(logsByUser).forEach(([userName, userLogs]) => {
+            // 尝试找 ID 用于显示
+            const sampleLog = userLogs.find(l => l.userId) || userLogs[0];
+            const userId = sampleLog.userId || 'legacy';
             const wage = wages[userName] || 12;
 
-            // 按时间正序排列
             userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
-
             const processedIds = new Set<number>();
 
             userLogs.forEach((log, index) => {
                 if (processedIds.has(log.id)) return;
-
                 const logTime = safeParseDate(log.time);
                 if (!logTime) return;
                 
-                // --- 核心筛选：只导出选中的月份 ---
                 const y = logTime.getFullYear();
                 const m = String(logTime.getMonth() + 1).padStart(2, '0');
-                const currentMonthStr = `${y}-${m}`;
-                if (currentMonthStr !== exportMonth) return; // 不是这个月的跳过
+                if (`${y}-${m}` !== exportMonth) return; // 筛选月份
 
                 const d = String(logTime.getDate()).padStart(2, '0');
                 const dateStr = `${y}-${m}-${d}`;
                 const timeStr = logTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
-                // --- 辅助函数：判断 GPS 状态 ---
+                // ... (GPS 状态判断逻辑保持不变)
                 const getGeoStatus = (l: LogEntry) => {
-                    if (l.isManual) return 'Manual'; // 手动录入
+                    if (l.isManual) return 'Manual';
                     const r = l.reason || '';
-                    if (r.includes('In Range') || r.includes('<500m')) return 'OK'; // 成功
-                    if (r.includes('GPS Error')) return 'Check'; // 需核对
-                    return 'Fail'; // 其他情况 (Out Range > 500m) 视为失败
+                    if (r.includes('In Range') || r.includes('<500m')) return 'OK';
+                    if (r.includes('GPS Error')) return 'Check';
+                    return 'Fail';
                 };
 
                 if (log.type === 'clock-in') {
@@ -3016,63 +3212,47 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     );
 
                     if (matchingOut) {
-                        // --- 配对成功，计算状态 ---
                         const outTimeObj = safeParseDate(matchingOut.time);
                         const outTimeStr = outTimeObj?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) || '-';
                         const duration = ((outTimeObj?.getTime() || 0) - logTime.getTime()) / (1000 * 60 * 60);
                         const cost = duration * wage;
-
+                        
+                        // 状态判断
                         const inStatus = getGeoStatus(log);
                         const outStatus = getGeoStatus(matchingOut);
-                        
-                        let finalStatus = 'Normal'; // 默认成功
-                        if (inStatus === 'Manual' || outStatus === 'Manual') {
-                            finalStatus = 'Manual Entry';
-                        } else if (inStatus === 'Fail' || outStatus === 'Fail') {
-                            finalStatus = 'Location Failed (>500m)'; // 只要有一个不在范围内，就算失败
-                        } else if (inStatus === 'Check' || outStatus === 'Check') {
-                            finalStatus = 'GPS Check Needed'; // GPS 报错需核对
-                        }
+                        let finalStatus = 'Normal';
+                        if (inStatus === 'Manual' || outStatus === 'Manual') finalStatus = 'Manual Entry';
+                        else if (inStatus === 'Fail' || outStatus === 'Fail') finalStatus = 'Location Failed';
+                        else if (inStatus === 'Check' || outStatus === 'Check') finalStatus = 'GPS Check Needed';
 
                         allRows.push({
                             timestamp: logTime.getTime(),
-                            csvLine: `${dateStr},"${userName}",${uid},${wage},${timeStr},${outTimeStr},${duration.toFixed(2)},${cost.toFixed(2)},${finalStatus}\n`
+                            csvLine: `${dateStr},"${userName}",${userId},${wage},${timeStr},${outTimeStr},${duration.toFixed(2)},${cost.toFixed(2)},${finalStatus}\n`
                         });
-                        
                         processedIds.add(log.id);
                         processedIds.add(matchingOut.id);
                     } else {
-                        // --- 只有进没有出 ---
                         allRows.push({
                             timestamp: logTime.getTime(),
-                            csvLine: `${dateStr},"${userName}",${uid},${wage},${timeStr},-,0.00,0.00,Missing Clock-Out\n`
+                            csvLine: `${dateStr},"${userName}",${userId},${wage},${timeStr},-,0.00,0.00,Missing Clock-Out\n`
                         });
                         processedIds.add(log.id);
                     }
                 } else if (log.type === 'clock-out') {
-                    // --- 只有出没有进 ---
                     allRows.push({
                         timestamp: logTime.getTime(),
-                        csvLine: `${dateStr},"${userName}",${uid},${wage},-,${timeStr},0.00,0.00,Missing Clock-In\n`
+                        csvLine: `${dateStr},"${userName}",${userId},${wage},-,${timeStr},0.00,0.00,Missing Clock-In\n`
                     });
                     processedIds.add(log.id);
                 }
             });
         });
 
-        // 3. 排序 (最新的在最上面)
-        allRows.sort((a, b) => b.timestamp - a.timestamp);
+        allRows.sort((a, b) => b.timestamp - a.timestamp); // 倒序
 
-        if (allRows.length === 0) {
-            alert(`No logs found for ${exportMonth}`);
-            return;
-        }
+        if (allRows.length === 0) { alert(`No logs found for ${exportMonth}`); return; }
 
-        // 4. 生成 CSV
-        allRows.forEach(row => {
-            csv += row.csvLine;
-        });
-
+        allRows.forEach(row => csv += row.csvLine);
         const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
@@ -3081,7 +3261,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         link.click();
         document.body.removeChild(link);
     };
-    
+
     // 本周排班预估 (用于 Planning View)
     const totalWeeklyPlanningCost = displayedDays?.slice(0, 7).reduce((acc: number, day: ScheduleDay) => {
         const m = getShiftCost(day.morning, day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
@@ -3529,23 +3709,59 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                             </div>
                         </div>
 
-                        {/* 2. 员工工资设置 */}
+                        {/* 2. 员工工资设置 (新版) */}
                         <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
-                            <div className="p-3 bg-white/5 border-b border-white/10"><h4 className="font-bold text-sm text-white">Staff Wage Settings (€/hr)</h4></div>
+                            <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center">
+                                <h4 className="font-bold text-sm text-white">Staff Wage Settings</h4>
+                                <span className="text-[10px] text-dark-text-light">Auto-saved</span>
+                            </div>
                             <table className="w-full text-xs">
                                 <thead className="bg-dark-bg text-dark-text-light uppercase">
-                                    <tr><th className="p-3 text-left">Staff</th><th className="p-3 text-center">Hourly Wage</th><th className="p-3 text-right">Act. Cost</th></tr>
+                                    <tr>
+                                        <th className="p-3 text-left">Staff</th>
+                                        <th className="p-3 text-left">Type</th>
+                                        <th className="p-3 text-right">Value (€)</th>
+                                        <th className="p-3 text-right">Wk Cost</th>
+                                    </tr>
                                 </thead>
                                 <tbody className="divide-y divide-white/10">
-                                    {Object.keys(stats).map(name => (
-                                    <tr key={name}>
-                                        <td className="p-3 font-bold text-dark-text">{name}</td>
-                                        <td className="p-3 text-center">
-                                            <input type="number" step="0.5" className="w-16 text-center py-1 rounded bg-dark-bg border border-white/20 text-white font-mono focus:border-dark-accent outline-none" value={wages[name] || ''} onChange={(e) => handleWageChange(name, e.target.value)}/>
-                                        </td>
-                                        <td className="p-3 text-right font-mono text-dark-text-light">€{stats[name].actualCost.toFixed(0)}</td>
-                                    </tr>
-                                ))}</tbody>
+                                    {Object.keys(stats).map(name => {
+                                        const wage = wages[name] || { type: 'hourly', value: 12 };
+                                        return (
+                                        <tr key={name}>
+                                            <td className="p-3 font-bold text-dark-text">{name}</td>
+                                            <td className="p-3">
+                                                <select 
+                                                    className="bg-dark-bg border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-dark-accent text-[10px]"
+                                                    value={wage.type}
+                                                    onChange={(e) => {
+                                                        const newWages = { ...wages, [name]: { ...wage, type: e.target.value as any } };
+                                                        saveWages(newWages);
+                                                    }}
+                                                >
+                                                    <option value="hourly">Hourly (时薪)</option>
+                                                    <option value="fixed">Monthly (月薪)</option>
+                                                </select>
+                                            </td>
+                                            <td className="p-3 text-right">
+                                                <input 
+                                                    type="number" 
+                                                    step={wage.type === 'hourly' ? "0.5" : "100"} 
+                                                    className="w-20 text-right py-1 rounded bg-dark-bg border border-white/20 text-white font-mono focus:border-dark-accent outline-none px-2" 
+                                                    value={wage.value || ''} 
+                                                    onChange={(e) => {
+                                                        const val = parseFloat(e.target.value);
+                                                        const newWages = { ...wages, [name]: { ...wage, value: isNaN(val) ? 0 : val } };
+                                                        saveWages(newWages);
+                                                    }}
+                                                />
+                                            </td>
+                                            <td className="p-3 text-right font-mono text-dark-text-light">
+                                                €{stats[name].actualCost.toFixed(0)}
+                                            </td>
+                                        </tr>
+                                    )})}
+                                </tbody>
                             </table>
                         </div>
 
