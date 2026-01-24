@@ -377,17 +377,25 @@ export interface SmartInventoryItem {
     // 【新增】每日备料目标 (可选，仅 Prep 类物品有)
     dailyTargets?: WeeklyTargets;
 }
+// ... 之前的接口 ...
 
 export interface SmartInventoryLog {
     itemId: string;
     itemName: string;
     area: string;
-    preStock: number; // Count before restock
-    restockQty: number; // Amount added
-    postStock: number; // Final count (Pre + Restock)
-    consumption: number; // Calculated (Prev Post - Curr Pre)
+    preStock: number;   // 补货前存量 (Current)
+    restockQty: number; // 补货量 (Restock)
+    postStock: number;  // 补货后总量 (Post)
+    consumption: number;// 消耗量
+    
+    // 【新增字段】
+    loss?: number;       // 损耗
+    shift?: 'morning' | 'evening'; // 班次
+    targetSnapshot?: number; // 记录当时的目标值
     note?: string;
 }
+
+// ...
 
 export interface SmartInventoryReport {
     id: string; // Timestamp ID

@@ -2220,54 +2220,56 @@ const StaffManagementView = ({ users }: { users: User[] }) => {
 
 // ... StaffManagementView 结束 ...
 
-// 【插入在这里】
 // ============================================================================
-// 【升级版 SmartInventoryView 组件：支持每日备料目标】
+// 【升级版 SmartInventoryView：支持早晚班、损耗、智能补货建议】
 // ============================================================================
 
 const SmartInventoryView = ({ data }: { data: any }) => {
-    const { smartInventoryReports } = data;
-    const [areaFilter, setAreaFilter] = useState<'Storage' | 'Shop' | 'Prep'>('Storage'); // 新增 Prep
+    const { smartInventoryReports, schedule } = data;
+    const [areaFilter, setAreaFilter] = useState<'Prep' | 'Storage' | 'Shop'>('Prep'); // 默认进 Prep
     const [supplierFilter, setSupplierFilter] = useState<string>('All');
-    const [inputs, setInputs] = useState<Record<string, { pre: number, restock: number }>>({});
     
-    // 【新增】每日目标状态管理
+    // Inputs: pre (盘点/现有), restock (补货), loss (损耗)
+    const [inputs, setInputs] = useState<Record<string, { pre: number, restock: number, loss: number }>>({});
+    
+    // 每日目标编辑状态
     const [isEditingTargets, setIsEditingTargets] = useState(false);
     const [targetOverrides, setTargetOverrides] = useState<Record<string, any>>(() => {
         const saved = localStorage.getItem('onesip_prep_targets');
         return saved ? JSON.parse(saved) : {};
     });
 
-    // 自动计算今天是周几 (0=Sun, 1=Mon ... 6=Sat)
-    const today = new Date().getDay();
-    let defaultDayGroup: 'mon_thu' | 'fri' | 'sat' | 'sun' = 'mon_thu';
-    if (today === 5) defaultDayGroup = 'fri';
-    if (today === 6) defaultDayGroup = 'sat';
-    if (today === 0) defaultDayGroup = 'sun';
-
-    const [dayGroup, setDayGroup] = useState(defaultDayGroup);
-
-    // 获取某个物品在当前选定日期的目标 (Morning + Evening)
-    const getTarget = (item: SmartInventoryItem) => {
-        // 先看有没有本地覆盖的设置
-        const saved = targetOverrides[item.id];
-        const targets = saved || item.dailyTargets;
+    // --- 1. 智能班次检测 (Shift Detection) ---
+    const getCurrentShift = (): 'morning' | 'evening' => {
+        const now = new Date();
+        const currentHour = now.getHours() + now.getMinutes() / 60;
         
-        if (!targets) return item.safeStock || 0;
-        
-        const dayTarget = targets[dayGroup];
-        // 默认显示全天总目标 (Morning + Evening)，或者你也可以只显示 Morning
-        // 这里我们显示 "早: x / 晚: y" 的总和，或者作为参考
-        return dayTarget ? (dayTarget.morning + dayTarget.evening) : 0;
+        // 尝试从排班表获取今日班次
+        // 简单逻辑：如果现在时间早于下午4点(16:00)，算早班；否则算晚班
+        // 你也可以根据 schedule.days 里的具体时间来判断，这里用时间分割最稳妥
+        if (currentHour < 16.0) return 'morning';
+        return 'evening';
     };
 
-    // 获取详细目标文本 (用于显示)
-    const getTargetLabel = (item: SmartInventoryItem) => {
+    const [currentShift, setCurrentShift] = useState<'morning' | 'evening'>(getCurrentShift());
+
+    // --- 2. 日期与目标逻辑 ---
+    const todayIndex = new Date().getDay(); // 0=Sun
+    let dayGroup: 'mon_thu' | 'fri' | 'sat' | 'sun' = 'mon_thu';
+    if (todayIndex === 5) dayGroup = 'fri';
+    if (todayIndex === 6) dayGroup = 'sat';
+    if (todayIndex === 0) dayGroup = 'sun';
+
+    // 获取当前班次的目标值 (Target)
+    const getTarget = (item: SmartInventoryItem) => {
         const saved = targetOverrides[item.id];
         const targets = saved || item.dailyTargets;
-        if (!targets) return `Safe: ${item.safeStock}`;
-        const t = targets[dayGroup];
-        return `☀️${t.morning} / 🌙${t.evening}`;
+        if (!targets) return item.safeStock || 0;
+        
+        // 【核心】：根据班次返回对应的目标
+        const dayTarget = targets[dayGroup];
+        if (!dayTarget) return 0;
+        return currentShift === 'morning' ? dayTarget.morning : dayTarget.evening;
     };
 
     const handleTargetChange = (itemId: string, period: 'morning'|'evening', val: string) => {
@@ -2277,83 +2279,109 @@ const SmartInventoryView = ({ data }: { data: any }) => {
             const currentTargets = prev[itemId] || itemDef?.dailyTargets || {
                 mon_thu: {morning:0, evening:0}, fri: {morning:0, evening:0}, sat: {morning:0, evening:0}, sun: {morning:0, evening:0}
             };
-            
-            const updated = {
-                ...currentTargets,
-                [dayGroup]: {
-                    ...currentTargets[dayGroup],
-                    [period]: num
-                }
-            };
-            
+            const updated = { ...currentTargets, [dayGroup]: { ...currentTargets[dayGroup], [period]: num } };
             const newState = { ...prev, [itemId]: updated };
             localStorage.setItem('onesip_prep_targets', JSON.stringify(newState));
             return newState;
         });
     };
 
-    // ... (Log 处理逻辑保持不变)
-    const latestReport = (smartInventoryReports || []).slice().sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-    const previousLogsMap = new Map<string, SmartInventoryLog>();
-    if (latestReport && latestReport.logs) {
-        latestReport.logs.forEach((log: SmartInventoryLog) => {
-            previousLogsMap.set(log.itemId, log);
+    // --- 3. 历史记录 (上一班详情) ---
+    // Flatten logs to find the absolute latest entry for each item
+    const allLogs = (smartInventoryReports || []).flatMap((r: any) => r.logs || [])
+        .sort((a: any, b: any) => 0); // We need timestamp in logs for accurate sorting, currently relying on report date
+        // 由于 report 是按周存的，我们简单点：直接找最近的一份 report 里的 log
+    
+    // 更好的做法：在组件加载时构建一个 "Last Log Map"
+    const lastLogMap = new Map<string, SmartInventoryLog>();
+    // Sort reports desc
+    const sortedReports = (smartInventoryReports || []).slice().sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    // 遍历最近的几次报告来填充 Map (防止最近一次报告没有某些物品)
+    sortedReports.slice(0, 3).forEach((rep: SmartInventoryReport) => {
+        rep.logs.forEach((log: SmartInventoryLog) => {
+            if (!lastLogMap.has(log.itemId)) {
+                lastLogMap.set(log.itemId, log);
+            }
         });
-    }
+    });
 
     const items = SMART_INVENTORY_MASTER_DATA.filter(item => item.area === areaFilter);
     const suppliers = ['All', ...Array.from(new Set(items.map(i => i.supplier).filter(Boolean))) as string[]];
     const filteredItems = supplierFilter === 'All' ? items : items.filter(i => i.supplier === supplierFilter);
 
-    const handleInputChange = (itemId: string, field: 'pre' | 'restock', value: string) => {
+    const handleInputChange = (itemId: string, field: 'pre' | 'restock' | 'loss', value: string) => {
         const num = parseFloat(value);
-        setInputs(prev => ({ ...prev, [itemId]: { ...prev[itemId], [field]: isNaN(num) ? 0 : num } }));
+        setInputs(prev => ({
+            ...prev,
+            [itemId]: {
+                ...prev[itemId] || { pre: 0, restock: 0, loss: 0 },
+                [field]: isNaN(num) ? 0 : num
+            }
+        }));
     };
-    const calculatePostStock = (pre: number, restock: number) => pre + restock;
+
     const calculateConsumption = (itemId: string, currentPre: number) => {
-        const prevLog = previousLogsMap.get(itemId);
+        const prevLog = lastLogMap.get(itemId);
         if (!prevLog) return 0; 
         return Math.max(0, prevLog.postStock - currentPre); 
     };
 
     const handleSubmit = async () => {
-        if (!window.confirm(`Submit Inventory for ${dayGroup.toUpperCase()}?`)) return;
+        if (!window.confirm(`Submit ${currentShift.toUpperCase()} Inventory for ${dayGroup.toUpperCase()}?`)) return;
         const timestamp = new Date();
-        const logs: SmartInventoryLog[] = SMART_INVENTORY_MASTER_DATA.map(item => {
-            const input = inputs[item.id] || { pre: 0, restock: 0 };
-            const post = calculatePostStock(input.pre, input.restock);
+        
+        const logs: SmartInventoryLog[] = items.map(item => {
+            const input = inputs[item.id] || { pre: 0, restock: 0, loss: 0 };
+            const target = getTarget(item);
+            
+            // Post Stock = Pre + Restock
+            const post = input.pre + input.restock;
+            
+            // Consumption logic can be refined: Start + Restock - End - Loss
+            // But here we stick to simpler: Last Post - Current Pre
             const consumption = calculateConsumption(item.id, input.pre);
+            
             return {
-                itemId: item.id, itemName: item.name.en, area: item.area, preStock: input.pre, restockQty: input.restock, postStock: post, consumption: consumption
+                itemId: item.id, 
+                itemName: item.name.en, 
+                area: item.area, 
+                preStock: input.pre, 
+                restockQty: input.restock, 
+                postStock: post, 
+                loss: input.loss, // 【新增】
+                shift: currentShift, // 【新增】
+                targetSnapshot: target, // 【新增】
+                consumption: consumption
             };
         });
 
+        // 依然按周归档，但记录里包含了具体的班次信息
         const oneJan = new Date(timestamp.getFullYear(), 0, 1);
         const numberOfDays = Math.floor((timestamp.getTime() - oneJan.getTime()) / (24 * 60 * 60 * 1000));
         const weekNum = Math.ceil((timestamp.getDay() + 1 + numberOfDays) / 7);
 
         const report: SmartInventoryReport = {
-            id: timestamp.getTime().toString(), date: timestamp.toISOString(), weekStr: `${timestamp.getFullYear()}-W${weekNum}`, submittedBy: 'Owner', logs: logs
+            id: timestamp.getTime().toString(),
+            date: timestamp.toISOString(),
+            weekStr: `${timestamp.getFullYear()}-W${weekNum}`,
+            submittedBy: `Staff (${currentShift})`, 
+            logs: logs
         };
 
-        try { await Cloud.saveSmartInventoryReport(report); alert("Saved!"); setInputs({}); } catch (error) { console.error(error); alert("Error"); }
+        try { await Cloud.saveSmartInventoryReport(report); alert("✅ Saved!"); setInputs({}); } catch (error) { console.error(error); alert("Error"); }
     };
 
     const handleExport = () => {
-        let csv = "Date,Week,Area,Item,Supplier,Target(Day),Pre-Stock,Restock,Post-Stock,Consumption,Status\n";
+        let csv = "Date,Week,Shift,Area,Item,Target,Pre(Count),Restock,Loss,Post,Consumption\n";
         (smartInventoryReports || []).forEach((rep: SmartInventoryReport) => {
             rep.logs.forEach(log => {
-                const itemDef = SMART_INVENTORY_MASTER_DATA.find(i => i.id === log.itemId);
-                // 导出时尝试获取那天的目标（这里简单起见，导出当前的配置作为参考，或者 safeStock）
-                // 更严谨的做法是在保存 Log 时把当天的 Target 也存进去。这里先用 safeStock 或 current target
-                const safe = itemDef?.safeStock || 0; 
-                const status = log.postStock < safe ? "LOW" : "OK";
                 const cleanName = log.itemName.replace(/"/g, '""');
-                csv += `${rep.date.split('T')[0]},${rep.weekStr},${log.area},"${cleanName}",${itemDef?.supplier},${safe},${log.preStock},${log.restockQty},${log.postStock},${log.consumption},${status}\n`;
+                csv += `${rep.date.split('T')[0]},${rep.weekStr},${log.shift||'-'},${log.area},"${cleanName}",${log.targetSnapshot||0},${log.preStock},${log.restockQty},${log.loss||0},${log.postStock},${log.consumption}\n`;
             });
         });
         const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
-        const link = document.createElement("a"); link.href = encodedUri; link.download = `smart_inventory_${new Date().toISOString().split('T')[0]}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        const link = document.createElement("a"); link.href = encodedUri; link.download = `inventory_log_${new Date().toISOString().split('T')[0]}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
     return (
@@ -2362,86 +2390,101 @@ const SmartInventoryView = ({ data }: { data: any }) => {
             <div className="p-4 bg-dark-surface border-b border-white/10 flex justify-between items-center shadow-lg z-10 shrink-0">
                 <div>
                     <h2 className="text-xl font-black text-white flex items-center gap-2">
-                        <Icon name="Briefcase" size={24} className="text-dark-accent" /> Smart Inventory
+                        <Icon name="Briefcase" size={24} className="text-dark-accent" /> Smart Prep
                     </h2>
-                    <p className="text-xs text-dark-text-light flex items-center gap-2">
-                        <span>Today: {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][today]}</span>
-                        <span className="bg-white/10 px-1 rounded text-white font-mono">{dayGroup.toUpperCase().replace('_', '-')}</span>
-                    </p>
+                    <div className="flex gap-3 text-xs mt-1">
+                        <span className="text-dark-text-light flex items-center gap-1">
+                            <Icon name="Calendar" size={12}/> {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][todayIndex]}
+                        </span>
+                        {/* 班次切换器 (允许手动纠正) */}
+                        <div className="flex bg-black/20 rounded p-0.5">
+                            <button onClick={()=>setCurrentShift('morning')} className={`px-2 py-0.5 rounded text-[10px] ${currentShift==='morning'?'bg-orange-400 text-white font-bold':'text-dark-text-light'}`}>Morning</button>
+                            <button onClick={()=>setCurrentShift('evening')} className={`px-2 py-0.5 rounded text-[10px] ${currentShift==='evening'?'bg-indigo-400 text-white font-bold':'text-dark-text-light'}`}>Evening</button>
+                        </div>
+                    </div>
                 </div>
                 <div className="flex gap-2">
                     <button onClick={handleExport} className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-white/5 text-white">Export</button>
-                    <button onClick={handleSubmit} className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg text-sm font-bold text-white shadow-lg transition-all">Submit</button>
+                    <button onClick={handleSubmit} className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg text-sm font-bold text-white shadow-lg transition-all flex items-center gap-2">
+                        <Icon name="Save" size={16}/> Submit
+                    </button>
                 </div>
             </div>
 
-            {/* Filters & Day Selector */}
-            <div className="p-3 flex flex-col gap-2 border-b border-white/10 bg-dark-bg shrink-0">
-                <div className="flex gap-2 justify-between">
-                    <div className="flex bg-dark-surface rounded-lg p-1 border border-white/5">
-                        <button onClick={() => setAreaFilter('Storage')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${areaFilter === 'Storage' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Storage</button>
-                        <button onClick={() => setAreaFilter('Shop')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${areaFilter === 'Shop' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Shop</button>
-                        <button onClick={() => setAreaFilter('Prep')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${areaFilter === 'Prep' ? 'bg-purple-500 text-white' : 'text-dark-text-light'}`}>Prep (每日备料)</button>
-                    </div>
-                    {/* Day Selector (Only meaningful for Prep, but shown for context) */}
-                    <div className="flex bg-dark-surface rounded-lg p-1 border border-white/5">
-                        <button onClick={() => setDayGroup('mon_thu')} className={`px-2 py-1.5 rounded-md text-[10px] font-bold ${dayGroup==='mon_thu'?'bg-white text-dark-bg':'text-dark-text-light'}`}>Mon-Thu</button>
-                        <button onClick={() => setDayGroup('fri')} className={`px-2 py-1.5 rounded-md text-[10px] font-bold ${dayGroup==='fri'?'bg-white text-dark-bg':'text-dark-text-light'}`}>Fri</button>
-                        <button onClick={() => setDayGroup('sat')} className={`px-2 py-1.5 rounded-md text-[10px] font-bold ${dayGroup==='sat'?'bg-white text-dark-bg':'text-dark-text-light'}`}>Sat</button>
-                        <button onClick={() => setDayGroup('sun')} className={`px-2 py-1.5 rounded-md text-[10px] font-bold ${dayGroup==='sun'?'bg-white text-dark-bg':'text-dark-text-light'}`}>Sun</button>
-                    </div>
+            {/* Area Tabs */}
+            <div className="p-3 flex gap-2 border-b border-white/10 bg-dark-bg shrink-0 overflow-x-auto">
+                 <div className="flex bg-dark-surface rounded-lg p-1 shrink-0 border border-white/5">
+                    <button onClick={() => setAreaFilter('Prep')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex gap-2 items-center ${areaFilter === 'Prep' ? 'bg-purple-500 text-white' : 'text-dark-text-light'}`}>
+                        <Icon name="Coffee" size={12}/> Prep (备料)
+                    </button>
+                    <button onClick={() => setAreaFilter('Storage')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${areaFilter === 'Storage' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Storage</button>
+                    <button onClick={() => setAreaFilter('Shop')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${areaFilter === 'Shop' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Shop</button>
                 </div>
                 
                 {areaFilter === 'Prep' && (
-                    <div className="flex justify-between items-center bg-purple-500/10 p-2 rounded-lg border border-purple-500/20">
-                        <span className="text-xs text-purple-200 font-bold flex gap-2 items-center">
-                            <Icon name="List" size={14}/> 
-                            {isEditingTargets ? "Editing Targets (修改预设值)" : `Targets for ${dayGroup.replace('_', '-')}`}
-                        </span>
-                        <button onClick={() => setIsEditingTargets(!isEditingTargets)} className="text-[10px] underline text-purple-300 hover:text-white">
-                            {isEditingTargets ? "Done" : "Edit Presets"}
-                        </button>
-                    </div>
+                    <button onClick={() => setIsEditingTargets(!isEditingTargets)} className="ml-auto text-[10px] underline text-purple-300 hover:text-white flex items-center gap-1">
+                        <Icon name="Settings" size={10}/> {isEditingTargets ? "Done Editing" : "Adjust Targets"}
+                    </button>
                 )}
             </div>
 
-            {/* Grid */}
+            {/* Main List */}
             <div className="flex-1 overflow-y-auto p-2 pb-20">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {filteredItems.map(item => {
-                        const input = inputs[item.id] || { pre: 0, restock: 0 };
-                        const post = calculatePostStock(input.pre, input.restock);
-                        const targetVal = getTarget(item);
+                        const input = inputs[item.id] || { pre: 0, restock: 0, loss: 0 };
+                        const targetVal = getTarget(item); // 获取当前班次目标
+                        
+                        // 智能补货建议：(目标 - 现有)
+                        // 如果未输入restock，且现有库存小于目标，可以显示建议值
+                        const suggestion = Math.max(0, targetVal - input.pre);
+                        const post = input.pre + input.restock;
+                        const lastLog = lastLogMap.get(item.id);
+                        
+                        // 状态判定
                         const isLow = post < targetVal;
-                        // 获取当前日期的具体配置
+
+                        // 获取日预设 (用于编辑)
                         const saved = targetOverrides[item.id];
                         const targets = saved || item.dailyTargets;
                         const currentDayTargets = targets ? targets[dayGroup] : null;
 
                         return (
                             <div key={item.id} className={`bg-dark-surface p-3 rounded-xl border flex flex-col gap-2 shadow-sm transition-all ${isLow ? 'border-red-500/30' : 'border-white/5'}`}>
+                                {/* Item Header */}
                                 <div className="flex justify-between items-start">
-                                    <div className="flex-1">
+                                    <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-1">
-                                            <span className="font-bold text-sm text-white">{item.name.en}</span>
-                                            {item.area === 'Prep' && <span className="text-[9px] bg-purple-500 text-white px-1 rounded">PREP</span>}
+                                            <span className="font-bold text-sm text-white truncate">{item.name.zh}</span>
+                                            <span className="text-[10px] text-dark-text-light font-mono">{item.name.en}</span>
                                         </div>
-                                        <div className="text-[10px] text-dark-text-light flex flex-wrap gap-x-3">
-                                            <span>Unit: {item.unit}</span>
-                                            {/* 非编辑模式显示目标 */}
-                                            {!isEditingTargets && <span>Target: <span className="text-white font-bold">{getTargetLabel(item)}</span></span>}
+                                        <div className="text-[10px] text-dark-text-light flex flex-wrap gap-x-3 items-center">
+                                            <span className="bg-white/5 px-1 rounded text-white/70">{item.unit}</span>
+                                            
+                                            {/* 目标展示 */}
+                                            {!isEditingTargets && (
+                                                <span className={`font-bold flex items-center gap-1 ${targetVal>0 ? 'text-purple-300' : 'text-gray-500'}`}>
+                                                    Target: {targetVal}
+                                                </span>
+                                            )}
+
+                                            {/* 上一班记录展示 */}
+                                            {lastLog && (
+                                                <span className="text-gray-500 flex items-center gap-1" title={`Last update: ${new Date(lastLog.date||'').toLocaleDateString()}`}>
+                                                    <Icon name="Clock" size={8}/> Last: {lastLog.restockQty}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <div className={`text-[10px] font-black px-2 py-1 rounded border ${isLow ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
-                                            {isLow ? 'LOW' : 'OK'}
-                                        </div>
+                                    {/* 状态标 */}
+                                    <div className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${isLow ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
+                                        {isLow ? 'LOW' : 'OK'}
                                     </div>
                                 </div>
 
-                                {/* 编辑目标模式 (仅 Prep 物品) */}
-                                {isEditingTargets && item.dailyTargets && currentDayTargets && (
-                                    <div className="grid grid-cols-2 gap-2 bg-purple-500/20 p-2 rounded mb-1">
+                                {/* 编辑模式：修改预设 */}
+                                {isEditingTargets && item.area === 'Prep' && currentDayTargets && (
+                                    <div className="grid grid-cols-2 gap-2 bg-purple-500/20 p-2 rounded mb-1 animate-fade-in">
                                         <div>
                                             <label className="text-[9px] text-purple-200 block">Morning Target</label>
                                             <input type="number" className="w-full bg-dark-bg border border-purple-500/30 rounded px-1 text-white text-xs" 
@@ -2459,24 +2502,45 @@ const SmartInventoryView = ({ data }: { data: any }) => {
                                     </div>
                                 )}
                                 
-                                {/* 正常输入模式 */}
+                                {/* 录入模式：损耗 / 盘点 / 补货 */}
                                 {!isEditingTargets && (
-                                    <div className="grid grid-cols-3 gap-2 mt-1 bg-dark-bg/50 p-2 rounded-lg border border-white/5">
+                                    <div className="grid grid-cols-4 gap-2 mt-1 bg-dark-bg/30 p-2 rounded-lg border border-white/5 items-end">
+                                        {/* 1. 损耗 (Loss) */}
                                         <div>
-                                            <label className="text-[9px] uppercase font-bold text-dark-text-light block mb-1 text-center">Pre-Stock</label>
-                                            <input type="number" className="w-full bg-dark-surface border border-white/10 rounded p-1.5 text-center font-bold text-white outline-none text-sm"
+                                            <label className="text-[9px] uppercase font-bold text-red-400/70 block mb-1 text-center">Loss</label>
+                                            <input type="number" className="w-full bg-dark-surface border border-white/10 rounded p-1 text-center font-bold text-red-400 outline-none text-xs focus:border-red-500"
+                                                value={inputs[item.id]?.loss || ''}
+                                                onChange={(e) => handleInputChange(item.id, 'loss', e.target.value)} placeholder="0" />
+                                        </div>
+
+                                        {/* 2. 现有 (Current/Pre) */}
+                                        <div>
+                                            <label className="text-[9px] uppercase font-bold text-dark-text-light block mb-1 text-center">Count</label>
+                                            <input type="number" className="w-full bg-dark-surface border border-white/10 rounded p-1 text-center font-bold text-white outline-none text-xs focus:border-dark-accent"
                                                 value={inputs[item.id]?.pre === undefined ? '' : inputs[item.id].pre}
                                                 onChange={(e) => handleInputChange(item.id, 'pre', e.target.value)} placeholder="0" />
                                         </div>
-                                        <div>
-                                            <label className="text-[9px] uppercase font-bold text-dark-text-light block mb-1 text-center">Restock (+)</label>
-                                            <input type="number" className="w-full bg-dark-surface border border-white/10 rounded p-1.5 text-center font-bold text-green-400 outline-none text-sm"
+
+                                        {/* 3. 补货 (Restock) */}
+                                        <div className="relative">
+                                            <label className="text-[9px] uppercase font-bold text-green-400/70 block mb-1 text-center">Add</label>
+                                            <input type="number" className="w-full bg-dark-surface border border-white/10 rounded p-1 text-center font-bold text-green-400 outline-none text-xs focus:border-green-500"
                                                 value={inputs[item.id]?.restock === undefined ? '' : inputs[item.id].restock}
-                                                onChange={(e) => handleInputChange(item.id, 'restock', e.target.value)} placeholder="0" />
+                                                onChange={(e) => handleInputChange(item.id, 'restock', e.target.value)} 
+                                                placeholder={suggestion > 0 ? `${suggestion}` : "0"} 
+                                            />
+                                            {/* 补货建议提示小红点 */}
+                                            {suggestion > 0 && inputs[item.id]?.restock === undefined && (
+                                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full animate-pulse" title={`Suggested: ${suggestion}`}></div>
+                                            )}
                                         </div>
+                                        
+                                        {/* 4. 结果 (Post) */}
                                         <div>
-                                            <label className="text-[9px] uppercase font-bold text-dark-text-light block mb-1 text-center">Post (=)</label>
-                                            <div className="w-full bg-white/5 border border-white/5 rounded p-1.5 text-center font-black text-white text-sm">{post}</div>
+                                            <label className="text-[9px] uppercase font-bold text-dark-text-light block mb-1 text-center">Total</label>
+                                            <div className="w-full bg-white/5 border border-white/5 rounded p-1 text-center font-black text-white text-xs">
+                                                {post}
+                                            </div>
                                         </div>
                                     </div>
                                 )}
