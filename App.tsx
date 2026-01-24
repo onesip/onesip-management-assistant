@@ -2696,30 +2696,53 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users, scheduleCycles, setScheduleCycles } = data;
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability' | 'confirmations'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' } | null>(null);
+    // ...
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
-    // 【升级】工资状态：支持 { type: 'hourly'|'fixed', value: number }
-    // 兼容旧数据：如果 localStorage 里存的是纯数字，自动转换为 hourly
+
+    // 【修复 1】工资状态初始化：根据 PDF 精确预设
     const [wages, setWages] = useState<Record<string, { type: 'hourly'|'fixed', value: number }>>(() => {
         const saved = localStorage.getItem('onesip_wages_v2');
         if (saved) return JSON.parse(saved);
         
-        // 尝试读取旧版本数据进行迁移
-        const oldSaved = localStorage.getItem('onesip_wages');
+        // 如果没有保存过，使用 PDF 里的默认值
+        const PRESETS: Record<string, { type: 'hourly'|'fixed', value: number }> = {
+            // 时薪员工 (Hourly) - 按照 inclu. salary
+            "Linda": { type: 'hourly', value: 13.18 },
+            "Linda No.10": { type: 'hourly', value: 13.18 },
+            "Najat": { type: 'hourly', value: 9.67 },
+            "Najat no.11": { type: 'hourly', value: 9.67 },
+            "Xinrui": { type: 'hourly', value: 6.15 },
+            "Xinrui no.8": { type: 'hourly', value: 6.15 },
+            "X. Li": { type: 'hourly', value: 9.67 }, // Maidou
+            "X. Li no.6": { type: 'hourly', value: 9.67 },
+            "Fatima": { type: 'hourly', value: 17.58 },
+            "Fatima 015": { type: 'hourly', value: 17.58 },
+            
+            // 固定薪资员工 (Fixed) - 不随排班变动
+            "Lambert": { type: 'fixed', value: 647.56 }, 
+            "Yang": { type: 'fixed', value: 1100.46 }, 
+        };
+
         const def: any = {};
         users.forEach((m: User) => {
-            // 默认设置：Linda 和 Manager 可能经常是固定薪资，这里先默认 hourly，用户可在界面改
-            def[m.name] = { type: 'hourly', value: 12 };
+            // 尝试匹配预设
+            let setting = { type: 'hourly', value: 12 }; // 默认兜底
+            
+            // 1. 精确匹配
+            if (PRESETS[m.name]) {
+                setting = PRESETS[m.name];
+            } else {
+                // 2. 模糊匹配 (例如 "Lambert" 匹配 "Lambert")
+                const foundKey = Object.keys(PRESETS).find(k => m.name.includes(k));
+                if (foundKey) setting = PRESETS[foundKey];
+            }
+            // 强制类型转换 (TS)
+            def[m.name] = { type: setting.type as 'hourly'|'fixed', value: setting.value };
         });
-        
-        if (oldSaved) {
-            const oldObj = JSON.parse(oldSaved);
-            Object.keys(oldObj).forEach(key => {
-                def[key] = { type: 'hourly', value: oldObj[key] }; // 旧数据视为时薪
-            });
-        }
         return def;
     });
-
+    
+    // ...
     // 辅助：保存工资设置
     const saveWages = (newWages: any) => {
         setWages(newWages);
@@ -3040,24 +3063,24 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             });
         });
 
+            // ... (前面代码不变)
+
         // 5. 汇总金额 (区分 Fixed 和 Hourly)
         let totalEstCost = 0; 
         let totalActualCost = 0;
         
         Object.keys(stats).forEach(name => { 
             const s = stats[name];
+            // 【关键修复】获取工资设置
             const setting = wages[name] || { type: 'hourly', value: 12 };
             
             if (setting.type === 'fixed') {
-                // 【固定月薪逻辑】：
-                // 不管排班多少小时、打卡多少小时，成本都是固定的
-                // 将月薪转换为周成本：Value * 12 / 52
+                // 月薪制：按周平摊成本 (月薪 * 12 / 52)
                 const weeklyFixedCost = (setting.value * 12) / 52;
                 s.estCost = weeklyFixedCost;
-                s.actualCost = weeklyFixedCost;
-                // 对于固定薪资，工时仅供参考，不参与成本计算
+                s.actualCost = weeklyFixedCost; // 视为已付，无差异
             } else {
-                // 【时薪逻辑】：正常计算
+                // 时薪制：工时 * 时薪
                 s.estCost = s.estHours * setting.value;
                 s.actualCost = s.actualHours * setting.value;
             }
@@ -3068,39 +3091,54 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
         return { stats, totalEstCost, totalActualCost };
     };
-    
+
     // 【👇 必须补上这一行，否则 totalEstCost 就没有定义 👇】
     const { stats, totalEstCost, totalActualCost } = calculateFinancials();
 
 
-// --- 3. 新增：每日财务明细 (Daily Breakdown) - 名字清洗版 ---
+// --- 3. 新增：每日财务明细 (Daily Breakdown) - 修复 NaN 问题 ---
     const getDailyFinancials = () => {
         return displayedDays.map((day: ScheduleDay) => {
-            const staffMap: Record<string, { est: number, act: number, wage: number }> = {};
+            // 临时存储：name -> { est, act, setting }
+            const staffMap: Record<string, { est: number, act: number, setting: { type: string, value: number } }> = {};
 
-            // 1. 预计成本
+            // 1. 预计成本 (Estimate)
             const scheduleShifts = day.shifts || [];
-            // ... (兼容旧数据的逻辑保持不变，省略以节省空间，直接用 scheduleShifts.forEach)
             if (scheduleShifts.length === 0) {
-                 // 如果需要兼容旧数据，请保留之前的 fallback 代码
-                 if (day.morning && day.morning.length) scheduleShifts.push({ id: 'm', name: 'S1', start: day.hours?.morning?.start||'10:00', end: day.hours?.morning?.end||'15:00', staff: day.morning });
-                 if (day.evening && day.evening.length) scheduleShifts.push({ id: 'e', name: 'S2', start: day.hours?.evening?.start||'14:30', end: day.hours?.evening?.end||'19:00', staff: day.evening });
-                 if (day.night && day.night.length) scheduleShifts.push({ id: 'n', name: 'S3', start: day.hours?.night?.start||'18:00', end: day.hours?.night?.end||'22:00', staff: day.night });
+                 // 兼容旧数据
+                 (day.morning||[]).forEach(p => addEst(p, 5));
+                 (day.evening||[]).forEach(p => addEst(p, 5));
+                 (day.night||[]).forEach(p => addEst(p, 5));
+            }
+
+            // 辅助：累加预计金额
+            function addEst(rawName: string, hours: number) {
+                const name = normalizeName(rawName);
+                const setting = wages[name] || { type: 'hourly', value: 12 };
+                
+                if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, setting };
+                
+                // 【核心逻辑】
+                // 如果是时薪：成本 = 工时 * 时薪
+                // 如果是固定月薪：每日变动成本为 0 (因为钱已经付了，不随排班增加)
+                if (setting.type === 'hourly') {
+                    staffMap[name].est += hours * setting.value;
+                }
             }
 
             scheduleShifts.forEach((shift: any) => {
-                const s = parseInt(shift.start.split(':')[0], 10) + (parseInt(shift.start.split(':')[1] || '0', 10) / 60);
-                const e = parseInt(shift.end.split(':')[0], 10) + (parseInt(shift.end.split(':')[1] || '0', 10) / 60);
-                const duration = Math.max(0, e - s);
-                
-                shift.staff.forEach((rawName: string) => {
-                    const name = normalizeName(rawName); // 清洗名字
-                    if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, wage: wages[name] || 12 };
-                    staffMap[name].est += duration * staffMap[name].wage;
-                });
+                let hours = 5;
+                if (shift.start && shift.end) {
+                    const s = parseInt(shift.start.split(':')[0]) + (parseInt(shift.start.split(':')[1]||'0')/60);
+                    const e = parseInt(shift.end.split(':')[0]) + (parseInt(shift.end.split(':')[1]||'0')/60);
+                    hours = Math.max(0, e - s);
+                }
+                if (Array.isArray(shift.staff)) {
+                    shift.staff.forEach((p: string) => addEst(p, hours));
+                }
             });
 
-            // 2. 实际成本
+            // 2. 实际成本 (Actual - Logs)
             const parseScheduleDate = (dStr: string) => {
                 const parts = dStr.split('-');
                 const now = new Date();
@@ -3114,57 +3152,52 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 const lDate = safeParseDate(l.time);
                 if (!lDate || l.isDeleted) return false;
                 return `${lDate.getMonth()}-${lDate.getDate()}` === targetFingerprint;
-            }).sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
+            });
 
             const logsByUser: Record<string, LogEntry[]> = {};
             dayLogs.forEach(l => {
-                // 【核心】：名字清洗
-                let finalName = 'Unknown';
-                if (l.userId) {
-                    const u = users.find(user => user.id === l.userId);
-                    if (u) finalName = u.name;
-                }
-                if (finalName === 'Unknown' && l.name) finalName = normalizeName(l.name);
-
+                let rawName = l.name || 'Unknown';
+                if (l.userId) { const u = users.find(user => user.id === l.userId); if (u) rawName = u.name; }
+                const finalName = normalizeName(rawName);
                 if (!logsByUser[finalName]) logsByUser[finalName] = [];
                 logsByUser[finalName].push(l);
             });
 
             Object.entries(logsByUser).forEach(([userName, userLogs]) => {
-                if (!staffMap[userName]) staffMap[userName] = { est: 0, act: 0, wage: wages[userName] || 12 };
+                const setting = wages[userName] || { type: 'hourly', value: 12 };
+                if (!staffMap[userName]) staffMap[userName] = { est: 0, act: 0, setting };
 
+                // 【核心逻辑】如果是固定月薪，实际打卡成本也视为 0
+                if (setting.type === 'fixed') return;
+
+                // 计算工时
+                userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
+                const processedInIds = new Set<number>();
                 let userHours = 0;
-                const processedInIds = new Set<number>(); 
 
                 userLogs.forEach((outLog) => {
                     if (outLog.type === 'clock-out') {
                         const outTime = safeParseDate(outLog.time)?.getTime() || 0;
-                        const matchingIn = userLogs
-                            .filter(l => l.type === 'clock-in' && !processedInIds.has(l.id))
-                            .filter(l => {
-                                const t = safeParseDate(l.time)?.getTime() || 0;
-                                return t < outTime;
-                            })
+                        const matchingIn = userLogs.filter(l => l.type === 'clock-in' && !processedInIds.has(l.id) && (safeParseDate(l.time)?.getTime()||0) < outTime)
                             .sort((a, b) => (safeParseDate(b.time)?.getTime()||0) - (safeParseDate(a.time)?.getTime()||0))[0];
 
                         if (matchingIn) {
-                            const inTime = safeParseDate(matchingIn.time)?.getTime() || 0;
-                            const diffHrs = (outTime - inTime) / (1000 * 60 * 60);
-                            if (diffHrs > 0) {
-                                userHours += diffHrs;
-                                processedInIds.add(matchingIn.id); 
-                            }
+                            const diff = (outTime - (safeParseDate(matchingIn.time)?.getTime()||0)) / (1000*60*60);
+                            if (diff > 0) { userHours += diff; processedInIds.add(matchingIn.id); }
                         }
                     }
                 });
-                staffMap[userName].act += userHours * staffMap[userName].wage;
+                
+                // 【修复】使用 setting.value 计算实际金额 (之前没加 .value 导致 NaN)
+                staffMap[userName].act += userHours * setting.value;
             });
 
+            // 3. 汇总
             let estTotal = 0; let actTotal = 0;
             const details = Object.entries(staffMap).map(([name, data]) => {
                 estTotal += data.est;
                 actTotal += data.act;
-                return { name, ...data };
+                return { name, est: data.est, act: data.act, diff: data.act - data.est }; 
             }).sort((a, b) => b.act - a.act); 
 
             return {
@@ -3172,7 +3205,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 name: day.name,
                 est: estTotal,
                 act: actTotal,
-                diff: estTotal - actTotal,
+                diff: estTotal - actTotal, 
                 details: details 
             };
         });
