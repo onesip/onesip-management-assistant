@@ -346,7 +346,10 @@ export interface ScheduleCycle {
   };
 }
 
-// ... (在 SmartInventoryItem 上方添加)
+// ==========================================
+// 1. PREP SYSTEM TYPES (前台补料 / Manage Prep)
+// ==========================================
+
 export interface DailyTarget {
     morning: number;
     evening: number;
@@ -359,48 +362,60 @@ export interface WeeklyTargets {
     sun: DailyTarget;
 }
 
-
-
-// --- NEW SMART INVENTORY TYPES ---
-
-// ... (修改 SmartInventoryItem 接口)
-export interface SmartInventoryItem {
-    id: string; 
-    area: string; 
+// 对应 constants.ts 中的 INVENTORY_ITEMS
+// 注意：请确保你现有的 InventoryItem 定义包含了 dailyTargets 字段
+// 如果没有，请修改上面的 InventoryItem 定义，或者使用这个扩展接口
+export interface InventoryItem {
+    id: string;
     name: Translation;
     unit: string;
-    position: string;
-    category: string; 
-    supplier: string; 
-    delivery: string; 
-    safeStock: number;
-    // 【新增】每日备料目标 (可选，仅 Prep 类物品有)
+    defaultVal: string;
+    category: string;
+    // 【新增】每日备料目标 (Prep 专用)
     dailyTargets?: WeeklyTargets;
 }
-// ... 之前的接口 ...
 
-export interface SmartInventoryLog {
+// Prep 详细日志 (记录每次补料的详情)
+export interface PrepLog {
     itemId: string;
-    itemName: string;
-    area: string;
-    preStock: number;   // 补货前存量 (Current)
-    restockQty: number; // 补货量 (Restock)
-    postStock: number;  // 补货后总量 (Post)
-    consumption: number;// 消耗量
-    
-    // 【新增字段】
-    loss?: number;       // 损耗
-    shift?: 'morning' | 'evening'; // 班次
+    itemName: string; 
+    preStock: number;   // 补货前 (Count)
+    restockQty: number; // 补货量 (Add)
+    postStock: number;  // 补货后 (Total)
+    consumption: number;// 消耗量 (与上次对比)
+    loss?: number;      // 损耗
+    shift?: 'morning' | 'evening';
     targetSnapshot?: number; // 记录当时的目标值
     note?: string;
 }
 
-// ...
-
-export interface SmartInventoryReport {
+// Prep 提交报告
+export interface PrepReport {
     id: string; // Timestamp ID
     date: string; // ISO Date
     weekStr: string; // e.g., "2023-W42"
     submittedBy: string;
-    logs: SmartInventoryLog[];
+    shift: 'morning' | 'evening';
+    logs: PrepLog[];
+}
+
+
+// ==========================================
+// 2. SMART WAREHOUSE TYPES (后台仓库 / Owner 专用)
+// ==========================================
+
+export type SupplierType = "I'tea" | 'Joybuy' | 'Open Mkt' | 'Other';
+
+// 独立的仓库物品定义 (与 Prep 分开)
+export interface SmartInventoryItem {
+    id: string;
+    category: string;      // e.g. Tea, Powder, Fresh
+    name: string;          // 仓库物品名称通常是单语言
+    position: string;      // e.g. A1, B3, In Fridge
+    unit: string;
+    supplier: SupplierType;
+    deliveryTime?: string; // e.g. Every Thursday
+    safetyStock: number;   // 安全库存线
+    currentStock: number;  // 当前库存量
+    lastUpdated?: string;
 }

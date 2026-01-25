@@ -971,147 +971,6 @@ const LoginScreen = ({ users, onLogin, t, lang, setLang }: any) => {
     );
 };
 
-const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel }: any) => {
-    // Staff state
-    const [employee, setEmployee] = useState(currentUser?.name || '');
-    const [inputData, setInputData] = useState<Record<string, { end: string, waste: string }>>(() => {
-        const initialState: Record<string, { end: string, waste: string }> = {};
-        if (inventoryList && !isOwner) {
-            inventoryList.forEach((item: InventoryItem) => {
-                initialState[item.id] = {
-                    end: item.defaultVal || '',
-                    waste: '',
-                };
-            });
-        }
-        return initialState;
-    });
-    
-    // Owner state for editing
-    const [localInventory, setLocalInventory] = useState<InventoryItem[]>([]);
-    const [newItemName, setNewItemName] = useState({ zh: '', en: '' });
-
-    useEffect(() => {
-        if (isOwner) setLocalInventory(JSON.parse(JSON.stringify(inventoryList)));
-    }, [inventoryList, isOwner]);
-
-    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-
-    // Staff handler
-    const handleInputChange = (id: string, field: 'end' | 'waste', value: string) => { setInputData(prev => ({ ...prev, [id]: { ...(prev[id] || {end:'', waste:''}), [field]: value } })); };
-
-    // Owner handlers
-    const handleAddItem = () => {
-        if(!newItemName.zh || !newItemName.en) return;
-        const newItem: InventoryItem = { id: `inv_${Date.now()}`, name: newItemName, unit: 'unit', defaultVal: '', category: 'other' };
-        const updatedList = [...localInventory, newItem];
-        setLocalInventory(updatedList);
-        Cloud.saveInventoryList(updatedList);
-        setNewItemName({ zh: '', en: '' });
-    };
-    
-    const handleOwnerItemChange = (id: string, field: string, value: string, lang?: 'en' | 'zh') => {
-        setLocalInventory(prev => prev.map(item => {
-            if (item.id === id) {
-                if (field === 'name' && lang) {
-                    return { ...item, name: { ...item.name, [lang]: value } };
-                }
-                return { ...item, [field]: value };
-            }
-            return item;
-        }));
-    };
-
-    const handleDeleteItem = (id: string) => {
-        if (window.confirm("Confirm to delete this inventory item? Historical records will not be affected.")) {
-            const updatedList = localInventory.filter(item => item.id !== id);
-            setLocalInventory(updatedList);
-        }
-    };
-
-    const handleSavePresets = async () => {
-        await Cloud.saveInventoryList(localInventory);
-        alert('Preset values saved!');
-    };
-
-    if (isOwner) {
-        return (
-            <div className="flex flex-col h-full bg-dark-surface text-dark-text">
-                <div className="p-4 bg-dark-bg shadow-md sticky top-0 z-10 space-y-3">
-                    <h2 className="text-xl font-black text-dark-accent">{t.manage_presets}</h2>
-                     <div className="flex gap-2">
-                        <input placeholder="New Item Name (ZH)" className="flex-1 p-2 bg-dark-surface border border-white/10 rounded text-xs" value={newItemName.zh} onChange={e=>setNewItemName({...newItemName, zh: e.target.value})} />
-                        <input placeholder="New Item Name (EN)" className="flex-1 p-2 bg-dark-surface border border-white/10 rounded text-xs" value={newItemName.en} onChange={e=>setNewItemName({...newItemName, en: e.target.value})} />
-                        <button onClick={handleAddItem} className="bg-dark-accent text-dark-bg p-2 rounded font-bold"><Icon name="Plus" size={16}/></button>
-                    </div>
-                </div>
-                <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                    {localInventory.map((item: InventoryItem) => (
-                        <div key={item.id} className="bg-dark-bg p-3 rounded-xl border border-white/10 space-y-2">
-                            <div className="grid grid-cols-2 gap-2">
-                                <input type="text" placeholder="Name (EN)" value={item.name.en || ''} onChange={(e) => handleOwnerItemChange(item.id, 'name', e.target.value, 'en')} className="w-full p-2 rounded-lg border border-white/20 bg-dark-surface text-sm" />
-                                <input type="text" placeholder="Name (ZH)" value={item.name.zh || ''} onChange={(e) => handleOwnerItemChange(item.id, 'name', e.target.value, 'zh')} className="w-full p-2 rounded-lg border border-white/20 bg-dark-surface text-sm" />
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 items-center">
-                                <input type="text" placeholder="Unit" value={item.unit || ''} onChange={(e) => handleOwnerItemChange(item.id, 'unit', e.target.value)} className="col-span-1 w-full p-2 rounded-lg border border-white/20 bg-dark-surface text-center text-sm" />
-                                <input type="text" placeholder="Preset Value" value={item.defaultVal || ''} onChange={(e) => handleOwnerItemChange(item.id, 'defaultVal', e.target.value)} className="col-span-1 w-full p-2 rounded-lg border border-white/20 bg-dark-surface text-center text-sm" />
-                                <button onClick={() => handleDeleteItem(item.id)} className="col-span-1 bg-red-500/20 text-red-400 p-2 rounded-lg h-full flex items-center justify-center hover:bg-red-500/30 transition-colors">
-                                    <Icon name="Trash" size={16} />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-                <div className="p-4 bg-dark-bg border-t border-white/10 sticky bottom-0 z-10">
-                    <button onClick={handleSavePresets} className="w-full bg-dark-accent text-dark-bg py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2">
-                        <Icon name="Save" size={20} /> Save Presets
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    // Staff view
-    return (
-        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
-            <div className="bg-surface p-4 border-b sticky top-0 z-10 space-y-3 shadow-sm">
-                 <div className="flex justify-between items-center">
-                    <h2 className="text-xl font-black">{t.inventory_title}</h2>
-                    {isForced && (
-                        <button onClick={onCancel} className="bg-destructive-light text-destructive px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-200 transition-all">
-                            {t.cancel}
-                        </button>
-                    )}
-                </div>
-                 {isForced && <p className="text-xs text-destructive font-bold animate-pulse">{t.complete_inventory_to_clock_out}</p>}
-            </div>
-            <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                {inventoryList.map((item: any) => (
-                    <div key={item.id} className="bg-surface p-3 rounded-xl border shadow-sm flex items-center justify-between">
-                        <div className="flex-1"><div className="font-bold text-sm text-text">{getLoc(item.name)}</div><div className="text-[10px] text-text-light">{item.unit}</div></div>
-                        <div className="flex gap-2 w-2/5">
-                            <input 
-                                type="number" 
-                                placeholder={item.defaultVal || 'End'} 
-                                className="w-1/2 p-2 rounded-lg border text-center text-sm" 
-                                value={inputData[item.id]?.end ?? ''}
-                                onChange={(e) => handleInputChange(item.id, 'end', e.target.value)} 
-                            />
-                            <input 
-                                type="number" 
-                                placeholder="Waste" 
-                                className="w-1/2 p-2 rounded-lg border border-red-100 text-center text-sm bg-destructive-light text-destructive" 
-                                value={inputData[item.id]?.waste ?? ''}
-                                onChange={(e) => handleInputChange(item.id, 'waste', e.target.value)} 
-                            />
-                        </div>
-                    </div>
-                ))}
-            </div>
-            <div className="p-4 bg-surface border-t sticky bottom-20 z-10"><button onClick={() => { if(!employee) return alert(t.select_employee); onSubmit({ submittedBy: employee, userId: currentUser?.id, data: inputData }); alert(t.save_success); }} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark"><Icon name="Save" size={20} />{t.save_report}</button></div>
-        </div>
-    );
-};
 
 const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isManager, sopList, trainingLevels, allUsers }: any) => {
     const [activeChannel, setActiveChannel] = useState<string | null>(null);
@@ -1918,26 +1777,17 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     );
 };
 
-const OwnerInventoryLogsView = ({ logs, currentUser, onUpdateLogs }: { logs: LogEntry[], currentUser: User, onUpdateLogs: (logs: LogEntry[]) => void }) => {
-    const [editingLog, setEditingLog] = useState<LogEntry | null>(null);
-    const [invalidatingLog, setInvalidatingLog] = useState<LogEntry | null>(null);
+// ============================================================================
+// 1. OwnerInventoryLogsView (日志查看)
+// ============================================================================
+const OwnerInventoryLogsView = ({ logs, currentUser, onUpdateLogs }: { logs: any[], currentUser: any, onUpdateLogs: (logs: any[]) => void }) => {
+    // 简单过滤出包含 items 的日志 (补货日志)
+    const materialLogs = (logs || []).filter(log => log.items && Array.isArray(log.items)).slice().reverse();
 
-    // Filter for material/inventory logs, which are identified by having an 'items' array.
-    const materialLogs = (logs || [])
-        .filter(log => Array.isArray((log as any).items))
-        .slice()
-        .reverse();
-
-    const handleSave = (updatedLog: LogEntry) => {
-        const newLogs = logs.map(l => l.id === updatedLog.id ? updatedLog : l);
+    const handleInvalidate = (log: any) => {
+        if (!window.confirm("Invalidate this log? This will reverse the stock changes.")) return;
+        const newLogs = logs.map(l => l.id === log.id ? { ...l, isDeleted: true, deleteReason: `Invalidated by ${currentUser.name}` } : l);
         onUpdateLogs(newLogs);
-        setEditingLog(null);
-    };
-
-    const handleInvalidateConfirm = (logToUpdate: LogEntry) => {
-        const newLogs = logs.map(l => l.id === logToUpdate.id ? logToUpdate : l);
-        onUpdateLogs(newLogs);
-        setInvalidatingLog(null);
     };
 
     return (
@@ -1948,16 +1798,12 @@ const OwnerInventoryLogsView = ({ logs, currentUser, onUpdateLogs }: { logs: Log
                 <div key={log.id} className={`bg-dark-surface p-3 rounded-xl border border-white/10 ${log.isDeleted ? 'opacity-50' : ''}`}>
                     <div className="flex justify-between items-start mb-2">
                         <div>
-                            <p className="text-sm font-bold">{log.name} <span className="text-xs text-dark-text-light font-normal">({log.type || 'refill'})</span></p>
-                            <p className="text-xs text-dark-text-light">{new Date(log.time).toLocaleString()}</p>
+                            <p className="text-sm font-bold">{log.submittedBy || log.name} <span className="text-xs text-dark-text-light">({log.type || 'refill'})</span></p>
+                            <p className="text-xs text-dark-text-light">{new Date(log.time || log.date).toLocaleString()}</p>
                             {log.isDeleted && <span className="text-xs text-red-400 font-bold">[INVALIDATED]</span>}
-                            {log.manualInventoryEdited && <span className="text-xs text-yellow-400 font-bold">[EDITED]</span>}
                         </div>
                         {!log.isDeleted && (
-                            <div className="flex gap-2 shrink-0">
-                                <button onClick={() => setEditingLog(log)} className="bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-500/20">Edit</button>
-                                <button onClick={() => setInvalidatingLog(log)} className="bg-red-500/10 text-red-400 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-500/20">Invalidate</button>
-                            </div>
+                            <button onClick={() => handleInvalidate(log)} className="bg-red-500/10 text-red-400 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-500/20">Invalidate</button>
                         )}
                     </div>
                     <div className="bg-dark-bg p-2 rounded-lg text-xs space-y-1">
@@ -1968,125 +1814,419 @@ const OwnerInventoryLogsView = ({ logs, currentUser, onUpdateLogs }: { logs: Log
                             </div>
                         ))}
                     </div>
-                     {log.isDeleted && <p className="text-xs mt-2 text-gray-400 border-t border-white/10 pt-2">Reason: {log.deleteReason}</p>}
-                     {log.manualInventoryEdited && <p className="text-xs mt-2 text-yellow-500 border-t border-white/10 pt-2">Edit Note: {log.manualInventoryEditReason}</p>}
                 </div>
             ))}
-            <EditInventoryLogModal isOpen={!!editingLog} log={editingLog} onClose={() => setEditingLog(null)} onSave={handleSave} currentUser={currentUser} />
-            <InvalidateLogModal isOpen={!!invalidatingLog} log={invalidatingLog} onClose={() => setInvalidatingLog(null)} onConfirm={handleInvalidateConfirm} currentUser={currentUser} />
         </div>
     );
 };
 
+// ============================================================================
+// 2. StaffManagementView (员工管理)
+// ============================================================================
+const StaffManagementView = ({ users }: { users: any[] }) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [tempUser, setTempUser] = useState<any>({ id: '', name: '', role: 'staff', phone: '', password: '', active: true });
+
+    const handleEdit = (user: any) => {
+        setTempUser(user || { id: `u_${Date.now()}`, name: '', role: 'staff', phone: '', password: '', active: true });
+        setIsEditing(true);
+    };
+
+    const handleSave = async () => {
+        if (!tempUser.name) return alert("Name is required");
+        await Cloud.saveUser(tempUser);
+        setIsEditing(false);
+        alert("Staff saved!");
+    };
+
+    return (
+        <div className="p-4 space-y-4 text-dark-text">
+            <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold">Staff Management</h3>
+                <button onClick={() => handleEdit(null)} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90">
+                    <Icon name="Plus" size={16} /> Add Staff
+                </button>
+            </div>
+
+            {isEditing && (
+                <div className="bg-dark-surface p-4 rounded-xl border border-white/10 space-y-3 mb-4">
+                    <h4 className="font-bold text-white">Edit Staff</h4>
+                    <input className="w-full p-2 rounded bg-dark-bg border border-white/20 text-white" placeholder="Name" value={tempUser.name} onChange={e => setTempUser({...tempUser, name: e.target.value})} />
+                    <input className="w-full p-2 rounded bg-dark-bg border border-white/20 text-white" placeholder="Phone" value={tempUser.phone} onChange={e => setTempUser({...tempUser, phone: e.target.value})} />
+                    <input className="w-full p-2 rounded bg-dark-bg border border-white/20 text-white" placeholder="Password (4 digits)" maxLength={4} value={tempUser.password} onChange={e => setTempUser({...tempUser, password: e.target.value})} />
+                    <select className="w-full p-2 rounded bg-dark-bg border border-white/20 text-white" value={tempUser.role} onChange={e => setTempUser({...tempUser, role: e.target.value})}>
+                        <option value="staff">Staff</option><option value="manager">Manager</option><option value="boss">Boss</option>
+                    </select>
+                    <div className="flex gap-2">
+                        <button onClick={() => setIsEditing(false)} className="flex-1 bg-white/10 text-white p-2 rounded">Cancel</button>
+                        <button onClick={handleSave} className="flex-1 bg-green-600 text-white p-2 rounded">Save</button>
+                    </div>
+                </div>
+            )}
+
+            <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
+                <table className="w-full text-xs">
+                    <thead className="bg-dark-bg text-dark-text-light uppercase">
+                        <tr><th className="p-3 text-left">Name</th><th className="p-3 text-left">Role</th><th className="p-3 text-center">Action</th></tr>
+                    </thead>
+                    <tbody>
+                        {users.filter(u => u.active !== false).map(user => (
+                            <tr key={user.id} className="border-t border-white/10">
+                                <td className="p-3 font-bold">{user.name}</td>
+                                <td className="p-3 capitalize">{user.role}</td>
+                                <td className="p-3 text-center">
+                                    <button onClick={() => handleEdit(user)} className="text-blue-400 hover:underline">Edit</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
+// 3. Prep Inventory View (前台补料 & 后台管理 Prep)
+// ============================================================================
+const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
+    // 1. 自动判断今天是星期几 (0=Sun, 1=Mon...)
+    const todayIndex = new Date().getDay(); 
+    let dayGroup: 'mon_thu' | 'fri' | 'sat' | 'sun' = 'mon_thu';
+    if (todayIndex === 5) dayGroup = 'fri';
+    if (todayIndex === 6) dayGroup = 'sat';
+    if (todayIndex === 0) dayGroup = 'sun';
+
+    // 2. 确定班次: 
+    //    - 如果是 Staff 打卡 (forcedShift 有值): opening -> morning, closing -> evening
+    //    - 如果是 Owner 管理: 默认 morning，可切换查看
+    const [viewShift, setViewShift] = useState<'morning' | 'evening'>(
+        forcedShift === 'closing' ? 'evening' : 'morning'
+    );
+
+    // 3. Owner 编辑状态
+    const [editTargets, setEditTargets] = useState(false);
+    const [localList, setLocalList] = useState<any[]>(JSON.parse(JSON.stringify(inventoryList || [])));
+
+    // 4. Staff 输入状态
+    const [inputData, setInputData] = useState<Record<string, { end: string }>>({});
+
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+
+    // --- Owner: 修改目标值 ---
+    const handleTargetChange = (id: string, group: string, shift: string, val: string) => {
+        setLocalList(prev => prev.map(item => {
+            if (item.id === id) {
+                const newTargets = item.dailyTargets ? JSON.parse(JSON.stringify(item.dailyTargets)) : {
+                    mon_thu: {morning:0, evening:0}, fri: {morning:0, evening:0}, sat: {morning:0, evening:0}, sun: {morning:0, evening:0}
+                };
+                newTargets[group][shift] = parseFloat(val);
+                return { ...item, dailyTargets: newTargets };
+            }
+            return item;
+        }));
+    };
+
+    const saveTargets = () => {
+        Cloud.saveInventoryList(localList);
+        setInventoryList(localList);
+        alert("✅ Prep targets updated successfully!");
+        setEditTargets(false);
+    };
+
+    // --- Staff: 提交盘点 ---
+    const handleStaffSubmit = () => {
+        onSubmit({ 
+            submittedBy: currentUser?.name, 
+            userId: currentUser?.id, 
+            data: inputData,
+            shift: viewShift, 
+            dayGroup: dayGroup,
+            date: new Date().toISOString()
+        });
+    };
+
+    // ---------------- OWNER VIEW (Manage Prep Targets) ----------------
+    if (isOwner) {
+        return (
+            <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
+                {/* 顶部工具栏 */}
+                <div className="p-4 bg-dark-surface border-b border-white/10 sticky top-0 z-10 shadow-md flex justify-between items-center">
+                    <div>
+                        <h2 className="text-xl font-black text-white flex items-center gap-2">
+                            <Icon name="Coffee" className="text-orange-400"/> Manage Prep Targets
+                        </h2>
+                        <p className="text-xs text-dark-text-light">Set goals for Morning/Evening shifts</p>
+                    </div>
+                    <div className="flex gap-2">
+                        {editTargets ? (
+                            <>
+                                <button onClick={() => setEditTargets(false)} className="bg-white/10 text-white px-4 py-2 rounded-lg text-xs font-bold">Cancel</button>
+                                <button onClick={saveTargets} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold">Save Changes</button>
+                            </>
+                        ) : (
+                            <button onClick={() => setEditTargets(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold">Edit Targets</button>
+                        )}
+                    </div>
+                </div>
+                
+                {/* 表格内容 */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {localList.map((item: any) => (
+                        <div key={item.id} className="bg-dark-surface p-4 rounded-xl border border-white/10">
+                            <div className="flex justify-between mb-2 border-b border-white/5 pb-2">
+                                <h3 className="font-bold text-white text-lg">{item.name.zh} <span className="text-dark-text-light text-xs">({item.name.en})</span></h3>
+                                <span className="text-xs font-mono bg-white/10 px-2 py-1 rounded text-orange-300">{item.unit}</span>
+                            </div>
+                            
+                            {/* 目标值表格 */}
+                            <div className="grid grid-cols-5 gap-1 text-center text-[10px] text-dark-text-light uppercase font-bold mb-1">
+                                <div></div><div>Mon-Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+                            </div>
+                            {['morning', 'evening'].map(shift => (
+                                <div key={shift} className="grid grid-cols-5 gap-2 items-center mb-2">
+                                    <div className={`text-[10px] uppercase font-bold text-right pr-2 ${shift==='morning'?'text-yellow-400':'text-indigo-400'}`}>{shift}</div>
+                                    {['mon_thu', 'fri', 'sat', 'sun'].map(group => {
+                                        const val = item.dailyTargets?.[group]?.[shift] || 0;
+                                        return editTargets ? (
+                                            <input 
+                                                key={group} 
+                                                type="number" 
+                                                className="w-full bg-dark-bg border border-white/20 rounded p-2 text-center text-white text-sm font-bold focus:border-blue-500 outline-none"
+                                                value={val}
+                                                onChange={e => handleTargetChange(item.id, group, shift, e.target.value)}
+                                            />
+                                        ) : (
+                                            <div key={group} className="bg-white/5 rounded p-2 text-white text-sm font-mono text-center border border-white/5">{val}</div>
+                                        );
+                                    })}
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    // ---------------- STAFF VIEW (Daily Prep Check) ----------------
+    return (
+        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
+            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm">
+                 <div className="flex justify-between items-center mb-2">
+                    <h2 className="text-xl font-black flex items-center gap-2">
+                        {viewShift === 'morning' ? <span className="text-orange-500">☀️ Morning Prep</span> : <span className="text-indigo-500">🌙 Evening Prep</span>}
+                    </h2>
+                    {isForced && <button onClick={onCancel} className="text-xs text-gray-400 underline">Cancel</button>}
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
+                    <span>Target Day: <strong className="uppercase text-gray-800">{dayGroup.replace('_', '-')}</strong></span>
+                    {!isForced && (
+                        <div className="flex gap-2">
+                            <button onClick={()=>setViewShift('morning')} className={`px-2 py-1 rounded ${viewShift==='morning'?'bg-white shadow text-orange-500':'text-gray-400'}`}>AM</button>
+                            <button onClick={()=>setViewShift('evening')} className={`px-2 py-1 rounded ${viewShift==='evening'?'bg-white shadow text-indigo-500':'text-gray-400'}`}>PM</button>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                {inventoryList.map((item: any) => {
+                    const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
+                    if (target === 0 && viewShift === 'evening') return null;
+
+                    return (
+                        <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm flex flex-col gap-3">
+                            <div className="flex justify-between items-center border-b pb-2 border-gray-100">
+                                <div className="font-bold text-lg text-gray-800">{getLoc(item.name)}</div>
+                                <div className="text-xs font-bold text-primary bg-green-50 px-3 py-1 rounded-full border border-green-100">
+                                    Target: <span className="text-lg">{target}</span> {item.unit}
+                                </div>
+                            </div>
+                            <div className="flex gap-4 items-center">
+                                <label className="text-xs font-bold text-gray-400 w-16">Completed:</label>
+                                <input 
+                                    type="number" 
+                                    className="flex-1 p-3 rounded-lg border-2 border-gray-100 text-center text-lg font-bold bg-gray-50 focus:bg-white focus:border-primary transition-colors outline-none" 
+                                    placeholder="0"
+                                    value={inputData[item.id]?.end ?? ''}
+                                    onChange={(e) => setInputData(prev => ({...prev, [item.id]: {...prev[item.id], end: e.target.value}}))}
+                                />
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+            <div className="p-4 bg-white border-t sticky bottom-0 z-20">
+                <button onClick={handleStaffSubmit} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark">
+                    <Icon name="Save" size={20} /> Confirm & Clock {viewShift==='morning'?'In':'Out'}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
+// 4. Smart Inventory View (后台仓库 - 独立视图)
+// ============================================================================
+const SmartInventoryView = ({ data }: any) => {
+    const { smartInventory, setSmartInventory } = data;
+    const [supplierFilter, setSupplierFilter] = useState<'All' | "I'tea" | 'Joybuy' | 'Open Mkt'>('All');
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [tempValue, setTempValue] = useState<number | ''>('');
+
+    const filteredList = (smartInventory || [])
+        .filter((item: any) => supplierFilter === 'All' || item.supplier === supplierFilter)
+        .sort((a: any, b: any) => (a.position || '').localeCompare(b.position || ''));
+
+    const handleUpdateStock = (id: string, val: number) => {
+        const newList = smartInventory.map((item: any) => 
+            item.id === id ? { ...item, currentStock: val, lastUpdated: new Date().toISOString() } : item
+        );
+        setSmartInventory(newList);
+        Cloud.saveSmartInventory(newList);
+        setEditingId(null);
+    };
+
+    const categories = Array.from(new Set(filteredList.map((i: any) => i.category)));
+
+    return (
+        <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
+            <div className="p-4 bg-dark-surface border-b border-white/10 sticky top-0 z-10 shadow-md">
+                <div className="flex justify-between items-center mb-3">
+                    <h2 className="text-xl font-black text-white flex items-center gap-2">
+                        <Icon name="Package" className="text-purple-400" /> Smart Warehouse
+                    </h2>
+                    <div className="text-xs text-dark-text-light font-mono">Total: {filteredList.length}</div>
+                </div>
+                <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                    {['All', "I'tea", 'Joybuy', 'Open Mkt'].map(s => (
+                        <button key={s} onClick={() => setSupplierFilter(s as any)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all ${supplierFilter === s ? 'bg-purple-600 text-white shadow' : 'bg-white/5 text-dark-text-light hover:bg-white/10'}`}>
+                            {s}
+                        </button>
+                    ))}
+                </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-4">
+                {categories.map((cat: any) => (
+                    <div key={cat}>
+                        <h3 className="text-xs font-bold text-dark-text-light uppercase px-2 mb-2 mt-2 border-b border-white/5">{cat}</h3>
+                        <div className="space-y-2">
+                            {filteredList.filter((i: any) => i.category === cat).map((item: any) => {
+                                const refillNeeded = Math.max(0, item.safetyStock - item.currentStock);
+                                const isLow = refillNeeded > 0;
+                                const isEditing = editingId === item.id;
+                                return (
+                                    <div key={item.id} className={`p-3 rounded-xl border flex items-center justify-between ${isLow ? 'bg-red-500/10 border-red-500/30' : 'bg-dark-surface border-white/5'}`}>
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-lg bg-black/30 flex items-center justify-center border border-white/10 shrink-0">
+                                                <span className="text-sm font-black text-purple-300">{item.position}</span>
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-sm text-white">{item.name}</div>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <span className="text-[9px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light">{item.supplier}</span>
+                                                    <span className="text-[9px] text-dark-text-light">Safe: {item.safetyStock} {item.unit}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex flex-col items-end">
+                                                <span className="text-[8px] text-dark-text-light uppercase mb-0.5">Current</span>
+                                                {isEditing ? (
+                                                    <input type="number" className="w-12 bg-black text-white border border-purple-500 rounded px-1 py-0.5 text-center text-sm" value={tempValue} autoFocus onChange={e => setTempValue(Number(e.target.value))} onBlur={() => handleUpdateStock(item.id, Number(tempValue))} onKeyDown={e => e.key === 'Enter' && handleUpdateStock(item.id, Number(tempValue))} />
+                                                ) : (
+                                                    <div onClick={() => { setEditingId(item.id); setTempValue(item.currentStock); }} className={`text-lg font-black cursor-pointer border-b border-dashed border-white/20 hover:border-purple-400 ${isLow ? 'text-red-400' : 'text-green-400'}`}>{item.currentStock}</div>
+                                                )}
+                                            </div>
+                                            {isLow && (
+                                                <div className="w-10 h-10 rounded-full bg-red-500 text-white flex flex-col items-center justify-center shadow-lg animate-pulse">
+                                                    <span className="text-[8px] font-bold opacity-80">ADD</span>
+                                                    <span className="text-xs font-black leading-none">+{refillNeeded}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
+// 5. 店长总控台 (Owner Dashboard)
+// ============================================================================
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs } = data;
     const { showNotification } = useNotification();
-    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
+    const ownerUser = users.find((u:any) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
-    const [ownerSubView, setOwnerSubView] = useState<'logs' | 'presets' | 'history' | 'staff' | 'smart'>('smart');
+    
+    // 【默认显示】Manage Prep (presets)
+    const [ownerSubView, setOwnerSubView] = useState<'logs' | 'presets' | 'history' | 'staff' | 'smart'>('presets');
+    
     const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
-    const [reportToDelete, setReportToDelete] = useState<InventoryReport | null>(null);
+    const [reportToDelete, setReportToDelete] = useState<any | null>(null);
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     
-    const handleUpdateLogs = (allLogs: LogEntry[]) => {
-        Cloud.updateLogs(allLogs);
-    };
+    const handleUpdateLogs = (allLogs: any[]) => Cloud.updateLogs(allLogs);
 
-    const handleDeleteReport = async () => {
-        if (!reportToDelete) return;
-        const newHistory = inventoryHistory.filter((r: InventoryReport) => r.id !== reportToDelete.id);
-        try {
-            await Cloud.updateInventoryHistory(newHistory);
-            showNotification({ type: 'message', title: "删除成功", message: "该条补料记录已被删除。" });
-        } catch (e) {
-            console.error("Failed to delete report:", e);
-            showNotification({ type: 'announcement', title: "删除失败", message: "无法从数据库删除该记录。" });
-        }
-        setReportToDelete(null);
-    };
-
+    // --- 恢复 CSV 导出功能 (Prep) ---
     const handleExportCsv = () => {
-        const headers = "Date,Submitted By,Item Name,End Count,Waste Count\n";
-        const csvRows = inventoryHistory.flatMap((report: InventoryReport) => 
-            Object.entries(report.data).map(([itemId, values]) => {
-                // FIX: Add type assertion for 'values' to resolve 'unknown' type error.
-                const typedValues = values as { end: string; waste: string };
-                const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
+        const headers = "Date,Submitted By,Item,Target,Count,Shift\n";
+        const csvRows = inventoryHistory.flatMap((report: any) => {
+            const date = report.date ? new Date(report.date).toISOString().split('T')[0] : '';
+            return Object.entries(report.data || {}).map(([itemId, val]: any) => {
+                const itemDef = inventoryList.find((i: any) => i.id === itemId);
                 const itemName = itemDef ? getLoc(itemDef.name) : itemId;
-                const cleanItemName = `"${itemName.replace(/"/g, '""')}"`; // Escape double quotes
-                
-                const reportDate = report.date ? new Date(report.date).toISOString().split('T')[0] : '';
-                return [
-                    `"${reportDate}"`,
-                    `"${report.submittedBy}"`,
-                    cleanItemName,
-                    typedValues.end || '0',
-                    typedValues.waste || '0'
-                ].join(',');
-            })
-        );
+                return `"${date}","${report.submittedBy}","${itemName.replace(/"/g, '""')}","-","${val.end}","${report.shift}"`;
+            });
+        });
 
         const csvString = headers + csvRows.join('\n');
         const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         const url = URL.createObjectURL(blob);
         const date = new Date().toISOString().split('T')[0];
-        link.setAttribute("download", `inventory_records_${date}.csv`);
-        link.style.visibility = 'hidden';
+        link.setAttribute("download", `prep_history_${date}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     };
 
-    if (view === 'manager') {
-        return <ManagerDashboard data={data} onExit={() => setView('main')} />;
-    }
+    if (view === 'manager') return <ManagerDashboard data={data} onExit={() => setView('main')} />;
     
     const InventoryHistoryView = () => (
         <div className="p-4 space-y-3">
             <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold text-dark-text">{t.report_history || 'Report History'}</h3>
+                <h3 className="text-lg font-bold text-dark-text">Prep History</h3>
                 <button onClick={handleExportCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-green-700 transition-all">
                     <Icon name="List" size={16} /> Export CSV
                 </button>
             </div>
             {inventoryHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found.</p>}
-            {inventoryHistory.slice().reverse().map((report: InventoryReport) => (
+            {inventoryHistory.slice().reverse().map((report: any) => (
                 <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10">
                     <div onClick={() => setExpandedReportId(expandedReportId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
                         <div>
-                            <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'}</p>
-                            <p className="text-xs text-dark-text-light">by {report.submittedBy} • {Object.keys(report.data).length} items</p>
+                            <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'} <span className="text-[10px] bg-white/10 px-1 rounded uppercase">{report.shift}</span></p>
+                            <p className="text-xs text-dark-text-light">by {report.submittedBy}</p>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setReportToDelete(report);
-                                }}
-                                className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 transition-all"
-                                title="Delete Report"
-                            >
-                                <Icon name="Trash" size={16} />
-                            </button>
-                            <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
-                        </div>
+                        <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
                     </div>
                     {expandedReportId === report.id && (
                         <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2">
-                            <div className="grid grid-cols-3 font-bold text-dark-text-light">
-                                <span>Item</span><span className="text-center">End</span><span className="text-center">Waste</span>
-                            </div>
-                            {Object.entries(report.data).map(([itemId, values]) => {
-                                // FIX: Add type assertion for 'values' to resolve 'unknown' type error.
-                                const typedValues = values as { end: string; waste: string };
-                                const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
+                            {Object.entries(report.data).map(([itemId, val]: any) => {
+                                const itemDef = inventoryList.find((i: any) => i.id === itemId);
                                 return (
-                                    <div key={itemId} className="grid grid-cols-3 items-center">
-                                        <span>{itemDef ? getLoc(itemDef.name) : itemId}</span>
-                                        <span className="text-center font-mono">{typedValues.end || '0'}</span>
-                                        <span className="text-center font-mono text-red-400">{typedValues.waste || '0'}</span>
+                                    <div key={itemId} className="flex justify-between">
+                                        <span className="text-dark-text-light">{itemDef ? getLoc(itemDef.name) : itemId}</span>
+                                        <span className="font-mono text-white">{val.end}</span>
                                     </div>
                                 );
                             })}
@@ -2102,27 +2242,29 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
             <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
                 <div><h1 className="text-xl font-black tracking-tight text-white">{t.owner_dashboard || 'Owner Dashboard'}</h1><p className="text-xs text-dark-text-light">User: {ownerUser.name}</p></div>
                 <div className="flex gap-2">
-                    <button onClick={() => setView('manager')} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all text-xs font-bold px-3">Manager Dashboard</button>
+                    <button onClick={() => setView('manager')} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all text-xs font-bold px-3">Manager</button>
                     <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
                 </div>
             </div>
+            
             <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
-                <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                    Material Logs
+                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Manage Prep
+                </button>
+                <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-purple-600 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Smart Warehouse
                 </button>
                 <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                    Report History
-                </button>
-                 <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                    Manage Presets
+                    History
                 </button>
                  <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                    Staff Mgmt
+                    Staff
                 </button>
-                <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                    Smart Inv
+                <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    Logs
                 </button>
             </div>
+
             <div className="flex-1 overflow-y-auto">
                 {ownerSubView === 'presets' && (
                     <InventoryView 
@@ -2135,383 +2277,10 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                         currentUser={ownerUser} 
                     />
                 )}
+                {ownerSubView === 'smart' && <SmartInventoryView data={data} />}
                 {ownerSubView === 'history' && <InventoryHistoryView />}
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={handleUpdateLogs} />}
-                {ownerSubView === 'smart' && <SmartInventoryView data={data} />}
-            </div>
-        </div>
-    );
-};
-
-const StaffManagementView = ({ users }: { users: User[] }) => {
-    const [editingUser, setEditingUser] = useState<User | 'new' | null>(null);
-    const [showInactive, setShowInactive] = useState(false);
-    const [deactivatingUser, setDeactivatingUser] = useState<User | null>(null);
-
-    const handleSaveUser = async (user: User) => {
-        await Cloud.saveUser(user);
-        setEditingUser(null);
-        alert('Staff details saved!');
-    };
-    
-    const handleDeactivate = async () => {
-        if (!deactivatingUser) return;
-        await Cloud.saveUser({ ...deactivatingUser, active: false });
-        setDeactivatingUser(null);
-        alert(`${deactivatingUser.name} has been deactivated.`);
-    };
-
-    const sortedUsers = [...users].sort((a, b) => (a.active === b.active) ? 0 : a.active ? -1 : 1);
-    const filteredUsers = showInactive ? sortedUsers : sortedUsers.filter(u => u.active !== false);
-
-    return (
-        <div className="p-4 space-y-4 text-dark-text">
-            <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold">Staff Management</h3>
-                <div className="flex items-center gap-4">
-                     <label className="flex items-center gap-2 text-xs text-dark-text-light cursor-pointer">
-                        <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} className="rounded bg-dark-surface border-white/20 text-dark-accent focus:ring-dark-accent" />
-                        Show Inactive
-                    </label>
-                    <button onClick={() => setEditingUser('new')} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all">
-                        <Icon name="Plus" size={16} /> Add New Staff
-                    </button>
-                </div>
-            </div>
-
-            <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
-                <table className="w-full text-xs">
-                    <thead className="bg-dark-bg text-dark-text-light uppercase">
-                        <tr>
-                            <th className="p-3 text-left">Name</th>
-                            <th className="p-3 text-left">Role</th>
-                            <th className="p-3 text-left">Phone</th>
-                            <th className="p-3 text-left">Password</th>
-                            <th className="p-3 text-center">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filteredUsers.map(user => (
-                            <tr key={user.id} className={`border-t border-white/10 ${!user.active ? 'opacity-50' : ''}`}>
-                                <td className="p-3 font-bold">{user.name}</td>
-                                <td className="p-3 capitalize">{user.role}</td>
-                                <td className="p-3 font-mono">{user.phone || 'N/A'}</td>
-                                <td className="p-3">{user.password ? <span className="text-green-400 font-bold">Set</span> : <span className="text-red-400">Not Set</span>}</td>
-                                <td className="p-3">
-                                    <div className="flex gap-2 justify-center">
-                                        <button onClick={() => setEditingUser(user)} className="p-2 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20"><Icon name="Edit" size={14}/></button>
-                                        {user.active !== false && (
-                                            <button onClick={() => setDeactivatingUser(user)} className="p-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Icon name="Trash" size={14}/></button>
-                                        )}
-                                    </div>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-            
-            {editingUser && <StaffEditModal user={editingUser} onSave={handleSaveUser} onClose={() => setEditingUser(null)} />}
-            {deactivatingUser && <CustomConfirmModal isOpen={!!deactivatingUser} title={`Deactivate ${deactivatingUser.name}?`} message="This will mark the employee as inactive. Their historical data will be preserved, but they won't appear in schedules. Are you sure?" onConfirm={handleDeactivate} onCancel={() => setDeactivatingUser(null)} />}
-        </div>
-    );
-};
-
-// ... StaffManagementView 结束 ...
-
-// ============================================================================
-// 【最终版 SmartInventoryView：强制班次 + 实时数据 + 自动锁定】
-// ============================================================================
-
-const SmartInventoryView = ({ data, isStaff = false, onSuccess, forcedShift }: { data: any, isStaff?: boolean, onSuccess?: () => void, forcedShift?: 'morning'|'evening' }) => {
-    const { smartInventoryReports } = data;
-    const [areaFilter, setAreaFilter] = useState<'Prep' | 'Storage' | 'Shop'>('Prep'); 
-    const [supplierFilter, setSupplierFilter] = useState<string>('All');
-    const [inputs, setInputs] = useState<Record<string, { pre: number, restock: number, loss: number }>>({});
-    
-    // 编辑目标相关
-    const [isEditingTargets, setIsEditingTargets] = useState(false);
-    const [targetOverrides, setTargetOverrides] = useState<Record<string, any>>(() => {
-        const saved = localStorage.getItem('onesip_prep_targets');
-        return saved ? JSON.parse(saved) : {};
-    });
-
-    // --- 1. 智能班次检测 ---
-    // 如果传入了 forcedShift (下班打卡时)，直接使用它；否则自动检测
-    const getCurrentShift = (): 'morning' | 'evening' => {
-        if (forcedShift) return forcedShift;
-        const now = new Date();
-        return now.getHours() < 16 ? 'morning' : 'evening';
-    };
-
-    const [currentShift, setCurrentShift] = useState<'morning' | 'evening'>(getCurrentShift());
-
-    // 监听 forcedShift 变化
-    useEffect(() => {
-        if (forcedShift) setCurrentShift(forcedShift);
-    }, [forcedShift]);
-
-    // --- 2. 日期与目标 ---
-    const todayIndex = new Date().getDay(); 
-    let dayGroup: 'mon_thu' | 'fri' | 'sat' | 'sun' = 'mon_thu';
-    if (todayIndex === 5) dayGroup = 'fri';
-    if (todayIndex === 6) dayGroup = 'sat';
-    if (todayIndex === 0) dayGroup = 'sun';
-
-    const getTarget = (item: SmartInventoryItem) => {
-        const saved = targetOverrides[item.id];
-        const targets = saved || item.dailyTargets;
-        if (!targets) return item.safeStock || 0;
-        const dayTarget = targets[dayGroup];
-        if (!dayTarget) return 0;
-        return currentShift === 'morning' ? dayTarget.morning : dayTarget.evening;
-    };
-
-    const handleTargetChange = (itemId: string, period: 'morning'|'evening', val: string) => {
-        const num = parseFloat(val) || 0;
-        setTargetOverrides(prev => {
-            const itemDef = SMART_INVENTORY_MASTER_DATA.find(i => i.id === itemId);
-            const currentTargets = prev[itemId] || itemDef?.dailyTargets || {
-                mon_thu: {morning:0, evening:0}, fri: {morning:0, evening:0}, sat: {morning:0, evening:0}, sun: {morning:0, evening:0}
-            };
-            const updated = { ...currentTargets, [dayGroup]: { ...currentTargets[dayGroup], [period]: num } };
-            const newState = { ...prev, [itemId]: updated };
-            localStorage.setItem('onesip_prep_targets', JSON.stringify(newState));
-            return newState;
-        });
-    };
-
-    // --- 3. 实时历史记录 (Last Log) ---
-    // data.smartInventoryReports 是实时订阅的，所以这里计算出的 lastLogMap 也是实时的
-    const lastLogMap = new Map<string, SmartInventoryLog>();
-    const sortedReports = (smartInventoryReports || []).slice().sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    
-    // 只看最近 5 次报告来获取“上一次”状态
-    sortedReports.slice(0, 5).forEach((rep: SmartInventoryReport) => {
-        rep.logs.forEach((log: SmartInventoryLog) => {
-            if (!lastLogMap.has(log.itemId)) {
-                lastLogMap.set(log.itemId, log);
-            }
-        });
-    });
-
-    const items = SMART_INVENTORY_MASTER_DATA.filter(item => item.area === areaFilter);
-    const filteredItems = supplierFilter === 'All' ? items : items.filter(i => i.supplier === supplierFilter);
-
-    const handleInputChange = (itemId: string, field: 'pre' | 'restock' | 'loss', value: string) => {
-        const num = parseFloat(value);
-        setInputs(prev => ({
-            ...prev,
-            [itemId]: {
-                ...prev[itemId] || { pre: 0, restock: 0, loss: 0 },
-                [field]: isNaN(num) ? 0 : num
-            }
-        }));
-    };
-
-    const calculateConsumption = (itemId: string, currentPre: number) => {
-        const prevLog = lastLogMap.get(itemId);
-        if (!prevLog) return 0; 
-        return Math.max(0, prevLog.postStock - currentPre); 
-    };
-
-    const handleSubmit = async () => {
-        const confirmMsg = isStaff 
-            ? `Submit ${currentShift.toUpperCase()} inventory and Clock Out?`
-            : `Submit ${currentShift.toUpperCase()} inventory for ${dayGroup.toUpperCase()}?`;
-            
-        if (!window.confirm(confirmMsg)) return;
-        
-        const timestamp = new Date();
-        const logs: SmartInventoryLog[] = items.map(item => {
-            const input = inputs[item.id] || { pre: 0, restock: 0, loss: 0 };
-            const target = getTarget(item);
-            const post = input.pre + input.restock;
-            const consumption = calculateConsumption(item.id, input.pre);
-            
-            return {
-                itemId: item.id, 
-                itemName: item.name.en, 
-                area: item.area, 
-                preStock: input.pre, 
-                restockQty: input.restock, 
-                postStock: post, 
-                loss: input.loss,
-                shift: currentShift,
-                targetSnapshot: target,
-                consumption: consumption
-            };
-        });
-
-        const oneJan = new Date(timestamp.getFullYear(), 0, 1);
-        const numberOfDays = Math.floor((timestamp.getTime() - oneJan.getTime()) / (24 * 60 * 60 * 1000));
-        const weekNum = Math.ceil((timestamp.getDay() + 1 + numberOfDays) / 7);
-
-        const report: SmartInventoryReport = {
-            id: timestamp.getTime().toString(),
-            date: timestamp.toISOString(),
-            weekStr: `${timestamp.getFullYear()}-W${weekNum}`,
-            submittedBy: isStaff ? `Staff (${currentShift})` : 'Owner', 
-            logs: logs
-        };
-
-        try { 
-            await Cloud.saveSmartInventoryReport(report); 
-            // 提交成功后，inputs 清空，并触发回调
-            setInputs({}); 
-            if (onSuccess) onSuccess(); 
-            else alert("✅ Saved Successfully!");
-        } catch (error) { 
-            console.error(error); 
-            alert("Error saving report."); 
-        }
-    };
-
-    const handleExport = () => {
-        let csv = "Date,Week,Shift,Area,Item,Target,Pre(Count),Restock,Loss,Post,Consumption\n";
-        (smartInventoryReports || []).forEach((rep: SmartInventoryReport) => {
-            rep.logs.forEach(log => {
-                const cleanName = log.itemName.replace(/"/g, '""');
-                csv += `${rep.date.split('T')[0]},${rep.weekStr},${log.shift||'-'},${log.area},"${cleanName}",${log.targetSnapshot||0},${log.preStock},${log.restockQty},${log.loss||0},${log.postStock},${log.consumption}\n`;
-            });
-        });
-        const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
-        const link = document.createElement("a"); link.href = encodedUri; link.download = `inventory_log_${new Date().toISOString().split('T')[0]}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    };
-
-    return (
-        <div className="h-full flex flex-col bg-dark-bg text-dark-text animate-fade-in">
-            {/* Header */}
-            <div className="p-4 bg-dark-surface border-b border-white/10 flex justify-between items-center shadow-lg z-10 shrink-0">
-                <div>
-                    <h2 className="text-xl font-black text-white flex items-center gap-2">
-                        <Icon name="Briefcase" size={24} className="text-dark-accent" /> 
-                        {isStaff ? `${currentShift === 'morning' ? '☀️ Morning' : '🌙 Evening'} Check` : 'Smart Inventory'}
-                    </h2>
-                    <div className="flex gap-3 text-xs mt-1">
-                        <span className="text-dark-text-light flex items-center gap-1">
-                            <Icon name="Calendar" size={12}/> {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][todayIndex]}
-                        </span>
-                        {/* 如果是 Staff 且被强制了班次，就不显示切换按钮，只显示当前班次文本 */}
-                        {isStaff && forcedShift ? (
-                            <span className="bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-purple-500/30">
-                                Mandatory: {forcedShift}
-                            </span>
-                        ) : (
-                            <div className="flex bg-black/20 rounded p-0.5">
-                                <button onClick={()=>setCurrentShift('morning')} className={`px-2 py-0.5 rounded text-[10px] ${currentShift==='morning'?'bg-orange-400 text-white font-bold':'text-dark-text-light'}`}>Morning</button>
-                                <button onClick={()=>setCurrentShift('evening')} className={`px-2 py-0.5 rounded text-[10px] ${currentShift==='evening'?'bg-indigo-400 text-white font-bold':'text-dark-text-light'}`}>Evening</button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-                <div className="flex gap-2">
-                    {!isStaff && (
-                        <button onClick={handleExport} className="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-white/5 text-white">Export</button>
-                    )}
-                    <button onClick={handleSubmit} className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded-lg text-sm font-bold text-white shadow-lg transition-all flex items-center gap-2">
-                        <Icon name="Save" size={16}/> {isStaff ? 'Submit & Clock Out' : 'Submit'}
-                    </button>
-                </div>
-            </div>
-
-            {/* Area Tabs */}
-            <div className="p-3 flex gap-2 border-b border-white/10 bg-dark-bg shrink-0 overflow-x-auto">
-                 <div className="flex bg-dark-surface rounded-lg p-1 shrink-0 border border-white/5">
-                    <button onClick={() => setAreaFilter('Prep')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex gap-2 items-center ${areaFilter === 'Prep' ? 'bg-purple-500 text-white' : 'text-dark-text-light'}`}>
-                        <Icon name="Coffee" size={12}/> Prep
-                    </button>
-                    {!isStaff && (
-                        <>
-                            <button onClick={() => setAreaFilter('Storage')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${areaFilter === 'Storage' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Storage</button>
-                            <button onClick={() => setAreaFilter('Shop')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${areaFilter === 'Shop' ? 'bg-dark-accent text-dark-bg' : 'text-dark-text-light'}`}>Shop</button>
-                        </>
-                    )}
-                </div>
-                {!isStaff && areaFilter === 'Prep' && (
-                    <button onClick={() => setIsEditingTargets(!isEditingTargets)} className="ml-auto text-[10px] underline text-purple-300 hover:text-white flex items-center gap-1">
-                        <Icon name="Settings" size={10}/> {isEditingTargets ? "Done" : "Targets"}
-                    </button>
-                )}
-            </div>
-
-            {/* Main List */}
-            <div className="flex-1 overflow-y-auto p-2 pb-20">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {filteredItems.map(item => {
-                        const input = inputs[item.id] || { pre: 0, restock: 0, loss: 0 };
-                        const targetVal = getTarget(item); 
-                        const suggestion = Math.max(0, targetVal - input.pre);
-                        const post = input.pre + input.restock;
-                        // 获取最新的 Last Log
-                        const lastLog = lastLogMap.get(item.id);
-                        const isLow = post < targetVal;
-                        
-                        // Edit Mode Data
-                        const saved = targetOverrides[item.id];
-                        const targets = saved || item.dailyTargets;
-                        const currentDayTargets = targets ? targets[dayGroup] : null;
-
-                        return (
-                            <div key={item.id} className={`bg-dark-surface p-3 rounded-xl border flex flex-col gap-2 shadow-sm transition-all ${isLow ? 'border-red-500/30' : 'border-white/5'}`}>
-                                <div className="flex justify-between items-start">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <span className="font-bold text-sm text-white truncate">{item.name.zh}</span>
-                                            <span className="text-[10px] text-dark-text-light font-mono">{item.name.en}</span>
-                                        </div>
-                                        <div className="text-[10px] text-dark-text-light flex flex-wrap gap-x-3 items-center">
-                                            <span className="bg-white/5 px-1 rounded text-white/70">{item.unit}</span>
-                                            {!isEditingTargets && (
-                                                <span className={`font-bold flex items-center gap-1 ${targetVal>0 ? 'text-purple-300' : 'text-gray-500'}`}>
-                                                    Target: {targetVal}
-                                                </span>
-                                            )}
-                                            {/* 实时显示 Last Log */}
-                                            {lastLog && (
-                                                <span className="text-gray-500 flex items-center gap-1" title={`Update: ${new Date(lastLog.date||'').toLocaleTimeString()}`}>
-                                                    <Icon name="Clock" size={8}/> Last: {lastLog.restockQty} ({lastLog.shift})
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${isLow ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-green-500/10 text-green-400 border-green-500/20'}`}>
-                                        {isLow ? 'LOW' : 'OK'}
-                                    </div>
-                                </div>
-
-                                {isEditingTargets && item.area === 'Prep' && currentDayTargets && (
-                                    <div className="grid grid-cols-2 gap-2 bg-purple-500/20 p-2 rounded mb-1 animate-fade-in">
-                                        <div>
-                                            <label className="text-[9px] text-purple-200 block">Morning</label>
-                                            <input type="number" className="w-full bg-dark-bg border border-purple-500/30 rounded px-1 text-white text-xs" 
-                                                value={currentDayTargets.morning} onChange={(e) => handleTargetChange(item.id, 'morning', e.target.value)} />
-                                        </div>
-                                        <div>
-                                            <label className="text-[9px] text-purple-200 block">Evening</label>
-                                            <input type="number" className="w-full bg-dark-bg border border-purple-500/30 rounded px-1 text-white text-xs" 
-                                                value={currentDayTargets.evening} onChange={(e) => handleTargetChange(item.id, 'evening', e.target.value)} />
-                                        </div>
-                                    </div>
-                                )}
-                                
-                                {!isEditingTargets && (
-                                    <div className="grid grid-cols-4 gap-2 mt-1 bg-dark-bg/30 p-2 rounded-lg border border-white/5 items-end">
-                                        <div><label className="text-[9px] font-bold text-red-400/70 block mb-1 text-center">Loss</label><input type="number" className="w-full bg-dark-surface border border-white/10 rounded p-1 text-center font-bold text-red-400 text-xs" value={inputs[item.id]?.loss||''} onChange={(e) => handleInputChange(item.id, 'loss', e.target.value)} placeholder="0"/></div>
-                                        <div><label className="text-[9px] font-bold text-dark-text-light block mb-1 text-center">Count</label><input type="number" className="w-full bg-dark-surface border border-white/10 rounded p-1 text-center font-bold text-white text-xs" value={inputs[item.id]?.pre===undefined?'':inputs[item.id].pre} onChange={(e) => handleInputChange(item.id, 'pre', e.target.value)} placeholder="0"/></div>
-                                        <div className="relative">
-                                            <label className="text-[9px] font-bold text-green-400/70 block mb-1 text-center">Add</label>
-                                            <input type="number" className="w-full bg-dark-surface border border-white/10 rounded p-1 text-center font-bold text-green-400 text-xs" value={inputs[item.id]?.restock===undefined?'':inputs[item.id].restock} onChange={(e) => handleInputChange(item.id, 'restock', e.target.value)} placeholder={suggestion>0?`${suggestion}`:"0"}/>
-                                            {suggestion>0 && inputs[item.id]?.restock===undefined && <div className="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>}
-                                        </div>
-                                        <div><label className="text-[9px] font-bold text-dark-text-light block mb-1 text-center">Total</label><div className="w-full bg-white/5 border border-white/5 rounded p-1 text-center font-black text-white text-xs">{post}</div></div>
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
             </div>
         </div>
     );
@@ -5060,6 +4829,7 @@ const App = () => {
     const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
     const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
     const [sales, setSales] = useState<SalesRecord[]>([]);
+    const [smartInventory, setSmartInventory] = useState<any[]>([]);
     const [sopList, setSopList] = useState<SopItem[]>(SOP_DATABASE);
     const [trainingLevels, setTrainingLevels] = useState<TrainingLevel[]>(TRAINING_LEVELS);
     const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
@@ -5080,7 +4850,7 @@ const App = () => {
         schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
         setDirectMessages, swapRequests, setSwapRequests, sales, sopList, 
         setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
-        confirmations, scheduleCycles, setScheduleCycles, smartInventoryReports
+        confirmations, scheduleCycles, setScheduleCycles, smartInventoryReports, smartInventory, setSmartInventory
     };
 
     useEffect(() => {
@@ -5089,6 +4859,7 @@ const App = () => {
         const unsubs = [
             Cloud.subscribeToUsers(setUsers),
             Cloud.subscribeToInventory(setInventoryList),
+            Cloud.subscribeToSmartInventory(setSmartInventory),
             Cloud.subscribeToSchedule((week) => setSchedule({ days: week?.days || [] })),
             Cloud.subscribeToLogs(setLogs),
             Cloud.subscribeToChat((msgs, nts) => { setDirectMessages(msgs); setNotices(nts); }),

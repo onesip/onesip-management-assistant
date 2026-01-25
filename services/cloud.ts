@@ -1,6 +1,4 @@
 
-// @ts-ignore
-// FIX: Added @ts-ignore to suppress potential module resolution errors in specific build environments.
 import { initializeApp } from 'firebase/app';
 import { 
     getFirestore, 
@@ -20,7 +18,16 @@ import {
     DocumentData,
     DocumentSnapshot
 } from 'firebase/firestore';
-import { INITIAL_MENU_DATA, INITIAL_ANNOUNCEMENT_DATA, INITIAL_WIKI_DATA, SOP_DATABASE, TRAINING_LEVELS, DRINK_RECIPES, USERS } from '../constants';
+import { 
+    INITIAL_MENU_DATA, 
+    INITIAL_ANNOUNCEMENT_DATA, 
+    INITIAL_WIKI_DATA, 
+    SOP_DATABASE, 
+    TRAINING_LEVELS, 
+    DRINK_RECIPES, 
+    USERS,
+    INITIAL_SMART_INVENTORY 
+} from '../constants';
 import { ChatReadState, ScheduleCycle, User } from '../types';
 import { SmartInventoryReport } from '../types';
 
@@ -72,6 +79,14 @@ export const seedInitialData = async () => {
                  recipes: DRINK_RECIPES
              });
         }
+
+        // Seed Smart Inventory (Owner Warehouse)
+        const smartInvRef = doc(db, 'data', 'smart_inventory');
+        const smartInvSnap = await getDoc(smartInvRef);
+        if (!smartInvSnap.exists()) {
+            await setDoc(smartInvRef, { items: INITIAL_SMART_INVENTORY });
+            console.log("Seeded Smart Inventory Data");
+        }
         
         // Seed Schedule if empty - We rely on ensureScheduleCoverage now, but seeding a basic structure is safe
         const schedRef = doc(db, 'config', 'schedule');
@@ -117,6 +132,20 @@ export const saveUser = async (user: User) => {
 
 
 // --- INVENTORY ---
+// --- SMART INVENTORY (WAREHOUSE) ---
+export const subscribeToSmartInventory = (callback: (data: any) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'smart_inventory'), (doc: any) => {
+        if (doc.exists()) callback(doc.data().items || []);
+        else callback([]);
+    });
+};
+
+export const saveSmartInventory = async (items: any[]) => {
+    if (!db) return;
+    await setDoc(doc(db, 'data', 'smart_inventory'), { items }, { merge: true });
+};
+
 export const subscribeToInventory = (callback: (data: any) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'data', 'inventory'), (doc: any) => {
