@@ -1887,7 +1887,7 @@ const StaffManagementView = ({ users }: { users: any[] }) => {
 };
 
 // ============================================================================
-// 组件 3: Prep Inventory (前台补料 & 后台管理) - [含 Loss 输入]
+// 组件 1: Prep Inventory (前台补料 & 后台管理 - 智能CSV修复版)
 // ============================================================================
 const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
     // 1. 自动判断今天是星期几 (0=Sun, 1=Mon...)
@@ -1905,8 +1905,13 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     // 3. Owner 编辑状态
     const [editTargets, setEditTargets] = useState(false);
     const [localList, setLocalList] = useState<any[]>(JSON.parse(JSON.stringify(inventoryList || [])));
+    const [isAddingItem, setIsAddingItem] = useState(false);
+    const [newItemData, setNewItemData] = useState({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
+    
+    // CSV 上传 Ref
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // 4. Staff 输入状态 (新增 loss 字段)
+    // 4. Staff 输入状态
     const [inputData, setInputData] = useState<Record<string, { end: string, loss: string }>>({});
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
@@ -1925,22 +1930,184 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         }));
     };
 
+    // --- Owner: 切换隐藏状态 ---
+    const toggleHidden = (id: string) => {
+        setLocalList(prev => prev.map(item => 
+            item.id === id ? { ...item, hidden: !item.hidden } : item
+        ));
+    };
+
+    // --- Owner: 下载 CSV 模板 (已修复链接问题) ---
+    const handleDownloadTemplate = () => {
+        const headers = "Name(ZH),Name(EN),Unit,Category,MonThu_AM,MonThu_PM,Fri_AM,Fri_PM,Sat_AM,Sat_PM,Sun_AM,Sun_PM\n";
+        const rows = localList.map((item: any) => {
+            const t = item.dailyTargets || {};
+            const safe = (val: any) => val || 0;
+            return [
+                item.name.zh, item.name.en, item.unit, item.category,
+                safe(t.mon_thu?.morning), safe(t.mon_thu?.evening),
+                safe(t.fri?.morning), safe(t.fri?.evening),
+                safe(t.sat?.morning), safe(t.sat?.evening),
+                safe(t.sun?.morning), safe(t.sun?.evening)
+            ].join(',');
+        }).join('\n');
+
+        // 添加 BOM 解决 Excel 乱码
+        const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+        const blob = new Blob([bom, headers + rows], { type: 'text/csv;charset=utf-8;' });
+        
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        
+        // 【修复】之前漏了这行 href 赋值
+        link.href = url;
+        link.setAttribute("download", "prep_targets_template.csv");
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    // --- Owner: 智能 CSV 导入 (自动识别 UTF-8 / GBK) ---
+    const handleFileUpload = async (e: any) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // 辅助读取函数
+        const readFile = (f: File, encoding: string): Promise<string> => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (evt) => resolve(evt.target?.result as string);
+                reader.onerror = (err) => reject(err);
+                reader.readAsText(f, encoding);
+            });
+        };
+
+        try {
+            // 1. 先尝试 UTF-8 读取
+            let csvText = await readFile(file, 'UTF-8');
+
+            // 2. 智能检测乱码：如果找不到英文表头关键字段 "Name" 或 "Category"，说明可能是 GBK
+            // Excel 在中文系统下保存 CSV 默认为 GBK 编码
+            if (!csvText.includes("Name(ZH)") && !csvText.includes("Category")) {
+                console.log("Detecting garbled text, retrying with GBK encoding...");
+                csvText = await readFile(file, 'GBK');
+            }
+
+            if (!csvText) { alert("File is empty!"); return; }
+
+            const lines = csvText.split(/\r?\n/);
+            const newItems = [...localList];
+            let updatedCount = 0;
+            let createdCount = 0;
+
+            // 从第1行开始（跳过表头）
+            lines.slice(1).forEach((line, idx) => {
+                if (!line.trim()) return;
+                
+                // 3. 智能分隔符：兼容逗号(,) 和 分号(;)
+                let cols = line.split(',');
+                if (cols.length < 2) cols = line.split(';'); // 尝试分号
+
+                // 清理引号
+                cols = cols.map(c => c.trim().replace(/^"|"$/g, ''));
+
+                // 检查有效性
+                if (cols.length < 4) {
+                    console.warn(`Skipping invalid line ${idx + 2}: ${line}`);
+                    return;
+                }
+
+                const [zh, en, unit, cat, mt_am, mt_pm, f_am, f_pm, s_am, s_pm, su_am, su_pm] = cols;
+                if (!zh) return;
+
+                // 查找是否存在
+                let itemIndex = newItems.findIndex(i => i.name.zh === zh);
+                
+                const targets = {
+                    mon_thu: { morning: parseFloat(mt_am)||0, evening: parseFloat(mt_pm)||0 },
+                    fri: { morning: parseFloat(f_am)||0, evening: parseFloat(f_pm)||0 },
+                    sat: { morning: parseFloat(s_am)||0, evening: parseFloat(s_pm)||0 },
+                    sun: { morning: parseFloat(su_am)||0, evening: parseFloat(su_pm)||0 }
+                };
+
+                if (itemIndex >= 0) {
+                    // 更新现有
+                    newItems[itemIndex] = { 
+                        ...newItems[itemIndex], 
+                        dailyTargets: targets, 
+                        unit: unit || newItems[itemIndex].unit,
+                        category: cat || newItems[itemIndex].category
+                    };
+                    updatedCount++;
+                } else {
+                    // 创建新项
+                    newItems.push({
+                        id: `p_imp_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+                        name: { zh: zh, en: en || zh },
+                        unit: unit || 'L',
+                        category: cat || 'other',
+                        defaultVal: '0',
+                        hidden: false,
+                        dailyTargets: targets
+                    });
+                    createdCount++;
+                }
+            });
+
+            if (updatedCount === 0 && createdCount === 0) {
+                alert("No valid data found. Please check CSV format.");
+            } else {
+                setLocalList(newItems);
+                Cloud.saveInventoryList(newItems);
+                setInventoryList(newItems);
+                alert(`✅ Import Success!\nUpdated: ${updatedCount}\nCreated: ${createdCount}`);
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Error reading file. Please try again.");
+        } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    // --- Owner: 添加新物品 (手动) ---
+    const handleAddItem = () => {
+        if (!newItemData.nameZH || !newItemData.nameEN) return alert("Please enter names.");
+        const newItem: any = {
+            id: `p_new_${Date.now()}`,
+            name: { zh: newItemData.nameZH, en: newItemData.nameEN },
+            unit: newItemData.unit,
+            category: newItemData.category,
+            defaultVal: '0',
+            hidden: false,
+            dailyTargets: {
+                mon_thu: { morning: 0, evening: 0 },
+                fri: { morning: 0, evening: 0 },
+                sat: { morning: 0, evening: 0 },
+                sun: { morning: 0, evening: 0 }
+            }
+        };
+        const newList = [...localList, newItem];
+        setLocalList(newList);
+        Cloud.saveInventoryList(newList);
+        setInventoryList(newList);
+        setIsAddingItem(false);
+        setNewItemData({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
+        alert("Item Added!");
+    };
+
     const saveTargets = () => {
         Cloud.saveInventoryList(localList);
         setInventoryList(localList);
-        alert("✅ Prep targets updated successfully!");
+        alert("✅ Changes saved successfully!");
         setEditTargets(false);
     };
 
-    // --- Staff: 提交盘点 ---
     const handleStaffSubmit = () => {
         onSubmit({ 
-            submittedBy: currentUser?.name, 
-            userId: currentUser?.id, 
-            data: inputData, // 这里包含了 { end, loss }
-            shift: viewShift, 
-            dayGroup: dayGroup,
-            date: new Date().toISOString()
+            submittedBy: currentUser?.name, userId: currentUser?.id, data: inputData, 
+            shift: viewShift, dayGroup: dayGroup, date: new Date().toISOString()
         });
     };
 
@@ -1948,32 +2115,68 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     if (isOwner) {
         return (
             <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
+                {/* 隐藏的文件上传 Input */}
+                <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".csv" className="hidden" />
+
+                {/* 顶部工具栏 */}
                 <div className="p-4 bg-dark-surface border-b border-white/10 sticky top-0 z-10 shadow-md flex justify-between items-center">
                     <div>
                         <h2 className="text-xl font-black text-white flex items-center gap-2">
                             <Icon name="Coffee" className="text-orange-400"/> Manage Prep Targets
                         </h2>
-                        <p className="text-xs text-dark-text-light">Set goals for Morning/Evening shifts</p>
+                        <p className="text-xs text-dark-text-light">Set goals & visibility</p>
                     </div>
                     <div className="flex gap-2">
                         {editTargets ? (
                             <>
-                                <button onClick={() => setEditTargets(false)} className="bg-white/10 text-white px-4 py-2 rounded-lg text-xs font-bold">Cancel</button>
-                                <button onClick={saveTargets} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold">Save Changes</button>
+                                <button onClick={() => setEditTargets(false)} className="bg-white/10 text-white px-3 py-2 rounded-lg text-xs font-bold">Cancel</button>
+                                <button onClick={saveTargets} className="bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-bold">Save All</button>
                             </>
                         ) : (
-                            <button onClick={() => setEditTargets(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold">Edit Targets</button>
+                            <div className="flex gap-2">
+                                {/* CSV 操作按钮 */}
+                                <button onClick={handleDownloadTemplate} className="bg-white/5 hover:bg-white/10 text-dark-text-light px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1" title="Download Template">
+                                    <Icon name="Download" size={14} /> Template
+                                </button>
+                                <button onClick={() => fileInputRef.current?.click()} className="bg-white/5 hover:bg-white/10 text-blue-300 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1" title="Import CSV">
+                                    <Icon name="Upload" size={14} /> Import
+                                </button>
+                                
+                                <div className="w-px bg-white/10 mx-1"></div>
+
+                                <button onClick={() => setIsAddingItem(true)} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1">
+                                    <Icon name="Plus" size={14} /> Add
+                                </button>
+                                <button onClick={() => setEditTargets(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold">Edit</button>
+                            </div>
                         )}
                     </div>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* 列表内容 */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-20">
                     {localList.map((item: any) => (
-                        <div key={item.id} className="bg-dark-surface p-4 rounded-xl border border-white/10">
-                            <div className="flex justify-between mb-2 border-b border-white/5 pb-2">
-                                <h3 className="font-bold text-white text-lg">{item.name.zh} <span className="text-dark-text-light text-xs">({item.name.en})</span></h3>
+                        <div key={item.id} className={`bg-dark-surface p-4 rounded-xl border transition-all ${item.hidden ? 'border-red-500/30 opacity-60' : 'border-white/10'}`}>
+                            <div className="flex justify-between items-center mb-2 border-b border-white/5 pb-2">
+                                <div className="flex items-center gap-2">
+                                    {editTargets && (
+                                        <button 
+                                            onClick={() => toggleHidden(item.id)}
+                                            className={`p-1.5 rounded-lg transition-colors ${item.hidden ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}
+                                            title={item.hidden ? "Currently Hidden" : "Visible"}
+                                        >
+                                            <Icon name={item.hidden ? "EyeOff" : "Eye"} size={16} />
+                                        </button>
+                                    )}
+                                    <div>
+                                        <h3 className={`font-bold text-lg ${item.hidden ? 'text-gray-500 line-through' : 'text-white'}`}>
+                                            {item.name.zh} <span className="text-dark-text-light text-xs font-normal">({item.name.en})</span>
+                                        </h3>
+                                    </div>
+                                </div>
                                 <span className="text-xs font-mono bg-white/10 px-2 py-1 rounded text-orange-300">{item.unit}</span>
                             </div>
+                            
                             <div className="grid grid-cols-5 gap-1 text-center text-[10px] text-dark-text-light uppercase font-bold mb-1">
                                 <div></div><div>Mon-Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
                             </div>
@@ -1981,6 +2184,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                                 <div key={shift} className="grid grid-cols-5 gap-2 items-center mb-2">
                                     <div className={`text-[10px] uppercase font-bold text-right pr-2 ${shift==='morning'?'text-yellow-400':'text-indigo-400'}`}>{shift}</div>
                                     {['mon_thu', 'fri', 'sat', 'sun'].map(group => {
+                                        // @ts-ignore
                                         const val = item.dailyTargets?.[group]?.[shift] || 0;
                                         return editTargets ? (
                                             <input 
@@ -1998,6 +2202,50 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                         </div>
                     ))}
                 </div>
+
+                {/* 新增物品弹窗 */}
+                {isAddingItem && (
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
+                        <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl space-y-4">
+                            <h3 className="text-lg font-bold text-white">Add New Prep Item</h3>
+                            <div>
+                                <label className="text-xs text-gray-400">Name (ZH)</label>
+                                <input className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" placeholder="e.g. 柠檬水" value={newItemData.nameZH} onChange={e => setNewItemData({...newItemData, nameZH: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs text-gray-400">Name (EN)</label>
+                                <input className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" placeholder="e.g. Lemon Water" value={newItemData.nameEN} onChange={e => setNewItemData({...newItemData, nameEN: e.target.value})} />
+                            </div>
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-400">Unit</label>
+                                    <select className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.unit} onChange={e => setNewItemData({...newItemData, unit: e.target.value})}>
+                                        <option value="L">L (Liters)</option>
+                                        <option value="ml">ml</option>
+                                        <option value="g">g</option>
+                                        <option value="kg">kg</option>
+                                        <option value="pcs">pcs</option>
+                                        <option value="box">box</option>
+                                    </select>
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-400">Category</label>
+                                    <select className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.category} onChange={e => setNewItemData({...newItemData, category: e.target.value})}>
+                                        <option value="premix">Premix</option>
+                                        <option value="dairy">Dairy</option>
+                                        <option value="topping">Topping</option>
+                                        <option value="fruit">Fruit</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="flex gap-2 mt-4">
+                                <button onClick={() => setIsAddingItem(false)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
+                                <button onClick={handleAddItem} className="flex-1 py-3 rounded-xl bg-purple-600 text-white font-bold">Add Item</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
@@ -2024,7 +2272,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             </div>
 
             <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                {inventoryList.map((item: any) => {
+                {inventoryList.filter((item: any) => !item.hidden).map((item: any) => {
                     const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
                     if (target === 0 && viewShift === 'evening') return null;
 
@@ -2049,7 +2297,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                                     />
                                 </div>
 
-                                {/* Loss Input (New Feature) */}
+                                {/* Loss Input */}
                                 <div className="flex-1 flex flex-col border-l pl-3 border-gray-100">
                                     <label className="text-[10px] font-bold text-red-400 mb-1 uppercase">Loss / Waste</label>
                                     <input 
@@ -2075,7 +2323,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         </div>
     );
 };
-
 // ============================================================================
 // 组件 4: Smart Inventory View (后台仓库 - 填表盘点模式)
 // ============================================================================

@@ -371,7 +371,9 @@ export interface InventoryItem {
     unit: string;
     defaultVal: string;
     category: string;
-    // 【新增】每日备料目标 (Prep 专用)
+    // 【新增】是否隐藏 (true=隐藏, false/undefined=显示)
+    hidden?: boolean; 
+    // Prep 专用目标
     dailyTargets?: WeeklyTargets;
 }
 
