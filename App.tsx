@@ -2059,7 +2059,9 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             </div>
             <div className="p-4 bg-white border-t sticky bottom-0 z-20">
                 <button onClick={handleStaffSubmit} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark">
-                    <Icon name="Save" size={20} /> Confirm & Clock {viewShift==='morning'?'In':'Out'}
+                    <Icon name="Save" size={20} /> 
+                    {/* 之前是根据 shift 判断 In/Out，现在改为：如果是强制流程(isForced)，统统是 Clock Out */}
+                    {isForced ? "Confirm & Clock Out" : "Save Report"}
                 </button>
             </div>
         </div>
