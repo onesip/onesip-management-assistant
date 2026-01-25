@@ -1887,7 +1887,7 @@ const StaffManagementView = ({ users }: { users: any[] }) => {
 };
 
 // ============================================================================
-// 3. Prep Inventory View (前台补料 & 后台管理 Prep)
+// 组件 3: Prep Inventory (前台补料 & 后台管理) - [含 Loss 输入]
 // ============================================================================
 const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
     // 1. 自动判断今天是星期几 (0=Sun, 1=Mon...)
@@ -1897,9 +1897,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     if (todayIndex === 6) dayGroup = 'sat';
     if (todayIndex === 0) dayGroup = 'sun';
 
-    // 2. 确定班次: 
-    //    - 如果是 Staff 打卡 (forcedShift 有值): opening -> morning, closing -> evening
-    //    - 如果是 Owner 管理: 默认 morning，可切换查看
+    // 2. 确定班次
     const [viewShift, setViewShift] = useState<'morning' | 'evening'>(
         forcedShift === 'closing' ? 'evening' : 'morning'
     );
@@ -1908,8 +1906,8 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     const [editTargets, setEditTargets] = useState(false);
     const [localList, setLocalList] = useState<any[]>(JSON.parse(JSON.stringify(inventoryList || [])));
 
-    // 4. Staff 输入状态
-    const [inputData, setInputData] = useState<Record<string, { end: string }>>({});
+    // 4. Staff 输入状态 (新增 loss 字段)
+    const [inputData, setInputData] = useState<Record<string, { end: string, loss: string }>>({});
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
@@ -1939,7 +1937,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         onSubmit({ 
             submittedBy: currentUser?.name, 
             userId: currentUser?.id, 
-            data: inputData,
+            data: inputData, // 这里包含了 { end, loss }
             shift: viewShift, 
             dayGroup: dayGroup,
             date: new Date().toISOString()
@@ -1950,7 +1948,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     if (isOwner) {
         return (
             <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
-                {/* 顶部工具栏 */}
                 <div className="p-4 bg-dark-surface border-b border-white/10 sticky top-0 z-10 shadow-md flex justify-between items-center">
                     <div>
                         <h2 className="text-xl font-black text-white flex items-center gap-2">
@@ -1970,7 +1967,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                     </div>
                 </div>
                 
-                {/* 表格内容 */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
                     {localList.map((item: any) => (
                         <div key={item.id} className="bg-dark-surface p-4 rounded-xl border border-white/10">
@@ -1978,8 +1974,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                                 <h3 className="font-bold text-white text-lg">{item.name.zh} <span className="text-dark-text-light text-xs">({item.name.en})</span></h3>
                                 <span className="text-xs font-mono bg-white/10 px-2 py-1 rounded text-orange-300">{item.unit}</span>
                             </div>
-                            
-                            {/* 目标值表格 */}
                             <div className="grid grid-cols-5 gap-1 text-center text-[10px] text-dark-text-light uppercase font-bold mb-1">
                                 <div></div><div>Mon-Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
                             </div>
@@ -1990,8 +1984,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                                         const val = item.dailyTargets?.[group]?.[shift] || 0;
                                         return editTargets ? (
                                             <input 
-                                                key={group} 
-                                                type="number" 
+                                                key={group} type="number" 
                                                 className="w-full bg-dark-bg border border-white/20 rounded p-2 text-center text-white text-sm font-bold focus:border-blue-500 outline-none"
                                                 value={val}
                                                 onChange={e => handleTargetChange(item.id, group, shift, e.target.value)}
@@ -2043,25 +2036,40 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                                     Target: <span className="text-lg">{target}</span> {item.unit}
                                 </div>
                             </div>
-                            <div className="flex gap-4 items-center">
-                                <label className="text-xs font-bold text-gray-400 w-16">Completed:</label>
-                                <input 
-                                    type="number" 
-                                    className="flex-1 p-3 rounded-lg border-2 border-gray-100 text-center text-lg font-bold bg-gray-50 focus:bg-white focus:border-primary transition-colors outline-none" 
-                                    placeholder="0"
-                                    value={inputData[item.id]?.end ?? ''}
-                                    onChange={(e) => setInputData(prev => ({...prev, [item.id]: {...prev[item.id], end: e.target.value}}))}
-                                />
+                            <div className="flex gap-3 items-center">
+                                {/* Completed Input */}
+                                <div className="flex-1 flex flex-col">
+                                    <label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Completed</label>
+                                    <input 
+                                        type="number" 
+                                        className="w-full p-3 rounded-lg border-2 border-gray-100 text-center text-lg font-bold bg-gray-50 focus:bg-white focus:border-primary transition-colors outline-none" 
+                                        placeholder="0"
+                                        value={inputData[item.id]?.end ?? ''}
+                                        onChange={(e) => setInputData(prev => ({...prev, [item.id]: {...prev[item.id], end: e.target.value}}))}
+                                    />
+                                </div>
+
+                                {/* Loss Input (New Feature) */}
+                                <div className="flex-1 flex flex-col border-l pl-3 border-gray-100">
+                                    <label className="text-[10px] font-bold text-red-400 mb-1 uppercase">Loss / Waste</label>
+                                    <input 
+                                        type="number" 
+                                        className="w-full p-3 rounded-lg border-2 border-red-50 text-center text-lg font-bold bg-red-50/50 text-red-500 focus:bg-white focus:border-red-400 transition-colors outline-none" 
+                                        placeholder="0"
+                                        value={inputData[item.id]?.loss ?? ''}
+                                        onChange={(e) => setInputData(prev => ({...prev, [item.id]: {...prev[item.id], loss: e.target.value}}))}
+                                    />
+                                </div>
                             </div>
                         </div>
                     );
                 })}
             </div>
+            
             <div className="p-4 bg-white border-t sticky bottom-0 z-20">
                 <button onClick={handleStaffSubmit} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark">
                     <Icon name="Save" size={20} /> 
-                    {/* 之前是根据 shift 判断 In/Out，现在改为：如果是强制流程(isForced)，统统是 Clock Out */}
-                    {isForced ? "Confirm & Clock Out" : "Save Report & Clock Out"}
+                    {isForced ? "Confirm & Clock Out" : "Save Report"}
                 </button>
             </div>
         </div>
@@ -2160,15 +2168,15 @@ const SmartInventoryView = ({ data }: any) => {
 };
 
 // ============================================================================
-// 5. 店长总控台 (Owner Dashboard)
+// 组件 5: 店长总控台 (Owner Dashboard) - [支持 Loss 显示与导出]
 // ============================================================================
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs } = data;
     const { showNotification } = useNotification();
-    const ownerUser = users.find((u:any) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
+    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
     
-    // 【默认显示】Manage Prep (presets)
+    // 默认显示 'presets'
     const [ownerSubView, setOwnerSubView] = useState<'logs' | 'presets' | 'history' | 'staff' | 'smart'>('presets');
     
     const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
@@ -2178,15 +2186,51 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
     
     const handleUpdateLogs = (allLogs: any[]) => Cloud.updateLogs(allLogs);
 
-    // --- 恢复 CSV 导出功能 (Prep) ---
+    const handleDeleteReport = async () => {
+        if (!reportToDelete) return;
+        const newHistory = inventoryHistory.filter((r: any) => r.id !== reportToDelete.id);
+        try {
+            await Cloud.updateInventoryHistory(newHistory);
+            showNotification({ type: 'message', title: "Deleted", message: "Report removed." });
+        } catch (e) { console.error(e); }
+        setReportToDelete(null);
+    };
+
+    const handleDeleteItemFromReport = async (reportId: string, itemId: string) => {
+        if (!confirm("Remove this item record from the report?")) return;
+        const targetReport = inventoryHistory.find((r: any) => r.id === reportId);
+        if (!targetReport) return;
+
+        const newData = { ...targetReport.data };
+        delete newData[itemId];
+
+        if (Object.keys(newData).length === 0) {
+            if (confirm("Report is empty. Delete the entire report?")) {
+                setReportToDelete(targetReport);
+                const newHistory = inventoryHistory.filter((r: any) => r.id !== reportId);
+                await Cloud.updateInventoryHistory(newHistory);
+                return;
+            }
+        }
+
+        const newReport = { ...targetReport, data: newData };
+        const newHistory = inventoryHistory.map((r: any) => r.id === reportId ? newReport : r);
+        await Cloud.updateInventoryHistory(newHistory);
+        showNotification({ type: 'success', title: "Item Removed", message: "Record updated." });
+    };
+
+    // --- CSV 导出 (增加 Loss 列) ---
     const handleExportCsv = () => {
-        const headers = "Date,Submitted By,Item,Target,Count,Shift\n";
+        const headers = "Date,Submitted By,Item,Target,Count,Loss,Shift\n"; // Added Loss header
         const csvRows = inventoryHistory.flatMap((report: any) => {
             const date = report.date ? new Date(report.date).toISOString().split('T')[0] : '';
             return Object.entries(report.data || {}).map(([itemId, val]: any) => {
                 const itemDef = inventoryList.find((i: any) => i.id === itemId);
                 const itemName = itemDef ? getLoc(itemDef.name) : itemId;
-                return `"${date}","${report.submittedBy}","${itemName.replace(/"/g, '""')}","-","${val.end}","${report.shift}"`;
+                // 注意：这里的 val 可能包含 end 和 loss
+                const count = val.end || '0';
+                const loss = val.loss || '0';
+                return `"${date}","${report.submittedBy}","${itemName.replace(/"/g, '""')}","-","${count}","${loss}","${report.shift}"`;
             });
         });
 
@@ -2203,6 +2247,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
 
     if (view === 'manager') return <ManagerDashboard data={data} onExit={() => setView('main')} />;
     
+    // --- 历史记录视图 ---
     const InventoryHistoryView = () => (
         <div className="p-4 space-y-3">
             <div className="flex justify-between items-center">
@@ -2213,25 +2258,53 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
             </div>
             {inventoryHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found.</p>}
             {inventoryHistory.slice().reverse().map((report: any) => (
-                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10">
+                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group-report">
                     <div onClick={() => setExpandedReportId(expandedReportId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
                         <div>
-                            <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'} <span className="text-[10px] bg-white/10 px-1 rounded uppercase">{report.shift}</span></p>
+                            <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'} <span className="text-[10px] bg-white/10 px-1 rounded uppercase text-purple-300">{report.shift}</span></p>
                             <p className="text-xs text-dark-text-light">by {report.submittedBy}</p>
                         </div>
-                        <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
+                        <div className="flex items-center gap-3">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setReportToDelete(report); }} 
+                                className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 transition-all" 
+                                title="Delete Report"
+                            >
+                                <Icon name="Trash" size={16} />
+                            </button>
+                            <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
+                        </div>
                     </div>
+                    
                     {expandedReportId === report.id && (
-                        <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2">
-                            {Object.entries(report.data).map(([itemId, val]: any) => {
+                        <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 animate-fade-in">
+                            {Object.entries(report.data || {}).map(([itemId, val]: any) => {
                                 const itemDef = inventoryList.find((i: any) => i.id === itemId);
+                                const hasLoss = val.loss && parseFloat(val.loss) > 0;
                                 return (
-                                    <div key={itemId} className="flex justify-between">
-                                        <span className="text-dark-text-light">{itemDef ? getLoc(itemDef.name) : itemId}</span>
-                                        <span className="font-mono text-white">{val.end}</span>
+                                    <div key={itemId} className="flex justify-between items-center group hover:bg-white/5 p-1 rounded transition-colors">
+                                        <span className="text-dark-text-light font-medium">
+                                            {itemDef ? getLoc(itemDef.name) : itemId}
+                                        </span>
+                                        <div className="flex items-center gap-3">
+                                            <div className="text-right">
+                                                <span className="font-mono text-white font-bold">{val.end}</span>
+                                                {/* 显示 Loss */}
+                                                {hasLoss && <span className="text-[10px] text-red-400 font-bold ml-2">(-{val.loss} Loss)</span>}
+                                            </div>
+                                            
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteItemFromReport(report.id, itemId); }}
+                                                className="text-red-500 opacity-50 hover:opacity-100 hover:bg-red-500/10 p-1 rounded transition-all"
+                                                title="Remove this item"
+                                            >
+                                                <Icon name="X" size={14} />
+                                            </button>
+                                        </div>
                                     </div>
                                 );
                             })}
+                            {Object.keys(report.data || {}).length === 0 && <div className="text-center text-gray-500 italic py-2">Empty Report</div>}
                         </div>
                     )}
                 </div>
@@ -2265,29 +2338,34 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
                     Logs
                 </button>
+                {/* 强制数据重置按钮 (仅开发/修复用) */}
+                <button 
+                    onClick={async () => {
+                        if(confirm("Reset Prep Data? Defaults will be loaded.")) {
+                            await Cloud.saveInventoryList(INVENTORY_ITEMS);
+                            setInventoryList(INVENTORY_ITEMS);
+                            alert("Done!");
+                        }
+                    }} 
+                    className="px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all bg-red-600 text-white hover:bg-red-500"
+                >
+                    Reset
+                </button>
             </div>
 
             <div className="flex-1 overflow-y-auto">
-                
-                {/* 1. Manage Prep (预设/前台补料) -> 对应 InventoryView */}
                 {ownerSubView === 'presets' && (
                     <InventoryView 
                         lang={lang} 
                         t={t} 
-                        inventoryList={inventoryList} // ✅ 传入 Prep 数据
+                        inventoryList={inventoryList} 
                         setInventoryList={setInventoryList} 
-                        isOwner={true} // 开启编辑模式
+                        isOwner={true} 
                         onSubmit={() => {}}
                         currentUser={ownerUser} 
                     />
                 )}
-
-                {/* 2. Smart Warehouse (智能仓库) -> 对应 SmartInventoryView */}
-                {ownerSubView === 'smart' && (
-                    <SmartInventoryView 
-                        data={data} // ✅ 传入仓库数据 (smartInventory)
-                    />
-                )}
+                {ownerSubView === 'smart' && <SmartInventoryView data={data} />}
                 {ownerSubView === 'history' && <InventoryHistoryView />}
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={handleUpdateLogs} />}
@@ -2295,6 +2373,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         </div>
     );
 };
+// ============================================================================
 
 const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (user: User) => void, onClose: () => void }) => {
     const isNew = user === 'new';
