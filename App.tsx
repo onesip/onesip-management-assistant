@@ -2266,18 +2266,26 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
             </div>
 
             <div className="flex-1 overflow-y-auto">
+                
+                {/* 1. Manage Prep (预设/前台补料) -> 对应 InventoryView */}
                 {ownerSubView === 'presets' && (
                     <InventoryView 
                         lang={lang} 
                         t={t} 
-                        inventoryList={inventoryList} 
+                        inventoryList={inventoryList} // ✅ 传入 Prep 数据
                         setInventoryList={setInventoryList} 
-                        isOwner={true} 
+                        isOwner={true} // 开启编辑模式
                         onSubmit={() => {}}
                         currentUser={ownerUser} 
                     />
                 )}
-                {ownerSubView === 'smart' && <SmartInventoryView data={data} />}
+
+                {/* 2. Smart Warehouse (智能仓库) -> 对应 SmartInventoryView */}
+                {ownerSubView === 'smart' && (
+                    <SmartInventoryView 
+                        data={data} // ✅ 传入仓库数据 (smartInventory)
+                    />
+                )}
                 {ownerSubView === 'history' && <InventoryHistoryView />}
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={handleUpdateLogs} />}
@@ -4635,22 +4643,24 @@ const renderView = () => {
         if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
         if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
         // 找到这行
+        // StaffApp 内部渲染
         if (view === 'inventory') { 
+            // 自动判断班次
+            const prepShift = currentShift === 'closing' ? 'evening' : 'morning';
+            
             return (
-                <SmartInventoryView 
-                    data={data} 
-                    isStaff={true}
-                    // 【新增】传入强制班次，让组件知道现在该填早班还是晚班
-                    forcedShift={inventoryShiftMode} 
-                    onSuccess={() => {
-                        if (onInventorySuccess) {
-                            onInventorySuccess();
-                            setOnInventorySuccess(null);
-                        }
-                        setView('home');
-                    }} 
+                <InventoryView  // ✅ 对！这是 Prep 组件
+                    lang={lang} 
+                    t={t} 
+                    inventoryList={data.inventoryList} // ✅ 传入 Prep 数据
+                    setInventoryList={data.setInventoryList} 
+                    onSubmit={handleInventorySubmit} 
+                    currentUser={currentUser} 
+                    isForced={!!onInventorySuccess} 
+                    onCancel={cancelInventoryClockOut}
+                    forcedShift={prepShift} 
                 />
-            );
+            ); 
         }
         if (view === 'checklist') {
             const checklist = CHECKLIST_TEMPLATES[currentShift];
