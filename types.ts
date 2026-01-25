@@ -419,3 +419,24 @@ export interface SmartInventoryItem {
     currentStock: number;  // 当前库存量
     lastUpdated?: string;
 }
+
+// ... (保留之前的 SmartInventoryItem 等定义)
+
+// 【新增】Smart Warehouse 周报结构
+export interface SmartInventoryReport {
+    id: string;          // Timestamp
+    weekStr: string;     // e.g. "2024-W05" (第几周)
+    dateRange: string;   // e.g. "Jan 29 - Feb 04"
+    submittedBy: string;
+    submittedAt: string; // ISO Date
+    items: {
+        id: string;
+        name: string;
+        category: string;
+        supplier: string;
+        unit: string;
+        currentStock: number; // 提交时的库存
+        safetyStock: number;
+        status: 'OK' | 'LOW';
+    }[];
+}
