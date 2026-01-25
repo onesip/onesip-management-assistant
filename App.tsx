@@ -2077,64 +2077,98 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
 };
 
 // ============================================================================
-// 组件 4: Smart Inventory View (后台仓库 - 含周报提交)
+// 组件 4: Smart Inventory View (后台仓库 - 填表盘点模式)
 // ============================================================================
 const SmartInventoryView = ({ data, onSaveReport }: any) => {
     const { smartInventory, setSmartInventory } = data;
     const [supplierFilter, setSupplierFilter] = useState<'All' | "I'tea" | 'Joybuy' | 'Open Mkt'>('All');
-    const [editingId, setEditingId] = useState<string | null>(null);
-    const [tempValue, setTempValue] = useState<number | ''>('');
+    
+    // 存储填表数据：itemId -> { count: string, add: string }
+    const [inputs, setInputs] = useState<Record<string, { count: string, add: string }>>({});
 
-    // --- 获取当前周数逻辑 ---
-    const getWeekNumber = (d: Date) => {
-        d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-        d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-        return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    // --- 辅助：处理输入 ---
+    const handleInputChange = (id: string, field: 'count' | 'add', val: string) => {
+        setInputs(prev => ({
+            ...prev,
+            [id]: { ...prev[id], [field]: val }
+        }));
     };
-    
-    const now = new Date();
-    const currentWeekStr = `${now.getFullYear()}-W${getWeekNumber(now)}`;
-    
-    // 计算本周日期范围 (Mon - Sun)
-    const getWeekRange = (date: Date) => {
-        const day = date.getDay() || 7; 
-        if (day !== 1) date.setHours(-24 * (day - 1)); 
-        const start = new Date(date);
-        const end = new Date(date); 
-        end.setHours(24 * 6); 
-        return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
+
+    // --- 辅助：计算单项 Total ---
+    const calculateTotal = (id: string) => {
+        const itemInput = inputs[id] || {};
+        const count = parseFloat(itemInput.count) || 0;
+        const add = parseFloat(itemInput.add) || 0;
+        return count + add;
     };
-    const dateRange = getWeekRange(new Date());
 
     // --- 提交周报 ---
     const handleSubmitWeekly = () => {
-        if (!confirm(`Submit report for ${currentWeekStr} (${dateRange})?\nThis will record current stock levels.`)) return;
+        const now = new Date();
+        // 简单计算周号逻辑
+        const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+        d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        const weekNum = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+        const currentWeekStr = `${now.getFullYear()}-W${weekNum}`;
+        const dateRange = `${now.toLocaleDateString()}`; // 简化显示
 
-        const reportItems = smartInventory.map((item: any) => ({
-            id: item.id,
-            name: item.name,
-            category: item.category,
-            supplier: item.supplier,
-            unit: item.unit,
-            currentStock: item.currentStock,
-            safetyStock: item.safetyStock,
-            status: item.currentStock < item.safetyStock ? 'LOW' : 'OK'
-        }));
+        if (!confirm(`Submit Weekly Inventory Report (${currentWeekStr})?\n\nThis will update all "Current Stock" values based on your inputs (Count + Add).`)) return;
 
+        // 1. 准备报表数据 & 2. 更新库存
+        const reportItems: any[] = [];
+        const newInventoryList = smartInventory.map((item: any) => {
+            const inp = inputs[item.id] || {};
+            const countVal = parseFloat(inp.count) || 0;
+            const addVal = parseFloat(inp.add) || 0;
+            const totalVal = countVal + addVal;
+
+            // 如果用户完全没填，我们默认保持原库存？还是变成0？
+            // 既然是盘点，通常意味着重置。这里假设未填即为0，或者保持原样。
+            // 为了安全，如果 count 和 add 都没填，我们假设该物品未被盘点，保持原样。
+            // 但为了数据一致性，建议所有显示的物品都更新。这里采用：未填视为0。
+            // 这样能确保 "Total" 显示的就是最终库存。
+            
+            // 构建报表项
+            reportItems.push({
+                id: item.id,
+                name: item.name,
+                category: item.category,
+                supplier: item.supplier,
+                unit: item.unit,
+                count: countVal,
+                added: addVal,
+                currentStock: totalVal, // 核心计算：还剩 + 新增
+                safetyStock: item.safetyStock,
+                status: totalVal < item.safetyStock ? 'LOW' : 'OK'
+            });
+
+            // 返回更新后的库存对象
+            return {
+                ...item,
+                currentStock: totalVal,
+                lastUpdated: new Date().toISOString()
+            };
+        });
+
+        // 保存到数据库
+        setSmartInventory(newInventoryList);
+        Cloud.saveSmartInventory(newInventoryList);
+
+        // 生成报表
         const report: SmartInventoryReport = {
             id: Date.now().toString(),
             weekStr: currentWeekStr,
             dateRange: dateRange,
-            submittedBy: 'Owner', // 或者 currentUser.name
+            submittedBy: 'Owner',
             submittedAt: new Date().toISOString(),
             items: reportItems
         };
 
         if (onSaveReport) {
             onSaveReport(report);
-        } else {
-            alert("Error: Save function not connected.");
+            // 可选：提交后清空输入框
+            setInputs({});
         }
     };
 
@@ -2143,38 +2177,21 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
         .filter((item: any) => supplierFilter === 'All' || item.supplier === supplierFilter)
         .sort((a: any, b: any) => (a.position || '').localeCompare(b.position || ''));
 
-    const handleUpdateStock = (id: string, val: number) => {
-        const newList = smartInventory.map((item: any) => 
-            item.id === id ? { ...item, currentStock: val, lastUpdated: new Date().toISOString() } : item
-        );
-        setSmartInventory(newList);
-        Cloud.saveSmartInventory(newList);
-        setEditingId(null);
-    };
-
     const categories = Array.from(new Set(filteredList.map((i: any) => i.category)));
 
     return (
         <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
             {/* Header */}
             <div className="p-4 bg-dark-surface border-b border-white/10 sticky top-0 z-10 shadow-md">
-                <div className="flex justify-between items-start mb-3">
-                    <div>
-                        <h2 className="text-xl font-black text-white flex items-center gap-2">
-                            <Icon name="Package" className="text-purple-400" /> Smart Warehouse
-                        </h2>
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded border border-purple-500/30">
-                                Week: {currentWeekStr}
-                            </span>
-                            <span className="text-[10px] text-dark-text-light">{dateRange}</span>
-                        </div>
-                    </div>
+                <div className="flex justify-between items-center mb-3">
+                    <h2 className="text-xl font-black text-white flex items-center gap-2">
+                        <Icon name="Package" className="text-purple-400" /> Smart Warehouse
+                    </h2>
                     <button 
                         onClick={handleSubmitWeekly}
-                        className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg transition-all animate-pulse-slow"
+                        className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg transition-all animate-pulse-slow"
                     >
-                        <Icon name="Save" size={14} /> Submit Week
+                        <Icon name="Save" size={16} /> Submit Weekly Count
                     </button>
                 </div>
                 
@@ -2188,45 +2205,75 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
                 </div>
             </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-4">
+            {/* Table Content */}
+            <div className="flex-1 overflow-y-auto p-2 space-y-4 pb-20">
                 {categories.map((cat: any) => (
                     <div key={cat}>
                         <h3 className="text-xs font-bold text-dark-text-light uppercase px-2 mb-2 mt-2 border-b border-white/5">{cat}</h3>
                         <div className="space-y-2">
                             {filteredList.filter((i: any) => i.category === cat).map((item: any) => {
-                                const refillNeeded = Math.max(0, item.safetyStock - item.currentStock);
-                                const isLow = refillNeeded > 0;
-                                const isEditing = editingId === item.id;
+                                const total = calculateTotal(item.id);
+                                const isLow = total < item.safetyStock;
+                                
                                 return (
-                                    <div key={item.id} className={`p-3 rounded-xl border flex items-center justify-between ${isLow ? 'bg-red-500/10 border-red-500/30' : 'bg-dark-surface border-white/5'}`}>
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-lg bg-black/30 flex items-center justify-center border border-white/10 shrink-0">
-                                                <span className="text-sm font-black text-purple-300">{item.position}</span>
-                                            </div>
-                                            <div>
-                                                <div className="font-bold text-sm text-white">{item.name}</div>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className="text-[9px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light">{item.supplier}</span>
-                                                    <span className="text-[9px] text-dark-text-light">Safe: {item.safetyStock} {item.unit}</span>
+                                    <div key={item.id} className={`p-3 rounded-xl border flex flex-col gap-2 ${isLow ? 'bg-red-500/5 border-red-500/30' : 'bg-dark-surface border-white/5'}`}>
+                                        {/* Row 1: Info */}
+                                        <div className="flex justify-between items-start">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded bg-black/30 flex items-center justify-center border border-white/10 shrink-0">
+                                                    <span className="text-xs font-black text-purple-300">{item.position}</span>
                                                 </div>
+                                                <div>
+                                                    <div className="font-bold text-sm text-white">{item.name}</div>
+                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                        <span className="text-[9px] bg-white/5 px-1.5 rounded text-dark-text-light">{item.supplier}</span>
+                                                        <span className="text-[9px] text-dark-text-light">Safe: {item.safetyStock} {item.unit}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            {/* Dynamic Status Badge */}
+                                            <div className={`px-2 py-0.5 rounded text-[9px] font-bold border ${isLow ? 'bg-red-500/20 text-red-300 border-red-500/30' : 'bg-green-500/20 text-green-300 border-green-500/30'}`}>
+                                                {isLow ? 'LOW' : 'OK'}
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex flex-col items-end">
-                                                <span className="text-[8px] text-dark-text-light uppercase mb-0.5">Current</span>
-                                                {isEditing ? (
-                                                    <input type="number" className="w-12 bg-black text-white border border-purple-500 rounded px-1 py-0.5 text-center text-sm" value={tempValue} autoFocus onChange={e => setTempValue(Number(e.target.value))} onBlur={() => handleUpdateStock(item.id, Number(tempValue))} onKeyDown={e => e.key === 'Enter' && handleUpdateStock(item.id, Number(tempValue))} />
-                                                ) : (
-                                                    <div onClick={() => { setEditingId(item.id); setTempValue(item.currentStock); }} className={`text-lg font-black cursor-pointer border-b border-dashed border-white/20 hover:border-purple-400 ${isLow ? 'text-red-400' : 'text-green-400'}`}>{item.currentStock}</div>
-                                                )}
+
+                                        {/* Row 2: Inputs Calculation */}
+                                        <div className="grid grid-cols-10 gap-2 items-end bg-black/20 p-2 rounded-lg">
+                                            {/* Count Input */}
+                                            <div className="col-span-3">
+                                                <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Count (剩)</label>
+                                                <input 
+                                                    type="number" 
+                                                    className="w-full bg-dark-bg border border-white/10 rounded p-1.5 text-center text-white text-sm font-bold focus:border-purple-500 outline-none"
+                                                    placeholder="0"
+                                                    value={inputs[item.id]?.count || ''}
+                                                    onChange={e => handleInputChange(item.id, 'count', e.target.value)}
+                                                />
                                             </div>
-                                            {isLow && (
-                                                <div className="w-10 h-10 rounded-full bg-red-500 text-white flex flex-col items-center justify-center shadow-lg animate-pulse">
-                                                    <span className="text-[8px] font-bold opacity-80">ADD</span>
-                                                    <span className="text-xs font-black leading-none">+{refillNeeded}</span>
+                                            
+                                            <div className="col-span-1 flex justify-center items-center pb-2 text-gray-500">+</div>
+
+                                            {/* Add Input */}
+                                            <div className="col-span-3">
+                                                <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Add (增)</label>
+                                                <input 
+                                                    type="number" 
+                                                    className="w-full bg-dark-bg border border-white/10 rounded p-1.5 text-center text-green-400 text-sm font-bold focus:border-green-500 outline-none"
+                                                    placeholder="0"
+                                                    value={inputs[item.id]?.add || ''}
+                                                    onChange={e => handleInputChange(item.id, 'add', e.target.value)}
+                                                />
+                                            </div>
+
+                                            <div className="col-span-1 flex justify-center items-center pb-2 text-gray-500">=</div>
+
+                                            {/* Total Display */}
+                                            <div className="col-span-2">
+                                                <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Total</label>
+                                                <div className={`w-full bg-white/5 border border-white/10 rounded p-1.5 text-center text-sm font-black ${isLow ? 'text-red-400' : 'text-white'}`}>
+                                                    {total}
                                                 </div>
-                                            )}
+                                            </div>
                                         </div>
                                     </div>
                                 );

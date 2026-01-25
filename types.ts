@@ -421,21 +421,24 @@ export interface SmartInventoryItem {
 }
 
 // ... (保留之前的 SmartInventoryItem 等定义)
-
-// 【新增】Smart Warehouse 周报结构
+// 【修改】Smart Warehouse 周报结构
 export interface SmartInventoryReport {
-    id: string;          // Timestamp
-    weekStr: string;     // e.g. "2024-W05" (第几周)
-    dateRange: string;   // e.g. "Jan 29 - Feb 04"
+    id: string;
+    weekStr: string;
+    dateRange: string;
     submittedBy: string;
-    submittedAt: string; // ISO Date
+    submittedAt: string;
     items: {
         id: string;
         name: string;
         category: string;
         supplier: string;
         unit: string;
-        currentStock: number; // 提交时的库存
+        // --- 核心库存数据 ---
+        count: number;        // 新增：实盘数 (还剩多少)
+        added: number;        // 新增：进货数 (新增多少)
+        currentStock: number; // 计算结果：现存多少 (Count + Add)
+        // ------------------
         safetyStock: number;
         status: 'OK' | 'LOW';
     }[];
