@@ -1,4 +1,3 @@
-
 import { initializeApp } from 'firebase/app';
 import { 
     getFirestore, 
@@ -26,14 +25,15 @@ import {
     TRAINING_LEVELS, 
     DRINK_RECIPES, 
     USERS,
-    INITIAL_SMART_INVENTORY 
+    // 【新增】确保这些都在 constants.ts 里导出了
+    INITIAL_SMART_INVENTORY, 
+    INVENTORY_ITEMS,
+    SMART_INVENTORY_MASTER_DATA 
 } from '../constants';
 import { ChatReadState, ScheduleCycle, User } from '../types';
 import { SmartInventoryReport } from '../types';
 
 // --- CONFIG ---
-// Replace with your Firebase Project Config
-// For Cloud functionality to work, you MUST create a Firebase project and enable Firestore.
 const firebaseConfig = {
     apiKey: process.env.API_KEY, 
     authDomain: "onesip--management.firebaseapp.com",
@@ -55,7 +55,9 @@ try {
     console.warn("Firebase Init Failed (Likely no config provided). Running in local mode.");
 }
 
-// --- SEEDING ---
+// ============================================================================
+// 1. SEEDING (数据初始化) - 【融合了新旧逻辑】
+// ============================================================================
 export const seedInitialData = async () => {
     if (!db) return;
     try {
@@ -69,7 +71,8 @@ export const seedInitialData = async () => {
             });
             console.log("Seeded Initial App Data");
         }
-        // Seed Content if empty
+        
+        // Seed Content
         const contentRef = doc(db, 'config', 'content');
         const contentSnap = await getDoc(contentRef);
         if (!contentSnap.exists()) {
@@ -84,25 +87,33 @@ export const seedInitialData = async () => {
         const smartInvRef = doc(db, 'data', 'smart_inventory');
         const smartInvSnap = await getDoc(smartInvRef);
         if (!smartInvSnap.exists()) {
-            await setDoc(smartInvRef, { items: INITIAL_SMART_INVENTORY });
+            // 【更新】使用新的 MASTER DATA
+            await setDoc(smartInvRef, { items: SMART_INVENTORY_MASTER_DATA || INITIAL_SMART_INVENTORY });
             console.log("Seeded Smart Inventory Data");
         }
+
+        // 【新增】Seed Prep Inventory (前台补料)
+        const prepInvRef = doc(db, 'data', 'inventory_list');
+        const prepInvSnap = await getDoc(prepInvRef);
+        if (!prepInvSnap.exists()) {
+            await setDoc(prepInvRef, { items: INVENTORY_ITEMS });
+            console.log("Seeded Prep Inventory Data");
+        }
         
-        // Seed Schedule if empty - We rely on ensureScheduleCoverage now, but seeding a basic structure is safe
+        // Seed Schedule
         const schedRef = doc(db, 'config', 'schedule');
         const schedSnap = await getDoc(schedRef);
         if (!schedSnap.exists()) {
              await setDoc(schedRef, { week: { title: 'Weekly Schedule', days: [] } });
         }
 
-        // Seed Users if empty (one-time migration)
+        // Seed Users
         const usersCollectionRef = collection(db, 'users');
         const usersSnapshot = await getDocs(usersCollectionRef);
         if (usersSnapshot.empty) {
             console.log("Seeding users to Firestore...");
             const userSeedPromises = USERS.map(user => {
                 const userDocRef = doc(db, 'users', user.id);
-                // Add the 'active: true' field to all existing users during migration
                 return setDoc(userDocRef, { ...user, active: true });
             });
             await Promise.all(userSeedPromises);
@@ -113,10 +124,11 @@ export const seedInitialData = async () => {
     }
 };
 
-// --- USERS / STAFF MANAGEMENT ---
+// ============================================================================
+// 2. USERS / STAFF MANAGEMENT (原有)
+// ============================================================================
 export const subscribeToUsers = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    // Real-time listener for the new 'users' collection
     return onSnapshot(collection(db, 'users'), (snapshot: any) => {
         const users = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
         callback(users);
@@ -125,19 +137,24 @@ export const subscribeToUsers = (callback: (data: any) => void) => {
 
 export const saveUser = async (user: User) => {
     if (!db) return;
-    // Creates a new user or updates an existing one
     const userRef = doc(db, 'users', user.id);
     await setDoc(userRef, user, { merge: true });
 };
 
 
-// --- INVENTORY ---
+// ============================================================================
+// 3. INVENTORY (Prep & Smart) - 【升级版：支持新功能】
+// ============================================================================
+
 // --- SMART INVENTORY (WAREHOUSE) ---
 export const subscribeToSmartInventory = (callback: (data: any) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'data', 'smart_inventory'), (doc: any) => {
         if (doc.exists()) callback(doc.data().items || []);
-        else callback([]);
+        else {
+            // 自动填充默认值
+            callback(SMART_INVENTORY_MASTER_DATA || []); 
+        }
     });
 };
 
@@ -146,19 +163,66 @@ export const saveSmartInventory = async (items: any[]) => {
     await setDoc(doc(db, 'data', 'smart_inventory'), { items }, { merge: true });
 };
 
+// --- PREP INVENTORY (前台补料) ---
+// 注意：为了区分旧的简单库存，新功能我们建议使用 'inventory_list' 文档，或者沿用 'inventory' 但结构变了
 export const subscribeToInventory = (callback: (data: any) => void) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'inventory'), (doc: any) => {
-        if (doc.exists()) callback(doc.data().items);
+    // 我们尝试读取 'inventory_list' (新版)，如果想覆盖旧版也可以用 'inventory'
+    // 这里为了不破坏旧数据，我用 'inventory_list'，你可以改成 'inventory'
+    return onSnapshot(doc(db, 'data', 'inventory_list'), (doc: any) => {
+        if (doc.exists()) {
+            callback(doc.data().items || []);
+        } else {
+            // 如果云端为空，返回代码里的默认值 (INVENTORY_ITEMS)
+            callback(INVENTORY_ITEMS || []);
+        }
     });
 };
 
 export const saveInventoryList = async (items: any[]) => {
     if (!db) return;
-    await setDoc(doc(db, 'data', 'inventory'), { items }, { merge: true });
+    await setDoc(doc(db, 'data', 'inventory_list'), { items }, { merge: true });
 };
 
-// --- SCHEDULE ---
+// --- PREP INVENTORY HISTORY (新增) ---
+export const subscribeToInventoryHistory = (callback: (reports: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'inventory_history'), (doc: any) => {
+        if (doc.exists()) callback(doc.data().reports || []); // 注意字段名要对齐
+    });
+};
+
+// 注意：之前代码用了 reports 字段，这里统一用 updateInventoryHistory
+export const updateInventoryHistory = async (reports: any[]) => {
+    if (!db) return;
+    await setDoc(doc(db, 'data', 'inventory_history'), { reports });
+};
+
+// 为了兼容旧代码可能调用的 saveInventoryReport
+export const saveInventoryReport = async (report: any) => {
+    if (!db) return;
+    await updateDoc(doc(db, 'data', 'inventory_history'), { reports: arrayUnion(report) })
+         .catch(() => setDoc(doc(db, 'data', 'inventory_history'), { reports: [report] }));
+};
+
+// --- SMART INVENTORY REPORTS (周报 - 新增) ---
+export const subscribeToSmartInventoryReports = (callback: (data: SmartInventoryReport[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(collection(db, 'smart_inventory_reports'), (snapshot: any) => {
+        const reports = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+        callback(reports);
+    });
+};
+
+export const saveSmartInventoryReport = async (report: SmartInventoryReport) => {
+    if (!db) return;
+    await setDoc(doc(db, 'smart_inventory_reports', report.id), report);
+};
+
+
+// ============================================================================
+// 4. SCHEDULE (排班 - 原有)
+// ============================================================================
 export const subscribeToSchedule = (callback: (data: any) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'config', 'schedule'), (doc: any) => {
@@ -171,7 +235,7 @@ export const saveSchedule = async (week: any) => {
     await setDoc(doc(db, 'config', 'schedule'), { week }, { merge: true });
 };
 
-// Helper to normalize dates for comparison (e.g. 1-5 to 01-05)
+// Helper
 const padDate = (str: string) => {
     const [m, d] = str.split('-');
     return `${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
@@ -184,15 +248,11 @@ export const ensureScheduleCoverage = async () => {
     const docSnap = await getDoc(schedRef);
     let existingDays = docSnap.exists() ? (docSnap.data().week?.days || []) : [];
     
-    // Create a Set of existing dates for O(1) lookup
     const existingDateSet = new Set(existingDays.map((d: any) => padDate(d.date)));
-
     const daysToAdd: any[] = [];
     const now = new Date();
-    
-    // Calculate range: 1st of Current Month to End of Next Month
     const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0); // Day 0 of month +2 is last day of month +1
+    const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0); 
 
     const loopDate = new Date(startOfCurrentMonth);
 
@@ -203,45 +263,35 @@ export const ensureScheduleCoverage = async () => {
         const paddedDateStr = padDate(dateStr);
 
         if (!existingDateSet.has(paddedDateStr)) {
-            // 这里修改为：默认创建3个通用班次，符合新的数据结构
             daysToAdd.push({
                 date: dateStr,
                 name: loopDate.toLocaleDateString('en-US', { weekday: 'long' }), 
                 zh: '', 
-                // 不再初始化 morning/evening/night，而是直接初始化 shifts 数组
                 shifts: [
                     { id: 's1', name: 'Shift 1', start: '10:00', end: '15:00', staff: [] },
                     { id: 's2', name: 'Shift 2', start: '14:30', end: '19:00', staff: [] },
                     { id: 's3', name: 'Shift 3', start: '18:00', end: '22:00', staff: [] }
                 ],
-                // 此时旧字段留空或不写即可，前端已有兼容逻辑
             });
         }
-        
-        // Move to next day
         loopDate.setDate(loopDate.getDate() + 1);
     }
 
     if (daysToAdd.length > 0) {
-        console.log(`Auto-generating ${daysToAdd.length} schedule days for the upcoming 2 months.`);
-        // Merge and sort
+        console.log(`Auto-generating ${daysToAdd.length} schedule days.`);
         const newDays = [...existingDays, ...daysToAdd].sort((a: any, b: any) => {
-            // Very basic sort assuming data is roughly current. 
-            // For rigorous sorting across years, we'd need Year stored in data, but this suffices for the rolling window context.
-            // We use the same 'smart' sort as in App.tsx
             const dateA = new Date(`${now.getFullYear()}-${a.date}`);
             const dateB = new Date(`${now.getFullYear()}-${b.date}`);
-            // If date is drastically in past (e.g. Dec when now is Jan), treat as next year? 
-            // For now, simple timestamp sort usually works if seeded sequentially.
             return dateA.getTime() - dateB.getTime();
         });
-
         await setDoc(schedRef, { week: { ...docSnap.data()?.week, days: newDays } }, { merge: true });
     }
 };
 
 
-// --- LOGS (Clock In/Out) ---
+// ============================================================================
+// 5. LOGS (原有 + 更新)
+// ============================================================================
 export const subscribeToLogs = (callback: (data: any) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'data', 'logs'), (doc: any) => {
@@ -254,18 +304,19 @@ export const saveLog = async (logEntry: any) => {
     await updateDoc(doc(db, 'data', 'logs'), {
         entries: arrayUnion(logEntry)
     }).catch(async (e) => {
-        // Create if not exists
         await setDoc(doc(db, 'data', 'logs'), { entries: [logEntry] });
     });
 };
 
-// FIX: Add function to update the entire log array, used for invalidating/editing entries.
+// 【新增】全量更新 Log (用于作废无效记录)
 export const updateLogs = async (logs: any[]) => {
     if (!db) return;
     await setDoc(doc(db, 'data', 'logs'), { entries: logs });
 };
 
-// --- CHAT & NOTICES ---
+// ============================================================================
+// 6. CHAT & NOTICES (原有)
+// ============================================================================
 export const subscribeToChat = (callback: (msgs: any[], notices: any[]) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'data', 'chat'), (doc: any) => {
@@ -286,16 +337,11 @@ export const updateNotices = async (notices: any[]) => {
     if (!db) return { success: false };
     try {
         if (notices.length === 1) {
-             // 尝试更新现有文档追加公告
-             // 如果 updateDoc 失败（例如文档不存在），catch 会捕获错误并执行 setDoc 创建文档
              await updateDoc(doc(db, 'data', 'chat'), { notices: arrayUnion(notices[0]) })
                 .catch(async (err) => {
-                    console.log("Document does not exist, creating new one...", err);
-                    // 【关键修复】：使用 setDoc 自动创建文档，并使用 merge: true 防止覆盖其他字段
                     await setDoc(doc(db, 'data', 'chat'), { notices: notices }, { merge: true });
                 });
         } else {
-             // 如果是全量更新/删除操作，直接覆盖/合并
              await setDoc(doc(db, 'data', 'chat'), { notices }, { merge: true });
         }
         return { success: true };
@@ -310,7 +356,7 @@ export const clearAllNotices = async () => {
     await updateDoc(doc(db, 'data', 'chat'), { notices: [] });
 };
 
-// --- CHAT READ STATE (NEW) ---
+// --- CHAT READ STATE ---
 export const subscribeToChatReadState = (userId: string, callback: (data: ChatReadState | null) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'chat_read_state', userId), (doc: any) => {
@@ -329,10 +375,11 @@ export const saveChatReadState = async (userId: string, lastReadAt: Date) => {
 };
 
 
-// --- SWAPS ---
+// ============================================================================
+// 7. SWAPS (原有)
+// ============================================================================
 export const subscribeToSwaps = (callback: (reqs: any[]) => void) => {
     if (!db) return () => {};
-    // FIX: Changed from listening to a single doc to the entire collection for proper querying.
     return onSnapshot(collection(db, 'swapRequests'), (snapshot: any) => {
         const requests = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
         callback(requests);
@@ -341,18 +388,11 @@ export const subscribeToSwaps = (callback: (reqs: any[]) => void) => {
 
 export const saveSwapRequest = async (req: any) => {
     if (!db) return;
-    // FIX: Changed to use addDoc for creating a new document in the collection.
     await addDoc(collection(db, 'swapRequests'), req);
 };
 
 export const updateSwapRequests = async (requests: any[]) => {
     if (!db) return;
-    // This function is now more granular. We update one doc at a time.
-    // Assuming the calling context will handle the logic of which doc to update.
-    // A better function would be:
-    // export const updateSwapRequest = async (reqId, newData) => { ... }
-    // For now, let's assume we get the full list and find the changed one.
-    // This is inefficient but fits the old pattern.
     for (const req of requests) {
         if (req.id) {
             const docRef = doc(db, 'swapRequests', req.id);
@@ -362,7 +402,9 @@ export const updateSwapRequests = async (requests: any[]) => {
 };
 
 
-// --- SALES ---
+// ============================================================================
+// 8. SALES (原有)
+// ============================================================================
 export const subscribeToSales = (callback: (sales: any[]) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'data', 'sales'), (doc: any) => {
@@ -376,26 +418,10 @@ export const saveSalesRecord = async (record: any) => {
         .catch(() => setDoc(doc(db, 'data', 'sales'), { records: [record] }));
 };
 
-// --- INVENTORY HISTORY ---
-export const subscribeToInventoryHistory = (callback: (reports: any[]) => void) => {
-    if (!db) return () => {};
-    return onSnapshot(doc(db, 'data', 'inventory_history'), (doc: any) => {
-        if (doc.exists()) callback(doc.data().reports || []);
-    });
-};
 
-export const saveInventoryReport = async (report: any) => {
-    if (!db) return;
-    await updateDoc(doc(db, 'data', 'inventory_history'), { reports: arrayUnion(report) })
-         .catch(() => setDoc(doc(db, 'data', 'inventory_history'), { reports: [report] }));
-};
-
-export const updateInventoryHistory = async (reports: any[]) => {
-    if (!db) return;
-    await setDoc(doc(db, 'data', 'inventory_history'), { reports });
-};
-
-// --- CONTENT (SOP/Training/Recipes) ---
+// ============================================================================
+// 9. CONTENT (SOP/Training/Recipes) (原有)
+// ============================================================================
 export const subscribeToContent = (callback: (data: any) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'config', 'content'), (doc: any) => {
@@ -408,7 +434,9 @@ export const saveContent = async (key: 'sops'|'training'|'recipes', list: any[])
     await setDoc(doc(db, 'config', 'content'), { [key]: list }, { merge: true });
 };
 
-// --- INVENTORY LOGS ---
+// ============================================================================
+// 10. INVENTORY LOGS (Refill Logs) (原有)
+// ============================================================================
 export const subscribeToInventoryLogs = (callback: (logs: any[]) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'data', 'inventory_logs'), (doc: any) => {
@@ -423,7 +451,9 @@ export const saveInventoryLogs = async (logs: any[]) => {
     }, { merge: true });
 };
 
-// --- STAFF AVAILABILITY (NEW) ---
+// ============================================================================
+// 11. STAFF AVAILABILITY (原有)
+// ============================================================================
 export const getStaffAvailability = async (userId: string, weekStart: string) => {
     if (!db) return null;
     const docRef = doc(db, 'staff_availability', `${userId}_${weekStart}`);
@@ -454,7 +484,9 @@ export const subscribeToAvailabilitiesForWeek = (weekStart: string, callback: (d
     });
 };
 
-// --- SCHEDULE CONFIRMATION (NEW) ---
+// ============================================================================
+// 12. SCHEDULE CONFIRMATION & CYCLES (原有)
+// ============================================================================
 export const getScheduleConfirmation = async (employeeId: string, rangeStart: string, rangeEnd: string) => {
     if (!db) return null;
     try {
@@ -467,7 +499,6 @@ export const getScheduleConfirmation = async (employeeId: string, rangeStart: st
         );
         const querySnapshot = await getDocs(q);
         if (!querySnapshot.empty) {
-            // FIX: Cast data() to any or DocumentData to avoid spread type error.
             const data = querySnapshot.docs[0].data() as any;
             return { id: querySnapshot.docs[0].id, ...data };
         }
@@ -487,7 +518,6 @@ export const subscribeToScheduleConfirmations = (callback: (data: any[]) => void
     });
 };
 
-// FIX: Add missing saveRecipeConfirmation function to resolve error in App.tsx
 export const saveRecipeConfirmation = async (employeeId: string, details: string) => {
     if (!db) return { success: false, error: 'DB not connected' };
     try {
@@ -544,7 +574,6 @@ export const saveScheduleConfirmation = async (employeeId: string, rangeStart: s
     }
 };
 
-// --- SCHEDULE CYCLES (NEW) ---
 export const subscribeToScheduleCycles = (callback: (data: ScheduleCycle[]) => void) => {
     if (!db) return () => {};
     return onSnapshot(doc(db, 'data', 'schedule_cycles'), (doc: any) => {
@@ -562,19 +591,63 @@ export const updateScheduleCycles = async (cycles: ScheduleCycle[]) => {
     await setDoc(docRef, { cycles });
 };
 
-
-// --- SMART INVENTORY (NEW) ---
-export const subscribeToSmartInventoryReports = (callback: (data: SmartInventoryReport[]) => void) => {
-    if (!db) return () => {};
-    // Listen to the smart_inventory_reports collection
-    return onSnapshot(collection(db, 'smart_inventory_reports'), (snapshot: any) => {
-        const reports = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
-        callback(reports);
-    });
-};
-
-export const saveSmartInventoryReport = async (report: SmartInventoryReport) => {
-    if (!db) return;
-    const docRef = doc(db, 'smart_inventory_reports', report.id);
-    await setDoc(docRef, report);
+// ============================================================================
+// 13. CLOUD OBJECT EXPORT (关键：让 App.tsx 能调用 Cloud.xxx)
+// ============================================================================
+export const Cloud = {
+    seedInitialData,
+    
+    // Users
+    subscribeToUsers, 
+    saveUser,
+    
+    // Inventory
+    subscribeToInventory, 
+    saveInventoryList, 
+    subscribeToSmartInventory, 
+    saveSmartInventory,
+    subscribeToInventoryHistory, 
+    updateInventoryHistory,
+    subscribeToSmartInventoryReports, 
+    saveSmartInventoryReport,
+    
+    // Logs
+    subscribeToLogs, 
+    saveLog, 
+    updateLogs,
+    
+    // Chat & Notices
+    subscribeToChat, 
+    saveMessage, 
+    updateNotices,
+    subscribeToChatReadState,
+    saveChatReadState,
+    
+    // Schedule
+    subscribeToSchedule, 
+    saveSchedule,
+    subscribeToSwaps, 
+    saveSwapRequest, 
+    updateSwapRequests,
+    ensureScheduleCoverage,
+    
+    // Sales
+    subscribeToSales, 
+    saveSalesRecord,
+    
+    // Content
+    subscribeToContent, 
+    saveContent,
+    
+    // Misc
+    subscribeToScheduleCycles, 
+    updateScheduleCycles,
+    subscribeToScheduleConfirmations,
+    getScheduleConfirmation,
+    saveScheduleConfirmation,
+    saveRecipeConfirmation,
+    
+    // Inventory Logs (Refill)
+    subscribeToInventoryLogs,
+    saveInventoryLogs
 };

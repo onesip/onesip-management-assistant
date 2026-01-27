@@ -1968,12 +1968,11 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         document.body.removeChild(link);
     };
 
-    // --- Owner: 智能 CSV 导入 (自动识别 UTF-8 / GBK) ---
+    // --- Owner: 智能 CSV 导入 (修复版：增强乱码检测) ---
     const handleFileUpload = async (e: any) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        // 辅助读取函数
         const readFile = (f: File, encoding: string): Promise<string> => {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -1987,10 +1986,10 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             // 1. 先尝试 UTF-8 读取
             let csvText = await readFile(file, 'UTF-8');
 
-            // 2. 智能检测乱码：如果找不到英文表头关键字段 "Name" 或 "Category"，说明可能是 GBK
-            // Excel 在中文系统下保存 CSV 默认为 GBK 编码
-            if (!csvText.includes("Name(ZH)") && !csvText.includes("Category")) {
-                console.log("Detecting garbled text, retrying with GBK encoding...");
+            // 2. 【关键修改】智能检测乱码
+            // 如果内容里包含  (替换字符，表示解码失败)，或者找不到表头，就认为是 GBK
+            if (csvText.includes('\uFFFD') || (!csvText.includes("Name(ZH)") && !csvText.includes("Category"))) {
+                console.log("乱码 detected (Found ), switching to GBK...");
                 csvText = await readFile(file, 'GBK');
             }
 
@@ -2005,23 +2004,19 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             lines.slice(1).forEach((line, idx) => {
                 if (!line.trim()) return;
                 
-                // 3. 智能分隔符：兼容逗号(,) 和 分号(;)
+                // 3. 兼容逗号和分号
                 let cols = line.split(',');
-                if (cols.length < 2) cols = line.split(';'); // 尝试分号
+                if (cols.length < 2) cols = line.split(';'); 
 
-                // 清理引号
                 cols = cols.map(c => c.trim().replace(/^"|"$/g, ''));
 
-                // 检查有效性
-                if (cols.length < 4) {
-                    console.warn(`Skipping invalid line ${idx + 2}: ${line}`);
-                    return;
-                }
+                if (cols.length < 4) return;
 
                 const [zh, en, unit, cat, mt_am, mt_pm, f_am, f_pm, s_am, s_pm, su_am, su_pm] = cols;
-                if (!zh) return;
+                
+                // 必须有中文名才处理
+                if (!zh || zh.includes('Name(ZH)')) return; 
 
-                // 查找是否存在
                 let itemIndex = newItems.findIndex(i => i.name.zh === zh);
                 
                 const targets = {
@@ -2032,7 +2027,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                 };
 
                 if (itemIndex >= 0) {
-                    // 更新现有
                     newItems[itemIndex] = { 
                         ...newItems[itemIndex], 
                         dailyTargets: targets, 
@@ -2041,7 +2035,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                     };
                     updatedCount++;
                 } else {
-                    // 创建新项
                     newItems.push({
                         id: `p_imp_${Date.now()}_${Math.floor(Math.random()*1000)}`,
                         name: { zh: zh, en: en || zh },
@@ -2056,16 +2049,17 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             });
 
             if (updatedCount === 0 && createdCount === 0) {
-                alert("No valid data found. Please check CSV format.");
+                alert("No valid data found. If using Excel, try saving as 'CSV UTF-8'.");
             } else {
                 setLocalList(newItems);
+                // 立即保存到云端
                 Cloud.saveInventoryList(newItems);
                 setInventoryList(newItems);
                 alert(`✅ Import Success!\nUpdated: ${updatedCount}\nCreated: ${createdCount}`);
             }
         } catch (err) {
             console.error(err);
-            alert("Error reading file. Please try again.");
+            alert("Error reading file.");
         } finally {
             if (fileInputRef.current) fileInputRef.current.value = '';
         }
@@ -2428,20 +2422,40 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
 
     return (
         <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
-            {/* Header */}
+            {/* Header (请替换这一整块 div) */}
             <div className="p-4 bg-dark-surface border-b border-white/10 sticky top-0 z-10 shadow-md">
                 <div className="flex justify-between items-center mb-3">
                     <h2 className="text-xl font-black text-white flex items-center gap-2">
                         <Icon name="Package" className="text-purple-400" /> Smart Warehouse
                     </h2>
-                    <button 
-                        onClick={handleSubmitWeekly}
-                        className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg transition-all animate-pulse-slow"
-                    >
-                        <Icon name="Save" size={16} /> Submit Weekly Count
-                    </button>
+                    
+                    <div className="flex gap-2">
+                        {/* 【新增】强制同步按钮 (Sync Code) */}
+                        <button 
+                            onClick={async () => {
+                                // 这里的 100+ 个物品会一次性写入数据库，非常快且安全
+                                if (confirm(`⚠️ Force Sync?\nThis will OVERWRITE current warehouse data with ${SMART_INVENTORY_MASTER_DATA.length} items from code.`)) {
+                                    await Cloud.saveSmartInventory(SMART_INVENTORY_MASTER_DATA);
+                                    setSmartInventory(SMART_INVENTORY_MASTER_DATA);
+                                    alert("✅ Data Synced with Code!");
+                                }
+                            }}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"
+                            title="Force reload from constants.ts"
+                        >
+                            <Icon name="RefreshCw" size={14} /> Sync Code
+                        </button>
+
+                        {/* 原有的提交周报按钮 */}
+                        <button 
+                            onClick={handleSubmitWeekly}
+                            className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg transition-all animate-pulse-slow"
+                        >
+                            <Icon name="Save" size={16} /> Submit Weekly Count
+                        </button>
+                    </div>
                 </div>
-                
+                             
                 {/* Filters */}
                 <div className="flex gap-2 overflow-x-auto no-scrollbar">
                     {['All', "I'tea", 'Joybuy', 'Open Mkt'].map(s => (
