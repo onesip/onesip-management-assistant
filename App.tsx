@@ -2874,133 +2874,95 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
     );
 };
 
-
+// ============================================================================
+// 组件 5: 经理后台 (Manager Dashboard) - [财务月度筛选修复版]
+// ============================================================================
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { showNotification } = useNotification();
     const managerUser = data.users.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users, scheduleCycles, setScheduleCycles } = data;
+    
+    // --- 状态定义 ---
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability' | 'confirmations'>('requests');
-    const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' } | null>(null);
-    // ...
+    const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' | 'all' } | null>(null);
+    
+    // 财务相关状态
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
+    const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7)); // 导出用的月份
+    
+    // 【新增】Financial View 专用的月份筛选器 (默认当前月)
+    const [financialMonth, setFinancialMonth] = useState(new Date().toISOString().slice(0, 7)); 
 
-    // 【修复 1】工资状态初始化：根据 PDF 精确预设
+    // Logs 状态
+    const [isAddingManualLog, setIsAddingManualLog] = useState(false);
+    const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
+    const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
+    
+    // 排班翻页
+    const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+
+    // --- 1. 工资状态初始化 ---
     const [wages, setWages] = useState<Record<string, { type: 'hourly'|'fixed', value: number }>>(() => {
         const saved = localStorage.getItem('onesip_wages_v2');
         if (saved) return JSON.parse(saved);
         
-        // 如果没有保存过，使用 PDF 里的默认值
         const PRESETS: Record<string, { type: 'hourly'|'fixed', value: number }> = {
-            // 时薪员工 (Hourly) - 按照 inclu. salary
-            "Linda": { type: 'hourly', value: 13.18 },
-            "Linda No.10": { type: 'hourly', value: 13.18 },
-            "Najat": { type: 'hourly', value: 9.67 },
-            "Najat no.11": { type: 'hourly', value: 9.67 },
-            "Xinrui": { type: 'hourly', value: 6.15 },
-            "Xinrui no.8": { type: 'hourly', value: 6.15 },
-            "X. Li": { type: 'hourly', value: 9.67 }, // Maidou
-            "X. Li no.6": { type: 'hourly', value: 9.67 },
-            "Fatima": { type: 'hourly', value: 17.58 },
-            "Fatima 015": { type: 'hourly', value: 17.58 },
-            
-            // 固定薪资员工 (Fixed) - 不随排班变动
+            "Linda": { type: 'hourly', value: 13.18 }, "Linda No.10": { type: 'hourly', value: 13.18 },
+            "Najat": { type: 'hourly', value: 9.67 }, "Najat no.11": { type: 'hourly', value: 9.67 },
+            "Xinrui": { type: 'hourly', value: 6.15 }, "Xinrui no.8": { type: 'hourly', value: 6.15 },
+            "X. Li": { type: 'hourly', value: 9.67 }, "X. Li no.6": { type: 'hourly', value: 9.67 },
+            "Fatima": { type: 'hourly', value: 17.58 }, "Fatima 015": { type: 'hourly', value: 17.58 },
             "Lambert": { type: 'fixed', value: 647.56 }, 
             "Yang": { type: 'fixed', value: 1100.46 }, 
         };
 
         const def: any = {};
         users.forEach((m: User) => {
-            // 尝试匹配预设
-            let setting = { type: 'hourly', value: 12 }; // 默认兜底
-            
-            // 1. 精确匹配
-            if (PRESETS[m.name]) {
-                setting = PRESETS[m.name];
-            } else {
-                // 2. 模糊匹配 (例如 "Lambert" 匹配 "Lambert")
+            let setting = { type: 'hourly', value: 12 };
+            if (PRESETS[m.name]) setting = PRESETS[m.name];
+            else {
                 const foundKey = Object.keys(PRESETS).find(k => m.name.includes(k));
                 if (foundKey) setting = PRESETS[foundKey];
             }
-            // 强制类型转换 (TS)
             def[m.name] = { type: setting.type as 'hourly'|'fixed', value: setting.value };
         });
         return def;
     });
-    
-    // ...
-    // 辅助：保存工资设置
+
     const saveWages = (newWages: any) => {
         setWages(newWages);
         localStorage.setItem('onesip_wages_v2', JSON.stringify(newWages));
     };
 
-    // 辅助：获取某个人的“周成本” (用于计算)
-    // 如果是月薪，自动换算成周：(月薪 * 12) / 52
-    const getWageRateForCalc = (name: string) => {
-        const setting = wages[name] || { type: 'hourly', value: 12 };
-        if (setting.type === 'fixed') {
-            return (setting.value * 12) / 52; // 把月薪摊薄到每周
-        }
-        return setting.value; // 时薪
-    };
-    const [isAddingManualLog, setIsAddingManualLog] = useState(false);
-    const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
-    const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
-    
-    // Default the current week index to the current week of the month to avoid scrolling
-    const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
-    
-    // 【新增】导出月份选择，默认当前月 (格式: YYYY-MM)
-    const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7));
-
-    // 【新增】名字清洗/标准化函数
     const normalizeName = (name: string) => {
         if (!name) return "Unknown";
         const clean = name.trim();
-        
         const mapping: Record<string, string> = {
-            "Linda": "Linda No.10",
-            "Linda No.10": "Linda No.10",
-            "Najat": "Najat no.11",
-            "Najata": "Najat no.11",
-            "Najat no.11": "Najat no.11",
-            "Xinrui": "Xinrui no.8",
-            "Xinrui no.8": "Xinrui no.8",
-            "Tingshan": "T. Meng",
-            "T.Meng": "T. Meng",
-            "T. Meng": "T. Meng",
-            "C.Y. Huang": "Zhiyi",
-            "Zhiyi": "Zhiyi",
-            "Y. Huang": "Kloe",
-            "Kloe": "Kloe",
-            "Fatima": "Fatima 015",
-            "Allysha": "Allysha 016",
+            "Linda": "Linda No.10", "Linda No.10": "Linda No.10",
+            "Najat": "Najat no.11", "Najata": "Najat no.11", "Najat no.11": "Najat no.11",
+            "Xinrui": "Xinrui no.8", "Xinrui no.8": "Xinrui no.8",
+            "Tingshan": "T. Meng", "T.Meng": "T. Meng", "T. Meng": "T. Meng",
+            "C.Y. Huang": "Zhiyi", "Zhiyi": "Zhiyi",
+            "Y. Huang": "Kloe", "Kloe": "Kloe",
+            "Fatima": "Fatima 015", "Allysha": "Allysha 016",
         };
-
         if (mapping[clean]) return mapping[clean];
-        // 模糊匹配 (防止大小写或空格差异，只针对特定名字)
         if (clean.includes("Linda")) return "Linda No.10";
         if (clean.includes("Najat")) return "Najat no.11";
         if (clean.includes("Xinrui")) return "Xinrui no.8";
         if (clean.includes("Tingshan")) return "T. Meng";
-        
         return clean; 
     };
-  
-    // Auto-extend schedule logic (Updated with name cleaning)
+
+    // --- 3. 自动排班修正与扩展 ---
     useEffect(() => {
-        const initSchedule = async () => {
-             await Cloud.ensureScheduleCoverage();
-        };
+        const initSchedule = async () => { await Cloud.ensureScheduleCoverage(); };
         initSchedule();
 
-        // 【自动清洗排班表中的旧名字】
         if (schedule?.days?.length > 0) {
             let needsUpdate = false;
             const newDays = schedule.days.map((day: ScheduleDay) => {
                 let dayUpdated = false;
-                
-                // 清洗 shifts 里的名字
                 const newShifts = (day.shifts || []).map((shift: any) => {
                     const newStaff = shift.staff.map((name: string) => {
                         const fixed = normalizeName(name);
@@ -3009,28 +2971,18 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     });
                     return { ...shift, staff: newStaff };
                 });
-
-                // 兼容旧字段 (morning/evening/night)
                 const cleanLegacy = (list: string[] = []) => list.map(n => {
                     const fixed = normalizeName(n);
                     if (fixed !== n) { dayUpdated = true; needsUpdate = true; }
                     return fixed;
                 });
-
                 if (dayUpdated) {
-                    return { 
-                        ...day, 
-                        shifts: newShifts,
-                        morning: cleanLegacy(day.morning),
-                        evening: cleanLegacy(day.evening),
-                        night: cleanLegacy(day.night)
-                    };
+                    return { ...day, shifts: newShifts, morning: cleanLegacy(day.morning), evening: cleanLegacy(day.evening), night: cleanLegacy(day.night) };
                 }
                 return day;
             });
-
             if (needsUpdate) {
-                console.log("Performing schedule name normalization...");
+                console.log("Normalizing names...");
                 const newSchedule = { ...schedule, days: newDays };
                 setSchedule(newSchedule);
                 Cloud.saveSchedule(newSchedule);
@@ -3038,39 +2990,18 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         }
     }, [schedule, setSchedule]);
 
-    // Auto-extend schedule logic
-    useEffect(() => {
-        const initSchedule = async () => {
-             await Cloud.ensureScheduleCoverage();
-        };
-        initSchedule();
-    }, []);
-
-    // Filter displayed days to the relevant 2-month window
+    // --- 4. 辅助函数 ---
     const now = new Date();
     const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
 
-    // FIX: Filter schedule.days to show valid range only, avoiding old data pollution
     const displayedDays = (schedule?.days || []).filter((day: ScheduleDay) => {
-        // Parse "M-D" date format from DB using current year context
-        // This is a heuristic: if current month is Dec, and data is Jan, it's next year.
         const [m, d] = day.date.split('-').map(Number);
         const dayDate = new Date(now.getFullYear(), m - 1, d);
-        
-        // Handle year boundary (e.g. Current Month Dec, Next Month Jan)
-        if (now.getMonth() === 11 && m === 1) {
-            dayDate.setFullYear(now.getFullYear() + 1);
-        }
-        
-        // Handle year boundary reverse check (unlikely but safe)
-        if (now.getMonth() === 0 && m === 12) {
-             dayDate.setFullYear(now.getFullYear() - 1);
-        }
-
+        if (now.getMonth() === 11 && m === 1) dayDate.setFullYear(now.getFullYear() + 1);
+        if (now.getMonth() === 0 && m === 12) dayDate.setFullYear(now.getFullYear() - 1);
         return dayDate >= startOfCurrentMonth && dayDate <= endOfNextMonth;
     }).sort((a: ScheduleDay, b: ScheduleDay) => {
-        // Sort explicitly by calculated timestamp
         const getDateObj = (dateStr: string) => {
              const [m, d] = dateStr.split('-').map(Number);
              const date = new Date(now.getFullYear(), m - 1, d);
@@ -3083,42 +3014,30 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const totalWeeks = Math.ceil(displayedDays.length / 7);
     const activeStaff = users.filter((u: User) => u.active !== false);
 
-     const handleUpdateLogs = async (updatedLogs: LogEntry[]) => {
-        try {
-            await Cloud.updateLogs(updatedLogs);
-        } catch (error) {
-            console.error("Failed to update logs:", error);
-            alert("Error: Could not save log changes.");
-        }
+    // --- 5. 日志功能 ---
+    const handleUpdateLogs = async (updatedLogs: LogEntry[]) => {
+        try { await Cloud.updateLogs(updatedLogs); } catch (e) { console.error(e); alert("Error saving logs."); }
     };
-    
     const handleInvalidateConfirm = (logToUpdate: LogEntry) => {
         const updatedLogs = logs.map((l: LogEntry) => l.id === logToUpdate.id ? logToUpdate : l);
         handleUpdateLogs(updatedLogs);
         setLogToInvalidate(null);
     };
-
     const handleOpenAdjustModal = (logToAdjust: LogEntry) => {
         if (logToAdjust.type !== 'clock-in' && logToAdjust.type !== 'clock-out') return;
-
-        const userLogs = logs
-            .filter((l: LogEntry) => l.userId === logToAdjust.userId && (l.type === 'clock-in' || l.type === 'clock-out'))
-            .sort((a: LogEntry, b: LogEntry) => new Date(a.time).getTime() - new Date(b.time).getTime());
-
+        const userLogs = logs.filter((l: LogEntry) => l.userId === logToAdjust.userId && !l.isDeleted).sort((a: LogEntry, b: LogEntry) => new Date(a.time).getTime() - new Date(b.time).getTime());
         const index = userLogs.findIndex((l: LogEntry) => l.id === logToAdjust.id);
         if (index === -1) return;
-
         if (logToAdjust.type === 'clock-in') {
             const outLog = userLogs.find((l: LogEntry, i: number) => i > index && l.type === 'clock-out');
             if (outLog) setLogPairToAdjust({ inLog: logToAdjust, outLog });
-            else alert('Could not find a corresponding clock-out for this entry.');
-        } else { // clock-out
+            else alert('No matching clock-out found.');
+        } else { 
             const inLog = userLogs.slice(0, index).reverse().find((l: LogEntry) => l.type === 'clock-in');
             if (inLog) setLogPairToAdjust({ inLog, outLog: logToAdjust });
-            else alert('Could not find a corresponding clock-in for this entry.');
+            else alert('No matching clock-in found.');
         }
     };
-
     const handleSaveAdjustedHours = (updatedInLog: LogEntry, updatedOutLog: LogEntry) => {
         const updatedLogs = logs.map((l: LogEntry) => {
             if (l.id === updatedInLog.id) return updatedInLog;
@@ -3128,104 +3047,89 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         handleUpdateLogs(updatedLogs);
         setLogPairToAdjust(null);
     };
-
     const handleSaveManualLog = (inLog: LogEntry, outLog: LogEntry) => {
-        Cloud.saveLog(inLog);
-        Cloud.saveLog(outLog);
-        setIsAddingManualLog(false);
-        alert('Manual attendance record added.');
+        Cloud.saveLog(inLog); Cloud.saveLog(outLog);
+        setIsAddingManualLog(false); alert('Manual record added.');
     };
-
-    useEffect(() => {
-        if (schedule?.days?.length > 0) {
-            let needsUpdate = false;
-            const newDays = schedule.days.map((day: ScheduleDay) => {
-                const newMorning = day.morning.map(name => { if (name === 'Najata') { needsUpdate = true; return 'Najat'; } return name; });
-                const newEvening = day.evening.map(name => { if (name === 'Najata') { needsUpdate = true; return 'Najat'; } return name; });
-                const newNight = day.night?.map(name => { if (name === 'Najata') { needsUpdate = true; return 'Najat'; } return name; });
-                return { ...day, morning: newMorning, evening: newEvening, night: newNight };
-            });
-
-            if (needsUpdate) {
-                console.log("Performing one-time schedule name correction for 'Najata' -> 'Najat'");
-                const newSchedule = { ...schedule, days: newDays };
-                setSchedule(newSchedule);
-                Cloud.saveSchedule(newSchedule);
-            }
-        }
-    }, [schedule, setSchedule]);
-
-    const handleWageChange = (name: string, val: string) => { const num = parseFloat(val); const newWages = { ...wages, [name]: isNaN(num) ? 0 : num }; setWages(newWages); localStorage.setItem('onesip_wages', JSON.stringify(newWages)); };
     const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem('onesip_budget_max', b.toString()); };
 
-// --- 1. 辅助函数：计算单次班次成本 ---
+    // --- 6. 财务计算逻辑 (支持月度筛选) ---
     const getShiftCost = (staff: string[], start: string, end: string) => {
-        if (!staff || staff.length === 0) return 0;
-        if (typeof start !== 'string' || typeof end !== 'string' || !start.includes(':') || !end.includes(':')) return 0;
-        const s = parseInt(start.split(':')[0], 10) + (parseInt(start.split(':')[1] || '0', 10) / 60);
-        const e = parseInt(end.split(':')[0], 10) + (parseInt(end.split(':')[1] || '0', 10) / 60);
+        if (!staff || staff.length === 0 || !start || !end) return 0;
+        const s = parseInt(start.split(':')[0]) + (parseInt(start.split(':')[1]||'0')/60);
+        const e = parseInt(end.split(':')[0]) + (parseInt(end.split(':')[1]||'0')/60);
         const duration = Math.max(0, e - s);
-        // 使用当前工资状态计算
-        return staff.reduce((acc, name) => acc + (duration * (wages[name] || 12)), 0);
+        return staff.reduce((acc, name) => acc + (duration * (wages[normalizeName(name)]?.value || 12)), 0);
     };
 
-// --- 2. 核心：计算全局财务概览 (支持固定薪资/时薪) ---
-    const calculateFinancials = () => {
+    // 核心计算函数：根据 selectedMonth 筛选
+    const calculateFinancials = (selectedMonth: string) => {
         const stats: Record<string, any> = {};
-
         const getStats = (rawName: string) => {
             const name = normalizeName(rawName);
-            if (!stats[name]) {
-                stats[name] = { estHours: 0, estCost: 0, actualHours: 0, actualCost: 0, wageType: 'hourly' };
-            }
+            if (!stats[name]) stats[name] = { estHours: 0, estCost: 0, actualHours: 0, actualCost: 0, wageType: 'hourly' };
             return stats[name];
         };
 
-        // 1. 初始化
+        // Init stats
         activeStaff.forEach((m: User) => {
             const s = getStats(m.name);
-            const setting = wages[m.name] || { type: 'hourly', value: 12 };
-            s.wageType = setting.type;
+            s.wageType = wages[m.name]?.type || 'hourly';
         });
         
-        // 2. 预计工时 (排班) - 只对 hourly 累加时长
-        if (displayedDays) { 
-            displayedDays.forEach((day: ScheduleDay) => { 
-                const shifts = day.shifts || [];
-                if (shifts.length > 0) {
-                    shifts.forEach((s: any) => {
-                        let hours = 5; 
-                        if (s.start && s.end) {
-                            const startH = parseInt(s.start.split(':')[0]) + (parseInt(s.start.split(':')[1]||'0')/60);
-                            const endH = parseInt(s.end.split(':')[0]) + (parseInt(s.end.split(':')[1]||'0')/60);
-                            hours = Math.max(0, endH - startH);
-                        }
-                        if (Array.isArray(s.staff)) s.staff.forEach((p: string) => getStats(p).estHours += hours);
-                    });
-                } else {
-                    // Fallback
-                    (day.morning || []).forEach(p => getStats(p).estHours += 5);
-                    (day.evening || []).forEach(p => getStats(p).estHours += 5);
-                    (day.night || []).forEach(p => getStats(p).estHours += 5);
-                }
-            }); 
-        }
+        // 1. 预计成本 (排班 - 按月过滤)
+        // 筛选出属于 selectedMonth 的排班日
+        const filteredDays = (schedule?.days || []).filter((day: ScheduleDay) => {
+            const [m, d] = day.date.split('-').map(Number);
+            // 假设排班数据的年份，需要结合当前年份判断
+            const nowY = new Date().getFullYear();
+            let y = nowY;
+            // 跨年判断：如果选的是 2026-01，排班是 1-xx，那就是 2026。如果选的是 2025-12，排班是 12-xx，那就是 2025
+            if (parseInt(selectedMonth.split('-')[1]) === 1 && m === 12) y--; 
+            else if (parseInt(selectedMonth.split('-')[1]) === 12 && m === 1) y++;
+            
+            // 简单匹配：只看月份是否一致 (忽略年份边界情况，假设数据跨度不大)
+            // 更严谨：构造 YYYY-MM
+            const dayY = (new Date().getMonth()===11 && m===1) ? nowY+1 : nowY; // 简单推断年份
+            const dayMonthStr = `${dayY}-${String(m).padStart(2,'0')}`;
+            return dayMonthStr === selectedMonth;
+        });
+
+        filteredDays.forEach((day: ScheduleDay) => { 
+            const shifts = day.shifts || [];
+            if (shifts.length > 0) {
+                shifts.forEach((s: any) => {
+                    let hours = 5; 
+                    if (s.start && s.end) {
+                        const startH = parseInt(s.start.split(':')[0]) + (parseInt(s.start.split(':')[1]||'0')/60);
+                        const endH = parseInt(s.end.split(':')[0]) + (parseInt(s.end.split(':')[1]||'0')/60);
+                        hours = Math.max(0, endH - startH);
+                    }
+                    if (Array.isArray(s.staff)) s.staff.forEach((p: string) => getStats(p).estHours += hours);
+                });
+            } else {
+                (day.morning || []).forEach(p => getStats(p).estHours += 5);
+                (day.evening || []).forEach(p => getStats(p).estHours += 5);
+                (day.night || []).forEach(p => getStats(p).estHours += 5);
+            }
+        }); 
         
-        // 3. 实际工时 (Logs)
+        // 2. 实际成本 (日志 - 按月过滤)
         const logsByUser: Record<string, LogEntry[]> = {};
-        if (logs) { 
-            logs.forEach((l: LogEntry) => { 
-                if (l.isDeleted) return; 
-                if (!safeParseDate(l.time)) return;
-                let rawName = l.name || 'Unknown';
-                if (l.userId) { const u = users.find(user => user.id === l.userId); if (u) rawName = u.name; }
-                const finalName = normalizeName(rawName);
-                if (!logsByUser[finalName]) logsByUser[finalName] = []; 
-                logsByUser[finalName].push(l); 
-            }); 
-        }
+        logs.forEach((l: LogEntry) => { 
+            if (l.isDeleted || !safeParseDate(l.time)) return;
+            // 月份过滤
+            const d = new Date(l.time);
+            const logMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+            if (logMonth !== selectedMonth) return;
+
+            let rawName = l.name || 'Unknown';
+            if (l.userId) { const u = users.find(user => user.id === l.userId); if (u) rawName = u.name; }
+            const finalName = normalizeName(rawName);
+            if (!logsByUser[finalName]) logsByUser[finalName] = []; 
+            logsByUser[finalName].push(l); 
+        }); 
         
-        // 4. 配对计算实际时长
         Object.entries(logsByUser).forEach(([userName, userLogs]) => { 
             const s = getStats(userName);
             const sorted = userLogs.sort((a, b) => (safeParseDate(a.time)?.getTime() || 0) - (safeParseDate(b.time)?.getTime() || 0)); 
@@ -3234,447 +3138,238 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             sorted.forEach((outLog) => {
                 if (outLog.type === 'clock-out') {
                     const outTime = safeParseDate(outLog.time)?.getTime() || 0;
-                    const outDateStr = new Date(outTime).toDateString();
-                    const matchingIn = sorted.filter(l => l.type === 'clock-in' && !processedInIds.has(l.id) && safeParseDate(l.time)?.toDateString() === outDateStr && (safeParseDate(l.time)?.getTime()||0) < outTime)
+                    const matchingIn = sorted.filter(l => l.type === 'clock-in' && !processedInIds.has(l.id) && (safeParseDate(l.time)?.getTime()||0) < outTime)
                         .sort((a, b) => (safeParseDate(b.time)?.getTime()||0) - (safeParseDate(a.time)?.getTime()||0))[0]; 
                     if (matchingIn) {
                         const duration = (outTime - (safeParseDate(matchingIn.time)?.getTime()||0)) / (1000 * 60 * 60);
-                        if (duration > 0) {
-                            s.actualHours += duration;
-                            processedInIds.add(matchingIn.id);
-                        }
+                        if (duration > 0) { s.actualHours += duration; processedInIds.add(matchingIn.id); }
                     }
                 }
             });
         });
 
-            // ... (前面代码不变)
-
-        // 5. 汇总金额 (区分 Fixed 和 Hourly)
-        let totalEstCost = 0; 
-        let totalActualCost = 0;
-        
+        // 3. 汇总
+        let totalEstCost = 0; let totalActualCost = 0;
         Object.keys(stats).forEach(name => { 
             const s = stats[name];
-            // 【关键修复】获取工资设置
             const setting = wages[name] || { type: 'hourly', value: 12 };
             
             if (setting.type === 'fixed') {
-                // 月薪制：按周平摊成本 (月薪 * 12 / 52)
-                const weeklyFixedCost = (setting.value * 12) / 52;
-                s.estCost = weeklyFixedCost;
-                s.actualCost = weeklyFixedCost; // 视为已付，无差异
+                // 固定月薪：直接就是这个月的成本
+                s.estCost = setting.value; 
+                s.actualCost = setting.value; 
             } else {
-                // 时薪制：工时 * 时薪
-                s.estCost = s.estHours * setting.value;
+                s.estCost = s.estHours * setting.value; 
                 s.actualCost = s.actualHours * setting.value;
             }
-            
-            totalEstCost += s.estCost; 
-            totalActualCost += s.actualCost; 
+            totalEstCost += s.estCost; totalActualCost += s.actualCost; 
         });
 
-        return { stats, totalEstCost, totalActualCost };
+        // 返回过滤后的天数，用于 daily breakdown
+        return { stats, totalEstCost, totalActualCost, filteredDays };
     };
 
-    // 【👇 必须补上这一行，否则 totalEstCost 就没有定义 👇】
-    const { stats, totalEstCost, totalActualCost } = calculateFinancials();
+    // 使用当前选中的 financialMonth 进行计算
+    const { stats, totalEstCost, totalActualCost, filteredDays: monthlyDays } = calculateFinancials(financialMonth);
 
-
-// --- 3. 新增：每日财务明细 (Daily Breakdown) - 修复 NaN 问题 ---
+    // Daily Breakdown: 只显示选中月份的天
     const getDailyFinancials = () => {
-        return displayedDays.map((day: ScheduleDay) => {
-            // 临时存储：name -> { est, act, setting }
+        return monthlyDays.map((day: ScheduleDay) => {
             const staffMap: Record<string, { est: number, act: number, setting: { type: string, value: number } }> = {};
-
-            // 1. 预计成本 (Estimate)
-            const scheduleShifts = day.shifts || [];
-            if (scheduleShifts.length === 0) {
-                 // 兼容旧数据
-                 (day.morning||[]).forEach(p => addEst(p, 5));
-                 (day.evening||[]).forEach(p => addEst(p, 5));
-                 (day.night||[]).forEach(p => addEst(p, 5));
-            }
-
-            // 辅助：累加预计金额
-            function addEst(rawName: string, hours: number) {
+            const addEst = (rawName: string, hours: number) => {
                 const name = normalizeName(rawName);
                 const setting = wages[name] || { type: 'hourly', value: 12 };
-                
                 if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, setting };
-                
-                // 【核心逻辑】
-                // 如果是时薪：成本 = 工时 * 时薪
-                // 如果是固定月薪：每日变动成本为 0 (因为钱已经付了，不随排班增加)
-                if (setting.type === 'hourly') {
-                    staffMap[name].est += hours * setting.value;
-                }
+                if (setting.type === 'hourly') staffMap[name].est += hours * setting.value;
             }
 
-            scheduleShifts.forEach((shift: any) => {
-                let hours = 5;
-                if (shift.start && shift.end) {
-                    const s = parseInt(shift.start.split(':')[0]) + (parseInt(shift.start.split(':')[1]||'0')/60);
-                    const e = parseInt(shift.end.split(':')[0]) + (parseInt(shift.end.split(':')[1]||'0')/60);
-                    hours = Math.max(0, e - s);
-                }
-                if (Array.isArray(shift.staff)) {
-                    shift.staff.forEach((p: string) => addEst(p, hours));
-                }
-            });
-
-            // 2. 实际成本 (Actual - Logs)
-            const parseScheduleDate = (dStr: string) => {
-                const parts = dStr.split('-');
-                const now = new Date();
-                if(parts.length === 2) return new Date(now.getFullYear(), parseInt(parts[0])-1, parseInt(parts[1]));
-                return new Date(dStr);
-            };
-            const scheduleDateObj = parseScheduleDate(day.date);
-            const targetFingerprint = `${scheduleDateObj.getMonth()}-${scheduleDateObj.getDate()}`;
-
-            const dayLogs = logs.filter(l => {
-                const lDate = safeParseDate(l.time);
-                if (!lDate || l.isDeleted) return false;
-                return `${lDate.getMonth()}-${lDate.getDate()}` === targetFingerprint;
-            });
-
-            const logsByUser: Record<string, LogEntry[]> = {};
-            dayLogs.forEach(l => {
-                let rawName = l.name || 'Unknown';
-                if (l.userId) { const u = users.find(user => user.id === l.userId); if (u) rawName = u.name; }
-                const finalName = normalizeName(rawName);
-                if (!logsByUser[finalName]) logsByUser[finalName] = [];
-                logsByUser[finalName].push(l);
-            });
-
-            Object.entries(logsByUser).forEach(([userName, userLogs]) => {
-                const setting = wages[userName] || { type: 'hourly', value: 12 };
-                if (!staffMap[userName]) staffMap[userName] = { est: 0, act: 0, setting };
-
-                // 【核心逻辑】如果是固定月薪，实际打卡成本也视为 0
-                if (setting.type === 'fixed') return;
-
-                // 计算工时
-                userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
-                const processedInIds = new Set<number>();
-                let userHours = 0;
-
-                userLogs.forEach((outLog) => {
-                    if (outLog.type === 'clock-out') {
-                        const outTime = safeParseDate(outLog.time)?.getTime() || 0;
-                        const matchingIn = userLogs.filter(l => l.type === 'clock-in' && !processedInIds.has(l.id) && (safeParseDate(l.time)?.getTime()||0) < outTime)
-                            .sort((a, b) => (safeParseDate(b.time)?.getTime()||0) - (safeParseDate(a.time)?.getTime()||0))[0];
-
-                        if (matchingIn) {
-                            const diff = (outTime - (safeParseDate(matchingIn.time)?.getTime()||0)) / (1000*60*60);
-                            if (diff > 0) { userHours += diff; processedInIds.add(matchingIn.id); }
-                        }
+            const scheduleShifts = day.shifts || [];
+            if (scheduleShifts.length > 0) {
+                scheduleShifts.forEach((shift: any) => {
+                    let hours = 5;
+                    if (shift.start && shift.end) {
+                        const s = parseInt(shift.start.split(':')[0]) + (parseInt(shift.start.split(':')[1]||'0')/60);
+                        const e = parseInt(shift.end.split(':')[0]) + (parseInt(shift.end.split(':')[1]||'0')/60);
+                        hours = Math.max(0, e - s);
                     }
+                    if (Array.isArray(shift.staff)) shift.staff.forEach((p: string) => addEst(p, hours));
                 });
+            } else {
+                 (day.morning||[]).forEach(p => addEst(p, 5)); (day.evening||[]).forEach(p => addEst(p, 5)); (day.night||[]).forEach(p => addEst(p, 5));
+            }
+
+            // Actual
+            const scheduleDateObj = new Date(parseInt(financialMonth.split('-')[0]), parseInt(financialMonth.split('-')[1])-1, parseInt(day.date.split('-')[1]));
+            const dayLogs = logs.filter(l => !l.isDeleted && safeParseDate(l.time)?.toDateString() === scheduleDateObj.toDateString());
+            
+            dayLogs.forEach(l => {
+                if (l.type !== 'clock-out') return;
+                const name = normalizeName(l.name || 'Unknown');
+                const setting = wages[name] || { type: 'hourly', value: 12 };
+                if (setting.type === 'fixed') return;
                 
-                // 【修复】使用 setting.value 计算实际金额 (之前没加 .value 导致 NaN)
-                staffMap[userName].act += userHours * setting.value;
+                const outTime = safeParseDate(l.time)?.getTime() || 0;
+                const matchingIn = dayLogs.find(i => i.type === 'clock-in' && i.name === l.name && (safeParseDate(i.time)?.getTime()||0) < outTime);
+                
+                if (matchingIn) {
+                    const hrs = (outTime - (safeParseDate(matchingIn.time)?.getTime()||0)) / 3600000;
+                    if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, setting };
+                    staffMap[name].act += hrs * setting.value;
+                }
             });
 
-            // 3. 汇总
             let estTotal = 0; let actTotal = 0;
             const details = Object.entries(staffMap).map(([name, data]) => {
-                estTotal += data.est;
-                actTotal += data.act;
+                estTotal += data.est; actTotal += data.act;
                 return { name, est: data.est, act: data.act, diff: data.act - data.est }; 
             }).sort((a, b) => b.act - a.act); 
 
-            return {
-                date: day.date,
-                name: day.name,
-                est: estTotal,
-                act: actTotal,
-                diff: estTotal - actTotal, 
-                details: details 
-            };
+            return { date: day.date, name: day.name, est: estTotal, act: actTotal, diff: estTotal - actTotal, details };
         });
     };
 
-// --- 4. 导出逻辑：财务汇总报表 (名字清洗版) ---
+    // --- 7. CSV 导出 ---
     const handleExportFinancialCSV = () => {
         let csv = "FINANCIAL SUMMARY REPORT\n";
-        csv += `Report Date,${new Date().toLocaleDateString()}\n`;
+        csv += `Report Month,${financialMonth}\n`;
         csv += `Budget Max,${budgetMax}\n`;
         csv += `Total Estimated Cost (Schedule),${totalEstCost.toFixed(2)}\n`;
         csv += `Total Actual Cost (Logs),${totalActualCost.toFixed(2)}\n`;
         csv += `Balance (Budget - Actual),${(budgetMax - totalActualCost).toFixed(2)}\n\n`;
-
-        csv += "STAFF PAYROLL SUMMARY\n";
-        csv += "Name,Hourly Wage,Est. Hours,Est. Cost,Act. Hours,Act. Cost,Difference (Act - Est)\n";
-        
-        // stats 对象已经在 calculateFinancials 里被 normalizeName 清洗过了，所以这里直接用
+        csv += "Name,Wage Type,Value,Est. Hours,Est. Cost,Act. Hours,Act. Cost,Difference\n";
         Object.keys(stats).forEach(name => {
             const s = stats[name];
-            if (s.estHours > 0 || s.actualHours > 0) {
-                const diffCost = s.actualCost - s.estCost;
-                csv += `"${name}",${wages[name] || 0},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)},${diffCost.toFixed(2)}\n`;
-            }
+            const w = wages[name];
+            if (s.estHours > 0 || s.actualHours > 0) csv += `"${name}",${s.wageType},${w?.value||0},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)},${(s.actualCost - s.estCost).toFixed(2)}\n`;
         });
-
-        const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `financial_summary_${new Date().toISOString().split('T')[0]}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const link = document.createElement("a"); link.href = encodeURI("data:text/csv;charset=utf-8," + csv); link.download = `financial_summary_${financialMonth}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
-// --- 导出优化版打卡记录 (名字清洗版) ---
     const handleExportLogsCSV = () => {
-        let csv = "Date,Staff Name,User ID,Hourly Wage,Clock In,Clock Out,Duration (Hrs),Cost,Status/Note\n";
-        const allRows: { timestamp: number; csvLine: string }[] = [];
-
-        // 1. 数据准备 (清洗名字)
+        let csv = "Date,Staff Name,User ID,Hourly Wage,Clock In,Clock Out,Duration (Hrs),Cost,Status\n";
         const logsByUser: Record<string, LogEntry[]> = {};
         logs.forEach(l => {
             if (l.isDeleted) return; 
-            if (!safeParseDate(l.time)) return;
-
-            // 【核心】：名字清洗
-            let finalName = 'Unknown';
-            let finalId = l.userId || 'unknown';
-            
-            if (l.userId) {
-                const u = users.find(user => user.id === l.userId);
-                if (u) finalName = u.name;
-            }
-            if (finalName === 'Unknown' && l.name) finalName = normalizeName(l.name);
-
-            // 用清洗后的名字作为 Key，合并同一个人
-            // 为了防止 ID 不同但名字相同的人被分开，我们统一用名字分组（或者你自己决定）
-            // 这里为了安全，我们用 Name 分组
+            const finalName = normalizeName(l.name || 'Unknown');
             if (!logsByUser[finalName]) logsByUser[finalName] = [];
             logsByUser[finalName].push(l);
         });
 
-        // 2. 遍历处理
         Object.entries(logsByUser).forEach(([userName, userLogs]) => {
-            // 尝试找 ID 用于显示
-            const sampleLog = userLogs.find(l => l.userId) || userLogs[0];
-            const userId = sampleLog.userId || 'legacy';
-            const wage = wages[userName] || 12;
-
+            const wage = wages[userName]?.value || 12;
             userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
             const processedIds = new Set<number>();
 
-            userLogs.forEach((log, index) => {
+            userLogs.forEach((log, idx) => {
                 if (processedIds.has(log.id)) return;
                 const logTime = safeParseDate(log.time);
                 if (!logTime) return;
-                
-                const y = logTime.getFullYear();
-                const m = String(logTime.getMonth() + 1).padStart(2, '0');
-                if (`${y}-${m}` !== exportMonth) return; // 筛选月份
+                const y = logTime.getFullYear(); const m = String(logTime.getMonth() + 1).padStart(2, '0');
+                if (`${y}-${m}` !== financialMonth) return; // 使用 financialMonth 过滤导出
 
-                const d = String(logTime.getDate()).padStart(2, '0');
-                const dateStr = `${y}-${m}-${d}`;
+                const dateStr = `${y}-${m}-${String(logTime.getDate()).padStart(2, '0')}`;
                 const timeStr = logTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
-                // ... (GPS 状态判断逻辑保持不变)
-                const getGeoStatus = (l: LogEntry) => {
-                    if (l.isManual) return 'Manual';
-                    const r = l.reason || '';
-                    if (r.includes('In Range') || r.includes('<500m')) return 'OK';
-                    if (r.includes('GPS Error')) return 'Check';
-                    return 'Fail';
-                };
-
                 if (log.type === 'clock-in') {
-                    const matchingOut = userLogs.slice(index + 1).find(l => 
-                        l.type === 'clock-out' && 
-                        !processedIds.has(l.id) &&
-                        safeParseDate(l.time)?.toDateString() === logTime.toDateString()
-                    );
-
+                    const matchingOut = userLogs.slice(idx + 1).find(l => l.type === 'clock-out' && !processedIds.has(l.id) && safeParseDate(l.time)?.toDateString() === logTime.toDateString());
                     if (matchingOut) {
-                        const outTimeObj = safeParseDate(matchingOut.time);
-                        const outTimeStr = outTimeObj?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) || '-';
-                        const duration = ((outTimeObj?.getTime() || 0) - logTime.getTime()) / (1000 * 60 * 60);
+                        const outTime = safeParseDate(matchingOut.time);
+                        const outStr = outTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) || '-';
+                        const duration = ((outTime?.getTime() || 0) - logTime.getTime()) / 3600000;
                         const cost = duration * wage;
-                        
-                        // 状态判断
-                        const inStatus = getGeoStatus(log);
-                        const outStatus = getGeoStatus(matchingOut);
-                        let finalStatus = 'Normal';
-                        if (inStatus === 'Manual' || outStatus === 'Manual') finalStatus = 'Manual Entry';
-                        else if (inStatus === 'Fail' || outStatus === 'Fail') finalStatus = 'Location Failed';
-                        else if (inStatus === 'Check' || outStatus === 'Check') finalStatus = 'GPS Check Needed';
-
-                        allRows.push({
-                            timestamp: logTime.getTime(),
-                            csvLine: `${dateStr},"${userName}",${userId},${wage},${timeStr},${outTimeStr},${duration.toFixed(2)},${cost.toFixed(2)},${finalStatus}\n`
-                        });
-                        processedIds.add(log.id);
-                        processedIds.add(matchingOut.id);
+                        csv += `${dateStr},"${userName}",${log.userId||'-'},${wage},${timeStr},${outStr},${duration.toFixed(2)},${cost.toFixed(2)},Normal\n`;
+                        processedIds.add(log.id); processedIds.add(matchingOut.id);
                     } else {
-                        allRows.push({
-                            timestamp: logTime.getTime(),
-                            csvLine: `${dateStr},"${userName}",${userId},${wage},${timeStr},-,0.00,0.00,Missing Clock-Out\n`
-                        });
+                        csv += `${dateStr},"${userName}",${log.userId||'-'},${wage},${timeStr},-,0.00,0.00,Missing Out\n`;
                         processedIds.add(log.id);
                     }
-                } else if (log.type === 'clock-out') {
-                    allRows.push({
-                        timestamp: logTime.getTime(),
-                        csvLine: `${dateStr},"${userName}",${userId},${wage},-,${timeStr},0.00,0.00,Missing Clock-In\n`
-                    });
-                    processedIds.add(log.id);
                 }
             });
         });
-
-        allRows.sort((a, b) => b.timestamp - a.timestamp); // 倒序
-
-        if (allRows.length === 0) { alert(`No logs found for ${exportMonth}`); return; }
-
-        allRows.forEach(row => csv += row.csvLine);
-        const encodedUri = encodeURI("data:text/csv;charset=utf-8," + csv);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `attendance_${exportMonth}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const link = document.createElement("a"); link.href = encodeURI("data:text/csv;charset=utf-8," + csv); link.download = `attendance_${financialMonth}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
-    // 本周排班预估 (用于 Planning View)
-    const totalWeeklyPlanningCost = displayedDays?.slice(0, 7).reduce((acc: number, day: ScheduleDay) => {
-        const m = getShiftCost(day.morning, day.hours?.morning?.start || '10:00', day.hours?.morning?.end || '15:00');
-        const e = getShiftCost(day.evening, day.hours?.evening?.start || '14:30', day.hours?.evening?.end || '19:00');
-        const n = day.night ? getShiftCost(day.night, day.hours?.night?.start || '18:00', day.hours?.night?.end || '22:00') : 0;
-        return acc + m + e + n;
-    }, 0) || 0;
-
-    const handleApplySwap = async (reqId: string) => {
-        const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
-        if (!req) { showNotification({ type: 'announcement', title: "Error", message: "Swap request not found." }); return; }
-        if (req.status !== 'accepted_by_peer') { showNotification({ type: 'announcement', title: "Action Not Allowed", message: "Only peer-accepted requests can be processed." }); return; }
-        
-        const newSchedule = JSON.parse(JSON.stringify(schedule));
-        const { requesterName, targetName, requesterDate, requesterShift } = req;
-        const normalizedRequesterDate = normalizeDateKey(requesterDate);
-        const dayIndex = newSchedule.days.findIndex((d: ScheduleDay) => normalizeDateKey(d.date) === normalizedRequesterDate);
-
-        if (dayIndex === -1) { showNotification({ type: 'announcement', title: "Schedule Error", message: `Date ${requesterDate} not found.`}); return; }
-        const day = newSchedule.days[dayIndex];
-        const shiftStaff = day[requesterShift];
-
-        if (!shiftStaff.includes(requesterName)) {
-             showNotification({ type: 'announcement', title: "Schedule Conflict", message: `${requesterName} not found in shift.`});
-             // Auto-reject
-             const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'auto_conflict_declined' } : r);
-             await Cloud.updateSwapRequests(updatedReqs);
-             return;
-        }
-
-        if (shiftStaff.includes(targetName)) {
-             showNotification({ type: 'announcement', title: "Schedule Conflict", message: `${targetName} is already in that shift.`});
-             const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'auto_conflict_declined' } : r);
-             await Cloud.updateSwapRequests(updatedReqs);
-             return;
-        }
-        
-        // Apply swap
-        day[requesterShift] = shiftStaff.map((name: string) => name === requesterName ? targetName : name);
-        
-        try {
-            await Cloud.saveSchedule(newSchedule);
-            const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'completed', appliedToSchedule: true } : r);
-            await Cloud.updateSwapRequests(updatedReqs);
-            showNotification({type: 'message', title: "Success", message: "Swap approved and schedule updated."});
-        } catch(e) {
-            console.error("Swap apply error", e);
-            showNotification({type: 'announcement', title: "Save Error", message: "Could not save changes."});
-        }
-    };
-
-
-    const handleSaveSchedule = (updatedShifts: any[]) => { 
-        if (!editingShift) return; 
-        const { dayIdx } = editingShift; // 现在我们只需要 dayIdx
-        
-        const targetDay = displayedDays[dayIdx];
-        const realIndex = schedule.days.findIndex((d: ScheduleDay) => d.date === targetDay.date);
-
-        if (realIndex === -1) return;
-
-        const newSched = JSON.parse(JSON.stringify(schedule));
-        
-        // 更新新的 shifts 字段
-        newSched.days[realIndex].shifts = updatedShifts;
-
-        // 同时清空旧字段以避免混淆 (可选，为了数据干净建议做)
-        newSched.days[realIndex].morning = [];
-        newSched.days[realIndex].evening = [];
-        newSched.days[realIndex].night = [];
-        
-        setSchedule(newSched); 
-        Cloud.saveSchedule(newSched); 
-        setEditingShift(null); 
-    };
-
+    // --- 8. 功能逻辑 (Swap, Publish, Save) ---
     const allReqs = swapRequests?.slice().sort((a: SwapRequest, b: SwapRequest) => b.timestamp - a.timestamp) || [];
-
     const visibleLogs = logs?.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
     
-    const today = new Date();
-    const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
-      const start = new Date(c.startDate);
-      const end = new Date(c.endDate);
-      return today >= start && today <= end;
-    });
-
     const handlePublishSchedule = async () => {
-        if (!window.confirm(`Publish schedule for the current view? Staff will be notified.`)) return;
-
-        // Use displayed range
-        const startDate = displayedDays[0].date;
-        const endDate = displayedDays[displayedDays.length - 1].date;
+        if (!window.confirm(`Publish schedule? Staff will be notified.`)) return;
+        const startDate = displayedDays[0].date; const endDate = displayedDays[displayedDays.length - 1].date;
         const year = new Date().getFullYear();
-
-        // Construct ISO range
         const startISO = `${year}-${startDate.split('-').map(p=>p.padStart(2,'0')).join('-')}`;
         const endISO = `${year}-${endDate.split('-').map(p=>p.padStart(2,'0')).join('-')}`;
-        
         const cycleId = `${startISO}_${endISO}`;
 
-        const confirmations: ScheduleCycle['confirmations'] = {};
-        activeStaff.forEach((u: User) => {
-            confirmations[u.id] = { status: 'pending', viewed: false };
-        });
+        const confirmations: any = {};
+        activeStaff.forEach((u: User) => { confirmations[u.id] = { status: 'pending', viewed: false }; });
 
-        const snapshot: ScheduleCycle['snapshot'] = {};
-        displayedDays.forEach((d: ScheduleDay) => {
-            snapshot[d.date] = {
-                morning: d.morning,
-                evening: d.evening,
-                night: d.night,
-            };
-        });
-
-        const newCycle: ScheduleCycle = {
-            cycleId,
-            startDate: startISO,
-            endDate: endISO,
-            publishedAt: new Date().toISOString(),
-            status: 'published',
-            confirmations,
-            snapshot,
-        };
-
+        const newCycle = { cycleId, startDate: startISO, endDate: endISO, publishedAt: new Date().toISOString(), status: 'published', confirmations, snapshot: {} };
         const updatedCycles = scheduleCycles.filter((c: ScheduleCycle) => c.cycleId !== cycleId);
         updatedCycles.push(newCycle);
 
         await Cloud.updateScheduleCycles(updatedCycles);
-        showNotification({ type: 'message', title: 'Schedule Published!', message: `Staff have been notified.`});
+        if (setScheduleCycles) setScheduleCycles(updatedCycles); 
+        
+        await Cloud.updateNotices([{
+            id: Date.now().toString(), type: 'announcement', title: "📅 New Schedule", 
+            content: `Schedule ${startDate} to ${endDate} is live. Please confirm.`, timestamp: Date.now(), sender: 'Manager', frequency: 'once'
+        }]);
+        showNotification({ type: 'message', title: 'Published!', message: `Staff notified.`});
     };
+
+    const handleApplySwap = async (reqId: string) => {
+        const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
+        if (!req) return;
+        const newSchedule = JSON.parse(JSON.stringify(schedule));
+        const dayIndex = newSchedule.days.findIndex((d: ScheduleDay) => normalizeDateKey(d.date) === normalizeDateKey(req.requesterDate));
+        if (dayIndex === -1) return;
+        
+        const day = newSchedule.days[dayIndex];
+        const targetShift = (day.shifts || []).find((s: any) => s.start.startsWith(req.requesterShift.split('-')[0].trim())); 
+        
+        if (targetShift) {
+             targetShift.staff = targetShift.staff.map((n:string) => n === req.requesterName ? req.targetName : n);
+        } else if (day[req.requesterShift]) { 
+             day[req.requesterShift] = day[req.requesterShift].map((n:string) => n === req.requesterName ? req.targetName : n);
+        }
+
+        try {
+            await Cloud.saveSchedule(newSchedule);
+            const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'completed', appliedToSchedule: true } : r);
+            await Cloud.updateSwapRequests(updatedReqs);
+            showNotification({type: 'message', title: "Success", message: "Swap applied."});
+        } catch(e) { console.error(e); }
+    };
+
+    const handleSaveSchedule = (updatedShifts: any[]) => { 
+        if (!editingShift) return; 
+        const { dayIdx } = editingShift; 
+        const targetDay = displayedDays[dayIdx];
+        const realIndex = schedule.days.findIndex((d: ScheduleDay) => d.date === targetDay.date);
+        if (realIndex === -1) return;
+
+        const newSched = JSON.parse(JSON.stringify(schedule));
+        newSched.days[realIndex].shifts = updatedShifts;
+        newSched.days[realIndex].morning = []; newSched.days[realIndex].evening = []; newSched.days[realIndex].night = [];
+        
+        setSchedule(newSched); Cloud.saveSchedule(newSched); setEditingShift(null); 
+    };
+
+    const currentCycle = scheduleCycles?.find((c: ScheduleCycle) => {
+        const start = new Date(c.startDate); const end = new Date(c.endDate);
+        return today >= start && today <= end;
+    });
+
+    const totalWeeklyPlanningCost = displayedDays?.slice(0, 7).reduce((acc: number, day: ScheduleDay) => {
+        const getCost = (shift: any) => {
+            const start = shift.start || '10:00'; const end = shift.end || '15:00';
+            return getShiftCost(shift.staff || [], start, end);
+        };
+        const shifts = day.shifts || [];
+        if (shifts.length > 0) return acc + shifts.reduce((sum:number, s:any) => sum + getCost(s), 0);
+        return acc + getShiftCost(day.morning, '10:00', '15:00') + getShiftCost(day.evening, '14:30', '19:00') + (day.night ? getShiftCost(day.night, '18:00', '22:00') : 0);
+    }, 0) || 0;
 
     return (
         <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
@@ -3692,478 +3387,125 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             <div className="flex-1 overflow-y-auto p-4">
                 {view === 'requests' && (
                     <div className="space-y-4">
-                        <div className="bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10">
-                            <h3 className="font-bold text-dark-text">Swap Requests Log</h3>
-                        </div>
+                        <div className="bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10"><h3 className="font-bold text-dark-text">Swap Requests Log</h3></div>
                         {allReqs.length === 0 && <p className="text-dark-text-light text-center py-10 bg-dark-surface rounded-xl border border-white/10">No swap requests found.</p>}
-                        {allReqs.map((req: SwapRequest) => {
-                            const statusColors: any = {
-                                pending: 'bg-yellow-500/10 text-yellow-400',
-                                rejected: 'bg-red-500/10 text-red-400',
-                                cancelled: 'bg-gray-500/10 text-gray-400',
-                                accepted_by_peer: 'bg-green-500/10 text-green-400',
-                                completed: 'bg-blue-500/10 text-blue-400',
-                                auto_conflict_declined: 'bg-red-500/20 text-red-300',
-                            };
-                            return (
-                                <div key={req.id} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
-                                    <div className="flex justify-between items-start mb-3">
-                                        <div>
-                                            <p className="text-sm text-dark-text-light"><strong className="text-white">{req.requesterName}</strong> wants to swap with <strong className="text-white">{req.targetName}</strong></p>
-                                            <p className="text-xs text-gray-400 mt-1">Requested: {formattedDate(req.timestamp)}</p>
-                                        </div>
-                                        <span className={`text-xs px-2 py-1 rounded font-bold capitalize ${statusColors[req.status] || 'bg-gray-500/10 text-gray-400'}`}>{req.status.replace(/_/g, ' ')}</span>
-                                    </div>
-                                    <div className="bg-dark-bg p-3 rounded-lg text-sm text-dark-text-light mb-4 space-y-2">
-                                        <div className="flex justify-between"><span>{req.requesterName}'s shift:</span> <strong className="font-mono text-white">{req.requesterDate} ({req.requesterShift})</strong></div>
-                                    </div>
-                                    {req.reason && <p className="text-xs italic text-gray-400 border-t border-white/10 pt-2 mt-2">Reason: {req.reason}</p>}
-                                    
-                                    <div className="mt-4">
-                                    {(req.status === 'accepted_by_peer' || req.status === 'auto_conflict_declined') && !req.appliedToSchedule && (
-                                        <div className="grid grid-cols-2 gap-2">
-                                        <button onClick={() => {}} className="w-full bg-red-600/50 text-white/80 py-2.5 rounded-lg font-bold text-xs" disabled>Reject</button>
-                                        <button onClick={() => handleApplySwap(req.id)} className="w-full bg-dark-accent text-dark-bg py-2.5 rounded-lg font-bold shadow-md active:scale-95 transition-all hover:opacity-90 text-xs">
-                                            Approve & Apply
-                                        </button>
-                                        </div>
-                                    )}
-                                    {req.status === 'completed' && req.appliedToSchedule === true && (
-                                        <div className="text-center text-xs font-bold text-green-400 border border-green-500/20 bg-green-500/10 py-2 rounded-lg">
-                                            Applied to Schedule
-                                        </div>
-                                    )}
-                                    </div>
-                                </div>
-                            );
-                        })}
+                        {allReqs.map((req: SwapRequest) => (
+                            <div key={req.id} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
+                                <div className="flex justify-between items-start mb-3"><div><p className="text-sm text-dark-text-light"><strong className="text-white">{req.requesterName}</strong> ↔ <strong className="text-white">{req.targetName}</strong></p><p className="text-xs text-gray-400 mt-1">{formattedDate(req.timestamp)}</p></div><span className={`text-xs px-2 py-1 rounded font-bold capitalize bg-gray-500/10 text-gray-400`}>{req.status.replace(/_/g, ' ')}</span></div>
+                                <div className="bg-dark-bg p-3 rounded-lg text-sm text-dark-text-light mb-4 space-y-2"><div className="flex justify-between"><span>Shift:</span> <strong className="font-mono text-white">{req.requesterDate} ({req.requesterShift})</strong></div></div>
+                                {req.status === 'accepted_by_peer' && !req.appliedToSchedule && (<div className="grid grid-cols-2 gap-2"><button className="w-full bg-red-600/50 text-white/80 py-2.5 rounded-lg font-bold text-xs" disabled>Reject</button><button onClick={() => handleApplySwap(req.id)} className="w-full bg-dark-accent text-dark-bg py-2.5 rounded-lg font-bold shadow-md active:scale-95 transition-all hover:opacity-90 text-xs">Approve & Apply</button></div>)}
+                            </div>
+                        ))}
                     </div>
                 )}
-                 {view === 'availability' && <StaffAvailabilityView t={t} users={users} />}
-                {view === 'chat' && <ChatView t={t} currentUser={managerUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} onExit={() => setView('requests')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />}
                 {view === 'schedule' && (
                     <div className="space-y-3 pb-10">
                         <div className="bg-dark-surface p-4 rounded-xl border border-white/10 shadow-sm mb-4 sticky top-0 z-20">
-                            <div className="flex justify-between items-center">
-                                <h3 className="font-bold text-dark-text mb-2">
-                                    Week {currentWeekIndex + 1} of {totalWeeks}
-                                </h3>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setCurrentWeekIndex(Math.max(0, currentWeekIndex - 1))} disabled={currentWeekIndex === 0} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronLeft" size={16}/></button>
-                                    <button onClick={() => setCurrentWeekIndex(Math.min(totalWeeks - 1, currentWeekIndex + 1))} disabled={currentWeekIndex >= totalWeeks - 1} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronRight" size={16}/></button>
-                                </div>
-                            </div>
-                            <p className="text-xs text-dark-text-light">Tap "Edit" to manage shifts.</p>
-                            <button onClick={handlePublishSchedule} className="w-full mt-3 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2.5 rounded-lg">
-                                Publish Current View ({displayedDays.length} days)
-                            </button>
+                            <div className="flex justify-between items-center"><h3 className="font-bold text-dark-text mb-2">Week {currentWeekIndex + 1} of {totalWeeks}</h3><div className="flex gap-2"><button onClick={() => setCurrentWeekIndex(Math.max(0, currentWeekIndex - 1))} disabled={currentWeekIndex === 0} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronLeft" size={16}/></button><button onClick={() => setCurrentWeekIndex(Math.min(totalWeeks - 1, currentWeekIndex + 1))} disabled={currentWeekIndex >= totalWeeks - 1} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronRight" size={16}/></button></div></div>
+                            <button onClick={handlePublishSchedule} className="w-full mt-3 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2.5 rounded-lg">Publish Current View ({displayedDays.length} days)</button>
                         </div>
                         {displayedDays?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, dayIndexInWeek: number) => {
                             const absoluteDayIndex = currentWeekIndex * 7 + dayIndexInWeek;
-                            // 数据兼容：如果只有旧数据，临时转换一下显示（不存库）
                             let displayShifts = day.shifts || [];
                             if (displayShifts.length === 0) {
-                                if (day.morning && day.morning.length) displayShifts.push({ name: 'Shift 1', start: day.hours?.morning?.start||'10:00', end: day.hours?.morning?.end||'15:00', staff: day.morning });
-                                if (day.evening && day.evening.length) displayShifts.push({ name: 'Shift 2', start: day.hours?.evening?.start||'14:30', end: day.hours?.evening?.end||'19:00', staff: day.evening });
-                                if (day.night && day.night.length) displayShifts.push({ name: 'Shift 3', start: day.hours?.night?.start||'18:00', end: day.hours?.night?.end||'22:00', staff: day.night });
+                                if (day.morning?.length) displayShifts.push({ name: 'Shift 1', start: day.hours?.morning?.start||'10:00', end: day.hours?.morning?.end||'15:00', staff: day.morning });
+                                if (day.evening?.length) displayShifts.push({ name: 'Shift 2', start: day.hours?.evening?.start||'14:30', end: day.hours?.evening?.end||'19:00', staff: day.evening });
+                                if (day.night?.length) displayShifts.push({ name: 'Shift 3', start: day.hours?.night?.start||'18:00', end: day.hours?.night?.end||'22:00', staff: day.night });
                             }
-
                             return (
                                 <div key={absoluteDayIndex} className="bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10">
-                                    <div className="flex justify-between mb-3 items-center">
-                                        <div>
-                                            <span className="font-bold text-dark-text mr-2">{day.name}</span>
-                                            <span className="text-xs text-dark-text-light">{day.date}</span>
-                                        </div>
-                                        {/* 点击 Edit 按钮触发新的全天编辑器，不再区分 shiftType */}
-                                        <button onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'all' })} className="px-3 py-1 bg-white/10 rounded text-[10px] font-bold text-white hover:bg-white/20">Edit Shifts</button>
-                                    </div>
-                                    
-                                    <div className="space-y-2">
-                                        {displayShifts.length > 0 ? displayShifts.map((shift: any, idx: number) => (
-                                            <div key={idx} className="flex items-center gap-3 bg-dark-bg p-2 rounded border border-white/5">
-                                                <div className="w-16 shrink-0 flex flex-col items-center">
-                                                    <span className="text-[9px] font-bold text-dark-accent bg-dark-accent/10 px-1.5 py-0.5 rounded uppercase">班次 {idx + 1}</span>
-                                                    <span className="text-[9px] text-dark-text-light font-mono mt-0.5">{shift.start}-{shift.end}</span>
-                                                </div>
-                                                <div className="flex-1 flex flex-wrap gap-1">
-                                                    {shift.staff.length > 0 ? shift.staff.map((s: string, i: number) => (
-                                                        <span key={i} className="text-xs text-white bg-white/10 px-2 py-0.5 rounded">{s}</span>
-                                                    )) : <span className="text-xs text-dark-text-light italic">Empty</span>}
-                                                </div>
-                                            </div>
-                                        )) : <p className="text-xs text-dark-text-light italic p-2">No shifts scheduled.</p>}
-                                    </div>
-                                </div>
-                            )
-                        })}
-                    </div>
-                )}
-                {view === 'planning' && (
-                    <div className="space-y-4 pb-10">
-                        <div className="bg-dark-surface p-5 rounded-xl border border-white/10 mb-4 shadow-lg">
-                            <h3 className="font-bold text-dark-text mb-2 flex items-center gap-2 uppercase tracking-wider text-sm">
-                                <Icon name="Briefcase" size={16}/> Staff Planning & Cost
-                            </h3>
-                            <p className="text-xs text-dark-text-light mb-4">
-                                Live estimate based on current schedule (Current Week View).
-                            </p>
-                            <div className="flex justify-between items-center bg-dark-bg p-4 rounded-xl border border-white/5">
-                                <span className="text-xs font-bold text-dark-text-light uppercase">Total Weekly Forecast</span>
-                                <span className="text-2xl font-black text-green-400">€{totalWeeklyPlanningCost.toFixed(0)}</span>
-                            </div>
-                        </div>
-
-                        {displayedDays?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, idxInView: number) => { 
-                            const absoluteIdx = currentWeekIndex * 7 + idxInView;
-                            
-                            const mStart = day.hours?.morning?.start || '10:00';
-                            const mEnd = day.hours?.morning?.end || '15:00';
-                            const eStart = day.hours?.evening?.start || '14:30';
-                            const eEnd = day.hours?.evening?.end || '19:00';
-                            const nStart = day.hours?.night?.start || '18:00';
-                            const nEnd = day.hours?.night?.end || '22:00';
-
-                            const mCost = getShiftCost(day.morning, mStart, mEnd);
-                            const eCost = getShiftCost(day.evening, eStart, eEnd);
-                            const nCost = day.night ? getShiftCost(day.night, nStart, nEnd) : 0;
-                            
-                            const isWeekend = ['Friday', 'Saturday', 'Sunday'].includes(day.name);
-
-                            return (
-                                <div key={absoluteIdx} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
-                                    <div className="flex justify-between items-center mb-3 border-b border-white/5 pb-2">
-                                        <div>
-                                            <span className="font-bold text-dark-text">{day.name}</span>
-                                            <span className="text-xs text-dark-text-light ml-2">{day.date}</span>
-                                        </div>
-                                        <div className="text-right">
-                                            <span className="block text-[10px] text-dark-text-light uppercase">Daily Cost</span>
-                                            <span className="font-bold text-white">€{(mCost + eCost + nCost).toFixed(0)}</span>
-                                        </div>
-                                    </div>
-                                    
-                                    <div onClick={() => setEditingShift({ dayIdx: absoluteIdx, shift: 'morning' })} className="mb-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-orange-500/30 cursor-pointer transition-all" >
-                                        <div className="flex justify-between items-center mb-2">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded font-bold">AM</span>
-                                                <span className="text-[10px] text-dark-text-light font-mono">{mStart}-{mEnd}</span>
-                                            </div>
-                                            <span className="text-xs font-mono text-dark-text-light">€{mCost.toFixed(0)}</span>
-                                        </div>
-                                        <div className="space-y-1">
-                                            {day.morning.length > 0 ? day.morning.map((name, i) => (
-                                                <div key={i} className="flex justify-between text-xs">
-                                                    <span className="text-dark-text font-medium">{name}</span>
-                                                    <span className="text-dark-text-light text-[10px] opacity-60">€{wages[name] || 12}/h</span>
-                                                </div>
-                                            )) : <span className="text-xs text-dark-text-light italic">Empty Shift</span>}
-                                        </div>
-                                    </div>
-
-                                    <div onClick={() => setEditingShift({ dayIdx: absoluteIdx, shift: 'evening' })} className="p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-blue-500/30 cursor-pointer transition-all" >
-                                        <div className="flex justify-between items-center mb-2">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-bold">PM</span>
-                                                <span className="text-[10px] text-dark-text-light font-mono">{eStart}-{eEnd}</span>
-                                            </div>
-                                            <span className="text-xs font-mono text-dark-text-light">€{eCost.toFixed(0)}</span>
-                                        </div>
-                                        <div className="space-y-1">
-                                            {day.evening.length > 0 ? day.evening.map((name, i) => (
-                                                <div key={i} className="flex justify-between text-xs">
-                                                    <span className="text-dark-text font-medium">{name}</span>
-                                                    <span className="text-dark-text-light text-[10px] opacity-60">€{wages[name] || 12}/h</span>
-                                                </div>
-                                            )) : <span className="text-xs text-dark-text-light italic">Empty Shift</span>}
-                                        </div>
-                                    </div>
-                                    
-                                    {isWeekend && (
-                                        <div onClick={() => setEditingShift({ dayIdx: absoluteIdx, shift: 'night' })} className="mt-2 p-3 bg-dark-bg rounded-lg border border-white/5 hover:border-indigo-500/30 cursor-pointer transition-all" >
-                                            <div className="flex justify-between items-center mb-2">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-bold">NIGHT</span>
-                                                    <span className="text-[10px] text-dark-text-light font-mono">{nStart}-{nEnd}</span>
-                                                </div>
-                                                <span className="text-xs font-mono text-dark-text-light">€{nCost.toFixed(0)}</span>
-                                            </div>
-                                            <div className="space-y-1">
-                                                {day.night && day.night.length > 0 ? day.night.map((name, i) => (
-                                                    <div key={i} className="flex justify-between text-xs">
-                                                        <span className="text-dark-text font-medium">{name}</span>
-                                                        <span className="text-dark-text-light text-[10px] opacity-60">€{wages[name] || 12}/h</span>
-                                                    </div>
-                                                )) : <span className="text-xs text-dark-text-light italic">Empty Shift</span>}
-                                            </div>
-                                        </div>
-                                    )}
+                                    <div className="flex justify-between mb-3 items-center"><div><span className="font-bold text-dark-text mr-2">{day.name}</span><span className="text-xs text-dark-text-light">{day.date}</span></div><button onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'all' })} className="px-3 py-1 bg-white/10 rounded text-[10px] font-bold text-white hover:bg-white/20">Edit Shifts</button></div>
+                                    <div className="space-y-2">{displayShifts.length > 0 ? displayShifts.map((shift: any, idx: number) => (<div key={idx} className="flex items-center gap-3 bg-dark-bg p-2 rounded border border-white/5"><div className="w-16 shrink-0 flex flex-col items-center"><span className="text-[9px] font-bold text-dark-accent bg-dark-accent/10 px-1.5 py-0.5 rounded uppercase">Shift {idx + 1}</span><span className="text-[9px] text-dark-text-light font-mono mt-0.5">{shift.start}-{shift.end}</span></div><div className="flex-1 flex flex-wrap gap-1">{shift.staff.length > 0 ? shift.staff.map((s: string, i: number) => (<span key={i} className="text-xs text-white bg-white/10 px-2 py-0.5 rounded">{s}</span>)) : <span className="text-xs text-dark-text-light italic">Empty</span>}</div></div>)) : <p className="text-xs text-dark-text-light italic p-2">No shifts scheduled.</p>}</div>
                                 </div>
                             );
                         })}
+                    </div>
+                )}
+                {view === 'financial' && (
+                    <div className="space-y-4 pb-10">
+                        {/* 1. 顶部月份选择器 */}
+                        <div className="bg-dark-surface p-4 rounded-xl border border-white/10 sticky top-0 z-20 shadow-md">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-bold text-white">💰 Financial Month</span>
+                                <input 
+                                    type="month" 
+                                    value={financialMonth} 
+                                    onChange={(e) => setFinancialMonth(e.target.value)} 
+                                    className="bg-dark-bg border border-white/20 rounded-lg px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-dark-accent"
+                                />
+                            </div>
+                        </div>
+
+                        {/* 2. 财务概览 */}
+                        <div className="bg-dark-surface p-5 rounded-2xl shadow-lg border border-white/10">
+                            <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Briefcase" size={16}/> Financial Overview</h3>
+                            <div className="mb-6"><label className="block text-xs font-bold text-dark-text-light mb-1 uppercase">Monthly Budget Max (€)</label><input type="number" className="w-full border rounded-xl p-3 text-xl font-black bg-dark-bg border-white/10 text-white focus:ring-2 focus:ring-dark-accent outline-none" value={budgetMax} onChange={e => handleBudgetChange(e.target.value)} /></div>
+                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5"><p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Projected (Sched)</p><p className="text-xl font-black text-white">€{totalEstCost.toFixed(0)}</p></div>
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5 relative overflow-hidden"><div className="absolute right-0 top-0 p-1"><div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div></div><p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Actual (Logs)</p><p className="text-xl font-black text-white">€{totalActualCost.toFixed(0)}</p></div>
+                            </div>
+                            <div><div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-dark-text-light uppercase">Budget Used</span><span className={`text-xs font-black ${totalActualCost > budgetMax ? 'text-red-400' : 'text-green-400'}`}>{totalActualCost > budgetMax ? 'OVER BUDGET' : `€${(budgetMax - totalActualCost).toFixed(0)} Left`}</span></div><div className="w-full bg-dark-bg rounded-full h-3 overflow-hidden border border-white/5"><div className={`h-full rounded-full transition-all duration-500 ${totalActualCost > budgetMax ? 'bg-red-500' : 'bg-gradient-to-r from-green-500 to-emerald-400'}`} style={{ width: `${Math.min(100, (totalActualCost/budgetMax)*100)}%` }}></div></div></div>
+                        </div>
+
+                        {/* 3. 员工工资设置 */}
+                        <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
+                            <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center"><h4 className="font-bold text-sm text-white">Staff Wage Settings</h4><span className="text-[10px] text-dark-text-light">Auto-saved</span></div>
+                            <table className="w-full text-xs"><thead className="bg-dark-bg text-dark-text-light uppercase"><tr><th className="p-3 text-left">Staff</th><th className="p-3 text-left">Type</th><th className="p-3 text-right">Value (€)</th><th className="p-3 text-right">Act Cost ({financialMonth})</th></tr></thead><tbody className="divide-y divide-white/10">{Object.keys(stats).map(name => { const wage = wages[name] || { type: 'hourly', value: 12 }; return (<tr key={name}><td className="p-3 font-bold text-dark-text">{name}</td><td className="p-3"><select className="bg-dark-bg border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-dark-accent text-[10px]" value={wage.type} onChange={(e) => { const newWages = { ...wages, [name]: { ...wage, type: e.target.value as any } }; saveWages(newWages); }}><option value="hourly">Hourly</option><option value="fixed">Monthly</option></select></td><td className="p-3 text-right"><input type="number" step={wage.type === 'hourly' ? "0.5" : "100"} className="w-20 text-right py-1 rounded bg-dark-bg border border-white/20 text-white font-mono focus:border-dark-accent outline-none px-2" value={wage.value || ''} onChange={(e) => { const val = parseFloat(e.target.value); const newWages = { ...wages, [name]: { ...wage, value: isNaN(val) ? 0 : val } }; saveWages(newWages); }} /></td><td className="p-3 text-right font-mono text-dark-text-light">€{stats[name].actualCost.toFixed(0)}</td></tr>)})}</tbody></table>
+                        </div>
+
+                        {/* 4. 每日明细 */}
+                        <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
+                            <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center"><h4 className="font-bold text-sm text-white">Daily Breakdown ({financialMonth})</h4><span className="text-[10px] text-dark-text-light bg-dark-bg px-2 py-1 rounded">Est vs Act</span></div>
+                            <div className="max-h-64 overflow-y-auto"><table className="w-full text-xs"><thead className="bg-dark-bg text-dark-text-light uppercase sticky top-0 z-10"><tr><th className="p-3 text-left">Date</th><th className="p-3 text-right">Est.</th><th className="p-3 text-right">Act.</th><th className="p-3 text-right">Diff</th></tr></thead><tbody className="divide-y divide-white/10">{getDailyFinancials().map((d: any) => (<React.Fragment key={d.date}><tr className="hover:bg-white/5 transition-colors bg-white/5 border-b border-white/5"><td className="p-3"><div className="font-bold text-white">{d.date}</div><div className="text-[10px] text-dark-text-light">{d.name}</div></td><td className="p-3 text-right font-mono text-dark-text-light">€{d.est.toFixed(0)}</td><td className="p-3 text-right font-mono font-bold text-white">€{d.act.toFixed(0)}</td><td className="p-3 text-right font-mono"><span className={`px-1.5 py-0.5 rounded ${Math.abs(d.diff) < 1 ? 'bg-white/5 text-gray-400' : d.diff < 0 ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>{d.diff > 0 ? '+' : ''}{d.diff.toFixed(0)}</span></td></tr>{d.details.length > 0 && (<tr><td colSpan={4} className="p-2 pl-4 border-b border-white/10 bg-dark-bg/30"><div className="grid grid-cols-2 gap-2">{d.details.map((staff: any, idx: number) => (<div key={idx} className="flex justify-between items-center text-[10px] bg-dark-surface p-1.5 rounded border border-white/5"><span className="text-dark-text font-bold">{staff.name}</span><div className="flex gap-2 font-mono"><span className="text-dark-text-light">E:{staff.est.toFixed(0)}</span><span className={`font-bold ${staff.act > staff.est ? 'text-red-400' : staff.act < staff.est ? 'text-blue-300' : 'text-green-400'}`}>A:{staff.act.toFixed(0)}</span></div></div>))}</div></td></tr>)}</React.Fragment>))}</tbody></table></div>
+                        </div>
+
+                        <div className="bg-dark-surface p-4 rounded-xl border border-white/10 mt-4">
+                            <div className="flex items-center justify-between mb-3"><span className="text-xs font-bold text-dark-text-light uppercase">Export Data ({financialMonth})</span></div>
+                            <div className="grid grid-cols-2 gap-3"><button onClick={handleExportLogsCSV} className="bg-white/10 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-white/20 transition-all border border-white/5"><Icon name="Clock" size={16} /> Export Logs</button><button onClick={handleExportFinancialCSV} className="bg-green-600 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-green-700 transition-all shadow-lg"><Icon name="List" size={16} /> Export Summary</button></div>
+                        </div>
                     </div>
                 )}
                 {view === 'logs' && (
                     <div className="space-y-2">
-                        {/* 顶部按钮区 */}
-                        <div className="flex justify-end mb-4">
-                            <button onClick={() => setIsAddingManualLog(true)} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all">
-                                <Icon name="Plus" size={16} /> Add Manual Attendance
-                            </button>
-                        </div>
-
-                        {/* 日志列表循环 - 必须放在 div 内部 */}
-                        {visibleLogs.map((log: LogEntry) => {
-                            const isAttendance = log.type === 'clock-in' || log.type === 'clock-out';
-                            const isInventory = log.type === 'inventory';
-
-                            return (
-                                <div key={log.id} className={`bg-dark-surface p-3 rounded-lg shadow-sm text-sm border-l-4 ${log.isDeleted ? 'border-gray-500 opacity-60' : 'border-dark-accent'}`}>
-                                    {/* 第一行：名字和时间 */}
-                                    <div className="flex justify-between mb-1">
-                                        <span className="font-bold text-dark-text">{log.name}</span>
-                                        <span className="text-xs text-dark-text-light">{formattedDate(log.time)}</span>
-                                    </div>
-                                    
-                                    {/* 第二行：类型标签 和 操作按钮 */}
-                                    <div className="flex justify-between items-center">
-                                        {/* 左侧：类型和状态 */}
-                                        <div>
-                                            <span className={`px-2 py-0.5 rounded text-[10px] ${log.type?.includes('in') ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{log.type}</span>
-                                            {log.isDeleted && <span className="ml-2 text-[10px] font-bold text-gray-400">[INVALIDATED]</span>}
-                                            {log.isManual && <span className="ml-2 text-[10px] font-bold text-yellow-400">[MANUAL]</span>}
-                                        </div>
-
-                                        {/* 右侧：地点和按钮 */}
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[10px] text-dark-text-light font-mono">{log.reason || 'No Location'}</span>
-                                            {!log.isDeleted && (
-                                                <>
-                                                    {isAttendance && <button onClick={() => handleOpenAdjustModal(log)} title="Adjust Hours" className="p-1.5 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20"><Icon name="Edit" size={12}/></button>}
-                                                    {(isAttendance || isInventory) && <button onClick={() => setLogToInvalidate(log)} title="Invalidate Log" className="p-1.5 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Icon name="Trash" size={12}/></button>}
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                    
-                                    {/* 第三行（可选）：删除原因或编辑备注 */}
-                                    {log.isDeleted && <p className="text-xs mt-2 text-gray-400 border-t border-white/10 pt-2">Reason: {log.deleteReason}</p>}
-                                    {log.manualInventoryEdited && <p className="text-xs mt-2 text-yellow-500 border-t border-white/10 pt-2">Edit Note: {log.manualInventoryEditReason}</p>}
-                                </div>
-                            );
-                        })}
+                        <div className="flex justify-end mb-4"><button onClick={() => setIsAddingManualLog(true)} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all"><Icon name="Plus" size={16} /> Add Manual Attendance</button></div>
+                        {visibleLogs.map((log: LogEntry) => (
+                            <div key={log.id} className={`bg-dark-surface p-3 rounded-lg shadow-sm text-sm border-l-4 ${log.isDeleted ? 'border-gray-500 opacity-60' : 'border-dark-accent'}`}>
+                                <div className="flex justify-between mb-1"><span className="font-bold text-dark-text">{log.name}</span><span className="text-xs text-dark-text-light">{formattedDate(log.time)}</span></div>
+                                <div className="flex justify-between items-center"><div><span className={`px-2 py-0.5 rounded text-[10px] ${log.type?.includes('in') ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{log.type}</span>{log.isDeleted && <span className="ml-2 text-[10px] font-bold text-gray-400">[INVALIDATED]</span>}{log.isManual && <span className="ml-2 text-[10px] font-bold text-yellow-400">[MANUAL]</span>}</div><div className="flex items-center gap-2"><span className="text-[10px] text-dark-text-light font-mono">{log.reason || 'No Location'}</span>{!log.isDeleted && (<><button onClick={() => handleOpenAdjustModal(log)} title="Adjust Hours" className="p-1.5 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20"><Icon name="Edit" size={12}/></button><button onClick={() => setLogToInvalidate(log)} title="Invalidate Log" className="p-1.5 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Icon name="Trash" size={12}/></button></>)}</div></div>
+                                {log.isDeleted && <p className="text-xs mt-2 text-gray-400 border-t border-white/10 pt-2">Reason: {log.deleteReason}</p>}
+                            </div>
+                        ))}
                     </div>
                 )}
-
-                {view === 'financial' && (
-                    <div className="space-y-4 pb-10">
-                        {/* 1. 顶部概览卡片 */}
-                        <div className="bg-dark-surface p-5 rounded-2xl shadow-lg border border-white/10">
-                            <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Briefcase" size={16}/> Financial Overview</h3>
-                            
-                            <div className="mb-6">
-                                <label className="block text-xs font-bold text-dark-text-light mb-1 uppercase">Monthly Budget Max (€)</label>
-                                <input type="number" className="w-full border rounded-xl p-3 text-xl font-black bg-dark-bg border-white/10 text-white focus:ring-2 focus:ring-dark-accent outline-none" value={budgetMax} onChange={e => handleBudgetChange(e.target.value)} />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3 mb-4">
-                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5">
-                                    <p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Projected (Sched)</p>
-                                    <p className="text-xl font-black text-white">€{totalEstCost.toFixed(0)}</p>
-                                </div>
-                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5 relative overflow-hidden">
-                                    <div className="absolute right-0 top-0 p-1"><div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div></div>
-                                    <p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Actual (Logs)</p>
-                                    <p className="text-xl font-black text-white">€{totalActualCost.toFixed(0)}</p>
-                                </div>
-                            </div>
-
-                            <div>
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="text-xs font-bold text-dark-text-light uppercase">Budget Used</span>
-                                    <span className={`text-xs font-black ${totalActualCost > budgetMax ? 'text-red-400' : 'text-green-400'}`}>
-                                        {totalActualCost > budgetMax ? 'OVER BUDGET' : `€${(budgetMax - totalActualCost).toFixed(0)} Left`}
-                                    </span>
-                                </div>
-                                <div className="w-full bg-dark-bg rounded-full h-3 overflow-hidden border border-white/5">
-                                    <div className={`h-full rounded-full transition-all duration-500 ${totalActualCost > budgetMax ? 'bg-red-500' : 'bg-gradient-to-r from-green-500 to-emerald-400'}`} style={{ width: `${Math.min(100, (totalActualCost/budgetMax)*100)}%` }}></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* 2. 员工工资设置 (新版) */}
-                        <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
-                            <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center">
-                                <h4 className="font-bold text-sm text-white">Staff Wage Settings</h4>
-                                <span className="text-[10px] text-dark-text-light">Auto-saved</span>
-                            </div>
-                            <table className="w-full text-xs">
-                                <thead className="bg-dark-bg text-dark-text-light uppercase">
-                                    <tr>
-                                        <th className="p-3 text-left">Staff</th>
-                                        <th className="p-3 text-left">Type</th>
-                                        <th className="p-3 text-right">Value (€)</th>
-                                        <th className="p-3 text-right">Wk Cost</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-white/10">
-                                    {Object.keys(stats).map(name => {
-                                        const wage = wages[name] || { type: 'hourly', value: 12 };
-                                        return (
-                                        <tr key={name}>
-                                            <td className="p-3 font-bold text-dark-text">{name}</td>
-                                            <td className="p-3">
-                                                <select 
-                                                    className="bg-dark-bg border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-dark-accent text-[10px]"
-                                                    value={wage.type}
-                                                    onChange={(e) => {
-                                                        const newWages = { ...wages, [name]: { ...wage, type: e.target.value as any } };
-                                                        saveWages(newWages);
-                                                    }}
-                                                >
-                                                    <option value="hourly">Hourly (时薪)</option>
-                                                    <option value="fixed">Monthly (月薪)</option>
-                                                </select>
-                                            </td>
-                                            <td className="p-3 text-right">
-                                                <input 
-                                                    type="number" 
-                                                    step={wage.type === 'hourly' ? "0.5" : "100"} 
-                                                    className="w-20 text-right py-1 rounded bg-dark-bg border border-white/20 text-white font-mono focus:border-dark-accent outline-none px-2" 
-                                                    value={wage.value || ''} 
-                                                    onChange={(e) => {
-                                                        const val = parseFloat(e.target.value);
-                                                        const newWages = { ...wages, [name]: { ...wage, value: isNaN(val) ? 0 : val } };
-                                                        saveWages(newWages);
-                                                    }}
-                                                />
-                                            </td>
-                                            <td className="p-3 text-right font-mono text-dark-text-light">
-                                                €{stats[name].actualCost.toFixed(0)}
-                                            </td>
-                                        </tr>
-                                    )})}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        {/* 3. 每日用度详情 (Daily Breakdown) */}
-                        <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
-                            <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center">
-                                <h4 className="font-bold text-sm text-white">Daily Breakdown (2 Months)</h4>
-                                <span className="text-[10px] text-dark-text-light bg-dark-bg px-2 py-1 rounded">Est vs Act</span>
-                            </div>
-                            <div className="max-h-64 overflow-y-auto">
-                                <table className="w-full text-xs">
-                                    <thead className="bg-dark-bg text-dark-text-light uppercase sticky top-0 z-10">
-                                        <tr>
-                                            <th className="p-3 text-left">Date</th>
-                                            <th className="p-3 text-right">Est.</th>
-                                            <th className="p-3 text-right">Act.</th>
-                                            <th className="p-3 text-right">Diff</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-white/10">
-                                        {getDailyFinancials().map((d: any) => (
-                                            <React.Fragment key={d.date}>
-                                                {/* 汇总行 */}
-                                                <tr className="hover:bg-white/5 transition-colors bg-white/5 border-b border-white/5">
-                                                    <td className="p-3">
-                                                        <div className="font-bold text-white">{d.date}</div>
-                                                        <div className="text-[10px] text-dark-text-light">{d.name}</div>
-                                                    </td>
-                                                    <td className="p-3 text-right font-mono text-dark-text-light">€{d.est.toFixed(0)}</td>
-                                                    <td className="p-3 text-right font-mono font-bold text-white">€{d.act.toFixed(0)}</td>
-                                                    <td className="p-3 text-right font-mono">
-                                                        <span className={`px-1.5 py-0.5 rounded ${Math.abs(d.diff) < 1 ? 'bg-white/5 text-gray-400' : d.diff < 0 ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
-                                                            {d.diff > 0 ? '+' : ''}{d.diff.toFixed(0)}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                                {/* 员工明细行 */}
-                                                {d.details.length > 0 && (
-                                                    <tr>
-                                                        <td colSpan={4} className="p-2 pl-4 border-b border-white/10 bg-dark-bg/30">
-                                                            <div className="grid grid-cols-2 gap-2">
-                                                                {d.details.map((staff: any, idx: number) => (
-                                                                    <div key={idx} className="flex justify-between items-center text-[10px] bg-dark-surface p-1.5 rounded border border-white/5">
-                                                                        <span className="text-dark-text font-bold">{staff.name}</span>
-                                                                        <div className="flex gap-2 font-mono">
-                                                                            <span className="text-dark-text-light">E:{staff.est.toFixed(0)}</span>
-                                                                            <span className={`font-bold ${staff.act > staff.est ? 'text-red-400' : staff.act < staff.est ? 'text-blue-300' : 'text-green-400'}`}>
-                                                                                A:{staff.act.toFixed(0)}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </React.Fragment>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* 4. 导出控制区 */}
-                        <div className="bg-dark-surface p-4 rounded-xl border border-white/10 mt-4">
-                            <div className="flex items-center justify-between mb-3">
-                                <span className="text-xs font-bold text-dark-text-light uppercase">Select Export Month</span>
-                                {/* 月份选择器 */}
-                                <input 
-                                    type="month" 
-                                    value={exportMonth} 
-                                    onChange={(e) => setExportMonth(e.target.value)} 
-                                    className="bg-dark-bg border border-white/20 rounded-lg px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-dark-accent"
-                                />
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-3">
-                                <button onClick={handleExportLogsCSV} className="bg-white/10 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-white/20 transition-all border border-white/5">
-                                    <Icon name="Clock" size={16} /> Export Logs ({exportMonth})
-                                </button>
-                                <button onClick={handleExportFinancialCSV} className="bg-green-600 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-green-700 transition-all shadow-lg">
-                                    <Icon name="List" size={16} /> Export Summary
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}                
                 {view === 'confirmations' && (
                     <div className="space-y-4">
                         <div className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
                             <h3 className="font-bold text-dark-text mb-2">Staff Confirmation Status</h3>
                             <p className="text-xs text-dark-text-light mb-4">Cycle: {currentCycle ? `${currentCycle.startDate} to ${currentCycle.endDate}` : 'No active cycle'}</p>
-                            
-                            <div className="overflow-x-auto">
-                                 <table className="w-full text-xs text-left">
-                                    <thead className="text-dark-text-light border-b border-white/10">
-                                        <tr><th className="p-3">Staff</th><th className="p-3">Status</th><th className="p-3">Viewed</th></tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-white/10">
-                                        {currentCycle && Object.entries(currentCycle.confirmations).map(([userId, conf]) => {
-                                            const staff = users.find((u:User) => u.id === userId);
-                                            // FIX: Add type assertion for 'conf' to resolve 'unknown' type error when iterating object entries.
-                                            const confirmation = conf as { status: 'pending' | 'confirmed' | 'needs_change'; viewed: boolean };
-                                            return (
-                                                <tr key={userId}>
-                                                    <td className="p-3 font-bold">{staff?.name || userId}</td>
-                                                    <td className="p-3 capitalize">{confirmation.status.replace('_', ' ')}</td>
-                                                    <td className="p-3">{confirmation.viewed ? 'Yes' : 'No'}</td>
-                                                </tr>
-                                            )
-                                        })}
-                                    </tbody>
-                                 </table>
-                                 {!currentCycle && <p className="text-center p-4 text-dark-text-light italic">No schedule has been published yet.</p>}
-                            </div>
+                            <div className="overflow-x-auto"><table className="w-full text-xs text-left"><thead className="text-dark-text-light border-b border-white/10"><tr><th className="p-3">Staff</th><th className="p-3">Status</th><th className="p-3">Viewed</th></tr></thead><tbody className="divide-y divide-white/10">{currentCycle && Object.entries(currentCycle.confirmations).map(([userId, conf]) => { const staff = users.find((u:User) => u.id === userId); const confirmation = conf as any; return (<tr key={userId}><td className="p-3 font-bold">{staff?.name || userId}</td><td className={`p-3 capitalize font-bold ${confirmation.status === 'confirmed' ? 'text-green-400' : 'text-red-400'}`}>{confirmation.status.replace('_', ' ')}</td><td className="p-3">{confirmation.viewed ? 'Yes' : 'No'}</td></tr>)})}</tbody></table>{!currentCycle && <p className="text-center p-4 text-dark-text-light italic">No schedule has been published yet.</p>}</div>
                         </div>
                     </div>
                 )}
+                {view === 'availability' && <StaffAvailabilityView t={t} users={users} />}
+                {view === 'chat' && <ChatView t={t} currentUser={managerUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={true} onExit={() => setView('requests')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />}
+                {view === 'planning' && (
+                    <div className="space-y-4 pb-10">
+                        <div className="bg-dark-surface p-5 rounded-xl border border-white/10 mb-4 shadow-lg"><h3 className="font-bold text-dark-text mb-2 flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Briefcase" size={16}/> Staff Planning & Cost</h3><p className="text-xs text-dark-text-light mb-4">Live estimate based on current schedule (Current Week View).</p><div className="flex justify-between items-center bg-dark-bg p-4 rounded-xl border border-white/5"><span className="text-xs font-bold text-dark-text-light uppercase">Total Weekly Forecast</span><span className="text-2xl font-black text-green-400">€{totalWeeklyPlanningCost.toFixed(0)}</span></div></div>
+                        {displayedDays?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, idxInView: number) => {
+                            const absoluteIdx = currentWeekIndex * 7 + idxInView;
+                            const dailyCost = (day.shifts || []).reduce((acc:number, s:any) => acc + getShiftCost(s.staff||[], s.start, s.end), 0) 
+                                            + getShiftCost(day.morning, '10:00', '15:00') + getShiftCost(day.evening, '14:30', '19:00') + (day.night ? getShiftCost(day.night, '18:00', '22:00') : 0);
+                            return (
+                                <div key={absoluteIdx} className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
+                                    <div className="flex justify-between items-center mb-3 border-b border-white/5 pb-2"><div><span className="font-bold text-dark-text">{day.name}</span><span className="text-xs text-dark-text-light ml-2">{day.date}</span></div><div className="text-right"><span className="block text-[10px] text-dark-text-light uppercase">Daily Cost</span><span className="font-bold text-white">€{dailyCost.toFixed(0)}</span></div></div>
+                                    <p className="text-xs text-dark-text-light italic text-center">Use 'Schedule' tab to edit shifts.</p>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
-            {editingShift && displayedDays && <ScheduleEditorModal isOpen={!!editingShift} day={displayedDays[editingShift.dayIdx]} shiftType={editingShift.shift} currentStaff={(schedule.days.find((d: any) => d.date === displayedDays[editingShift.dayIdx].date) as any)[editingShift.shift]} currentHours={displayedDays[editingShift.dayIdx].hours?.[editingShift.shift]} onClose={() => setEditingShift(null)} onSave={handleSaveSchedule} teamMembers={activeStaff} />}
+            {editingShift && displayedDays && <ScheduleEditorModal isOpen={!!editingShift} day={displayedDays[editingShift.dayIdx]} shiftType={editingShift.shift} currentStaff={[]} currentHours={undefined} onClose={() => setEditingShift(null)} onSave={handleSaveSchedule} teamMembers={activeStaff} />}
             <ManualAddModal isOpen={isAddingManualLog} onClose={() => setIsAddingManualLog(false)} onSave={handleSaveManualLog} users={users} currentUser={managerUser} />
             <InvalidateLogModal isOpen={!!logToInvalidate} log={logToInvalidate} onClose={() => setLogToInvalidate(null)} onConfirm={handleInvalidateConfirm} currentUser={managerUser} />
             <AdjustHoursModal isOpen={!!logPairToAdjust} logPair={logPairToAdjust} onClose={() => setLogPairToAdjust(null)} onSave={handleSaveAdjustedHours} currentUser={managerUser} />
