@@ -2255,16 +2255,28 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     );
 };
 // ============================================================================
-// 组件 4: Smart Inventory View (后台仓库 - 填表盘点模式)
+// 组件 4: Smart Inventory View (后台仓库 - 盘点 & 管理双模式)
 // ============================================================================
 const SmartInventoryView = ({ data, onSaveReport }: any) => {
     const { smartInventory, setSmartInventory } = data;
     const [supplierFilter, setSupplierFilter] = useState<'All' | "I'tea" | 'Joybuy' | 'Open Mkt'>('All');
     
+    // --- 模式状态 ---
+    const [isManageMode, setIsManageMode] = useState(false); // false=盘点模式, true=管理模式
+    const [manageList, setManageList] = useState<any[]>([]); // 管理模式下的临时数据
+
+    // --- 盘点模式数据 ---
     // 存储填表数据：itemId -> { count: string, add: string }
     const [inputs, setInputs] = useState<Record<string, { count: string, add: string }>>({});
 
-    // --- 辅助：处理输入 ---
+    // 进入管理模式时，克隆一份数据用于编辑
+    useEffect(() => {
+        if (isManageMode) {
+            setManageList(JSON.parse(JSON.stringify(smartInventory || [])));
+        }
+    }, [isManageMode, smartInventory]);
+
+    // --- 辅助：处理盘点输入 ---
     const handleInputChange = (id: string, field: 'count' | 'add', val: string) => {
         setInputs(prev => ({
             ...prev,
@@ -2280,20 +2292,68 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
         return count + add;
     };
 
-    // --- 提交周报 ---
+    // --- 管理模式：修改字段 ---
+    const handleEditItem = (id: string, field: string, value: any) => {
+        setManageList(prev => prev.map(item => 
+            item.id === id ? { ...item, [field]: value } : item
+        ));
+    };
+
+    // --- 管理模式：添加新物品 ---
+    const handleAddItem = () => {
+        const newItem = {
+            id: `item_${Date.now()}`,
+            name: 'New Item',
+            category: 'Others',
+            position: 'Z9',
+            unit: 'pcs',
+            supplier: "Open Mkt",
+            safetyStock: 5,
+            currentStock: 0
+        };
+        setManageList(prev => [...prev, newItem]);
+        // 自动滚动到底部
+        setTimeout(() => {
+            const el = document.getElementById('manage-list-bottom');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+    };
+
+    // --- 管理模式：删除物品 ---
+    const handleDeleteItem = (id: string) => {
+        if (confirm("Delete this item permanently?")) {
+            setManageList(prev => prev.filter(item => item.id !== id));
+        }
+    };
+
+    // --- 管理模式：保存更改 ---
+    const handleSaveManagement = async () => {
+        // 简单校验
+        if (manageList.some(i => !i.name)) {
+            alert("Error: Item name cannot be empty.");
+            return;
+        }
+        
+        // 更新本地和云端
+        setSmartInventory(manageList);
+        await Cloud.saveSmartInventory(manageList);
+        
+        setIsManageMode(false);
+        alert("✅ Warehouse settings updated!");
+    };
+
+    // --- 提交周报 (盘点模式) ---
     const handleSubmitWeekly = () => {
         const now = new Date();
-        // 简单计算周号逻辑
         const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
         d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
         const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
         const weekNum = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
         const currentWeekStr = `${now.getFullYear()}-W${weekNum}`;
-        const dateRange = `${now.toLocaleDateString()}`; // 简化显示
+        const dateRange = `${now.toLocaleDateString()}`;
 
-        if (!confirm(`Submit Weekly Inventory Report (${currentWeekStr})?\n\nThis will update all "Current Stock" values based on your inputs (Count + Add).`)) return;
+        if (!confirm(`Submit Weekly Inventory Report (${currentWeekStr})?\n\nThis will update all "Current Stock" values based on your inputs.`)) return;
 
-        // 1. 准备报表数据 & 2. 更新库存
         const reportItems: any[] = [];
         const newInventoryList = smartInventory.map((item: any) => {
             const inp = inputs[item.id] || {};
@@ -2301,13 +2361,6 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
             const addVal = parseFloat(inp.add) || 0;
             const totalVal = countVal + addVal;
 
-            // 如果用户完全没填，我们默认保持原库存？还是变成0？
-            // 既然是盘点，通常意味着重置。这里假设未填即为0，或者保持原样。
-            // 为了安全，如果 count 和 add 都没填，我们假设该物品未被盘点，保持原样。
-            // 但为了数据一致性，建议所有显示的物品都更新。这里采用：未填视为0。
-            // 这样能确保 "Total" 显示的就是最终库存。
-            
-            // 构建报表项
             reportItems.push({
                 id: item.id,
                 name: item.name,
@@ -2316,24 +2369,17 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
                 unit: item.unit,
                 count: countVal,
                 added: addVal,
-                currentStock: totalVal, // 核心计算：还剩 + 新增
+                currentStock: totalVal,
                 safetyStock: item.safetyStock,
                 status: totalVal < item.safetyStock ? 'LOW' : 'OK'
             });
 
-            // 返回更新后的库存对象
-            return {
-                ...item,
-                currentStock: totalVal,
-                lastUpdated: new Date().toISOString()
-            };
+            return { ...item, currentStock: totalVal, lastUpdated: new Date().toISOString() };
         });
 
-        // 保存到数据库
         setSmartInventory(newInventoryList);
         Cloud.saveSmartInventory(newInventoryList);
 
-        // 生成报表
         const report: SmartInventoryReport = {
             id: Date.now().toString(),
             weekStr: currentWeekStr,
@@ -2345,51 +2391,55 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
 
         if (onSaveReport) {
             onSaveReport(report);
-            // 可选：提交后清空输入框
             setInputs({});
         }
     };
 
     // --- 筛选与排序 ---
-    const filteredList = (smartInventory || [])
+    // 根据模式决定使用哪个列表
+    const targetList = isManageMode ? manageList : smartInventory;
+    
+    const filteredList = (targetList || [])
         .filter((item: any) => supplierFilter === 'All' || item.supplier === supplierFilter)
-        .sort((a: any, b: any) => (a.position || '').localeCompare(b.position || ''));
+        // 按位置排序 (A1 -> A2 -> B1)
+        .sort((a: any, b: any) => (a.position || 'Z99').localeCompare(b.position || 'Z99', undefined, { numeric: true, sensitivity: 'base' }));
 
     const categories = Array.from(new Set(filteredList.map((i: any) => i.category)));
 
     return (
         <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
-            {/* Header (请替换这一整块 div) */}
+            {/* Header */}
             <div className="p-4 bg-dark-surface border-b border-white/10 sticky top-0 z-10 shadow-md">
                 <div className="flex justify-between items-center mb-3">
                     <h2 className="text-xl font-black text-white flex items-center gap-2">
-                        <Icon name="Package" className="text-purple-400" /> Smart Warehouse
+                        <Icon name="Package" className="text-purple-400" /> 
+                        {isManageMode ? "Edit Warehouse Items" : "Smart Warehouse"}
                     </h2>
                     
                     <div className="flex gap-2">
-                        {/* 【新增】强制同步按钮 (Sync Code) */}
-                        <button 
-                            onClick={async () => {
-                                // 这里的 100+ 个物品会一次性写入数据库，非常快且安全
-                                if (confirm(`⚠️ Force Sync?\nThis will OVERWRITE current warehouse data with ${SMART_INVENTORY_MASTER_DATA.length} items from code.`)) {
-                                    await Cloud.saveSmartInventory(SMART_INVENTORY_MASTER_DATA);
-                                    setSmartInventory(SMART_INVENTORY_MASTER_DATA);
-                                    alert("✅ Data Synced with Code!");
-                                }
-                            }}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"
-                            title="Force reload from constants.ts"
-                        >
-                            <Icon name="RefreshCw" size={14} /> Sync Code
-                        </button>
-
-                        {/* 原有的提交周报按钮 */}
-                        <button 
-                            onClick={handleSubmitWeekly}
-                            className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg transition-all animate-pulse-slow"
-                        >
-                            <Icon name="Save" size={16} /> Submit Weekly Count
-                        </button>
+                        {isManageMode ? (
+                            <>
+                                <button onClick={() => setIsManageMode(false)} className="bg-white/10 text-white px-3 py-2 rounded-lg text-xs font-bold">Cancel</button>
+                                <button onClick={handleSaveManagement} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg">
+                                    <Icon name="Save" size={16} /> Save
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button 
+                                    onClick={() => setIsManageMode(true)}
+                                    className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"
+                                >
+                                    <Icon name="Edit" size={14} /> Manage Items
+                                </button>
+                                <button 
+                                    onClick={handleSubmitWeekly}
+                                    className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg transition-all"
+                                >
+                                    <Icon name="Save" size={16} /> Submit Count
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
                              
@@ -2403,19 +2453,69 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
                 </div>
             </div>
 
-            {/* Table Content */}
+            {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-2 space-y-4 pb-20">
                 {categories.map((cat: any) => (
                     <div key={cat}>
-                        <h3 className="text-xs font-bold text-dark-text-light uppercase px-2 mb-2 mt-2 border-b border-white/5">{cat}</h3>
+                        <h3 className="text-xs font-bold text-dark-text-light uppercase px-2 mb-2 mt-2 border-b border-white/5 sticky top-0 bg-dark-bg/95 backdrop-blur-sm py-1 z-0">{cat}</h3>
                         <div className="space-y-2">
                             {filteredList.filter((i: any) => i.category === cat).map((item: any) => {
+                                // --- 管理模式渲染 ---
+                                if (isManageMode) {
+                                    return (
+                                        <div key={item.id} className="p-3 bg-dark-surface rounded-xl border border-white/10 flex flex-col gap-3">
+                                            {/* Row 1: Position & Name */}
+                                            <div className="flex gap-2">
+                                                <div className="w-16">
+                                                    <label className="text-[9px] text-gray-500 uppercase">Pos</label>
+                                                    <input 
+                                                        className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-center text-white text-xs font-bold focus:border-blue-500 outline-none"
+                                                        value={item.position}
+                                                        onChange={e => handleEditItem(item.id, 'position', e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <label className="text-[9px] text-gray-500 uppercase">Name</label>
+                                                    <input 
+                                                        className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-white text-xs font-bold focus:border-blue-500 outline-none"
+                                                        value={item.name}
+                                                        onChange={e => handleEditItem(item.id, 'name', e.target.value)}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Row 2: Details */}
+                                            <div className="grid grid-cols-4 gap-2">
+                                                <div>
+                                                    <label className="text-[9px] text-gray-500 uppercase">Category</label>
+                                                    <input className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-xs text-white" value={item.category} onChange={e => handleEditItem(item.id, 'category', e.target.value)} />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] text-gray-500 uppercase">Supplier</label>
+                                                    <select className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-xs text-white" value={item.supplier} onChange={e => handleEditItem(item.id, 'supplier', e.target.value)}>
+                                                        <option value="I'tea">I'tea</option><option value="Joybuy">Joybuy</option><option value="Open Mkt">Open Mkt</option><option value="Other">Other</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] text-gray-500 uppercase">Unit</label>
+                                                    <input className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-xs text-white" value={item.unit} onChange={e => handleEditItem(item.id, 'unit', e.target.value)} />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] text-gray-500 uppercase text-red-300">Safe Stock</label>
+                                                    <input type="number" className="w-full bg-dark-bg border border-red-500/30 rounded p-1.5 text-xs text-red-300 font-bold" value={item.safetyStock} onChange={e => handleEditItem(item.id, 'safetyStock', parseFloat(e.target.value))} />
+                                                </div>
+                                            </div>
+                                            
+                                            <button onClick={() => handleDeleteItem(item.id)} className="w-full py-1.5 mt-1 bg-red-500/10 text-red-400 rounded text-[10px] font-bold hover:bg-red-500/20">Delete Item</button>
+                                        </div>
+                                    );
+                                }
+
+                                // --- 盘点模式渲染 (原有) ---
                                 const total = calculateTotal(item.id);
                                 const isLow = total < item.safetyStock;
-                                
                                 return (
                                     <div key={item.id} className={`p-3 rounded-xl border flex flex-col gap-2 ${isLow ? 'bg-red-500/5 border-red-500/30' : 'bg-dark-surface border-white/5'}`}>
-                                        {/* Row 1: Info */}
                                         <div className="flex justify-between items-start">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded bg-black/30 flex items-center justify-center border border-white/10 shrink-0">
@@ -2429,48 +2529,24 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
                                                     </div>
                                                 </div>
                                             </div>
-                                            {/* Dynamic Status Badge */}
                                             <div className={`px-2 py-0.5 rounded text-[9px] font-bold border ${isLow ? 'bg-red-500/20 text-red-300 border-red-500/30' : 'bg-green-500/20 text-green-300 border-green-500/30'}`}>
                                                 {isLow ? 'LOW' : 'OK'}
                                             </div>
                                         </div>
-
-                                        {/* Row 2: Inputs Calculation */}
                                         <div className="grid grid-cols-10 gap-2 items-end bg-black/20 p-2 rounded-lg">
-                                            {/* Count Input */}
                                             <div className="col-span-3">
                                                 <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Count (剩)</label>
-                                                <input 
-                                                    type="number" 
-                                                    className="w-full bg-dark-bg border border-white/10 rounded p-1.5 text-center text-white text-sm font-bold focus:border-purple-500 outline-none"
-                                                    placeholder="0"
-                                                    value={inputs[item.id]?.count || ''}
-                                                    onChange={e => handleInputChange(item.id, 'count', e.target.value)}
-                                                />
+                                                <input type="number" className="w-full bg-dark-bg border border-white/10 rounded p-1.5 text-center text-white text-sm font-bold focus:border-purple-500 outline-none" placeholder="0" value={inputs[item.id]?.count || ''} onChange={e => handleInputChange(item.id, 'count', e.target.value)} />
                                             </div>
-                                            
                                             <div className="col-span-1 flex justify-center items-center pb-2 text-gray-500">+</div>
-
-                                            {/* Add Input */}
                                             <div className="col-span-3">
                                                 <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Add (增)</label>
-                                                <input 
-                                                    type="number" 
-                                                    className="w-full bg-dark-bg border border-white/10 rounded p-1.5 text-center text-green-400 text-sm font-bold focus:border-green-500 outline-none"
-                                                    placeholder="0"
-                                                    value={inputs[item.id]?.add || ''}
-                                                    onChange={e => handleInputChange(item.id, 'add', e.target.value)}
-                                                />
+                                                <input type="number" className="w-full bg-dark-bg border border-white/10 rounded p-1.5 text-center text-green-400 text-sm font-bold focus:border-green-500 outline-none" placeholder="0" value={inputs[item.id]?.add || ''} onChange={e => handleInputChange(item.id, 'add', e.target.value)} />
                                             </div>
-
                                             <div className="col-span-1 flex justify-center items-center pb-2 text-gray-500">=</div>
-
-                                            {/* Total Display */}
                                             <div className="col-span-2">
                                                 <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Total</label>
-                                                <div className={`w-full bg-white/5 border border-white/10 rounded p-1.5 text-center text-sm font-black ${isLow ? 'text-red-400' : 'text-white'}`}>
-                                                    {total}
-                                                </div>
+                                                <div className={`w-full bg-white/5 border border-white/10 rounded p-1.5 text-center text-sm font-black ${isLow ? 'text-red-400' : 'text-white'}`}>{total}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -2479,11 +2555,19 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
                         </div>
                     </div>
                 ))}
+                
+                {/* 仅在管理模式显示：添加按钮 */}
+                {isManageMode && (
+                    <div id="manage-list-bottom" className="pt-4">
+                        <button onClick={handleAddItem} className="w-full py-4 border-2 border-dashed border-white/20 rounded-xl text-dark-text-light font-bold hover:border-blue-500 hover:text-blue-400 transition-all flex items-center justify-center gap-2">
+                            <Icon name="Plus" size={20} /> Add New Item
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
 };
-
 // ============================================================================
 // 组件 5: 店长总控台 (Owner Dashboard) - [全功能版]
 // ============================================================================
@@ -2875,7 +2959,7 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
 };
 
 // ============================================================================
-// 组件 5: 经理后台 (Manager Dashboard) - [财务月度筛选修复版]
+// 组件 5: 经理后台 (Manager Dashboard) - [离职员工彻底隐藏版]
 // ============================================================================
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { showNotification } = useNotification();
@@ -2885,43 +2969,41 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     // --- 状态定义 ---
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability' | 'confirmations'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' | 'all' } | null>(null);
-    
-    // 财务相关状态
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
-    const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7)); // 导出用的月份
-    
-    // 【新增】Financial View 专用的月份筛选器 (默认当前月)
+    const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
     const [financialMonth, setFinancialMonth] = useState(new Date().toISOString().slice(0, 7)); 
 
     // Logs 状态
     const [isAddingManualLog, setIsAddingManualLog] = useState(false);
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
-    
-    // 排班翻页
     const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
 
     // --- 1. 工资状态初始化 ---
     const [wages, setWages] = useState<Record<string, { type: 'hourly'|'fixed', value: number }>>(() => {
-        const saved = localStorage.getItem('onesip_wages_v2');
+        const saved = localStorage.getItem('onesip_wages_v3');
         if (saved) return JSON.parse(saved);
         
         const PRESETS: Record<string, { type: 'hourly'|'fixed', value: number }> = {
-            "Linda": { type: 'hourly', value: 13.18 }, "Linda No.10": { type: 'hourly', value: 13.18 },
-            "Najat": { type: 'hourly', value: 9.67 }, "Najat no.11": { type: 'hourly', value: 9.67 },
-            "Xinrui": { type: 'hourly', value: 6.15 }, "Xinrui no.8": { type: 'hourly', value: 6.15 },
-            "X. Li": { type: 'hourly', value: 9.67 }, "X. Li no.6": { type: 'hourly', value: 9.67 },
-            "Fatima": { type: 'hourly', value: 17.58 }, "Fatima 015": { type: 'hourly', value: 17.58 },
-            "Lambert": { type: 'fixed', value: 647.56 }, 
-            "Yang": { type: 'fixed', value: 1100.46 }, 
+            "X. Li no.6": { type: 'hourly', value: 13.01 },
+            "Xinrui no.8": { type: 'hourly', value: 9.42 },
+            "Linda No.10": { type: 'hourly', value: 17.35 },
+            "Najat no.11": { type: 'hourly', value: 13.30 },
+            "Fatima 015": { type: 'hourly', value: 23.48 },
+            "Jie": { type: 'hourly', value: 23.48 },
+            "Haohui": { type: 'hourly', value: 0 },
+            "Lambert": { type: 'fixed', value: 795.03 }, 
+            "Yang": { type: 'fixed', value: 1165.58 }, 
+            "RURU": { type: 'fixed', value: 1165.58 },
         };
 
         const def: any = {};
         users.forEach((m: User) => {
             let setting = { type: 'hourly', value: 12 };
-            if (PRESETS[m.name]) setting = PRESETS[m.name];
-            else {
-                const foundKey = Object.keys(PRESETS).find(k => m.name.includes(k));
+            if (PRESETS[m.name]) {
+                setting = PRESETS[m.name];
+            } else {
+                const foundKey = Object.keys(PRESETS).find(k => m.name.includes(k) || k.includes(m.name));
                 if (foundKey) setting = PRESETS[foundKey];
             }
             def[m.name] = { type: setting.type as 'hourly'|'fixed', value: setting.value };
@@ -2931,30 +3013,36 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
     const saveWages = (newWages: any) => {
         setWages(newWages);
-        localStorage.setItem('onesip_wages_v2', JSON.stringify(newWages));
+        localStorage.setItem('onesip_wages_v3', JSON.stringify(newWages));
     };
 
+    // --- 2. 名字清洗 ---
     const normalizeName = (name: string) => {
         if (!name) return "Unknown";
         const clean = name.trim();
         const mapping: Record<string, string> = {
-            "Linda": "Linda No.10", "Linda No.10": "Linda No.10",
-            "Najat": "Najat no.11", "Najata": "Najat no.11", "Najat no.11": "Najat no.11",
-            "Xinrui": "Xinrui no.8", "Xinrui no.8": "Xinrui no.8",
-            "Tingshan": "T. Meng", "T.Meng": "T. Meng", "T. Meng": "T. Meng",
-            "C.Y. Huang": "Zhiyi", "Zhiyi": "Zhiyi",
-            "Y. Huang": "Kloe", "Kloe": "Kloe",
-            "Fatima": "Fatima 015", "Allysha": "Allysha 016",
+            "Maidou": "X. Li no.6", "X. Li": "X. Li no.6", "X.Li": "X. Li no.6",
+            "Xinrui": "Xinrui no.8", "Linda": "Linda No.10",
+            "Najat": "Najat no.11", "Najata": "Najat no.11",
+            "Fatima": "Fatima 015",
+            // 旧员工映射（可选，如果想把旧数据强行归到新员工，否则它们会被下面的 validStaffNames 过滤掉）
+            "T. Meng no.5": "T. Meng", // 如果 T. Meng 彻底删除了，这里映射也没用，会被过滤
         };
+        
         if (mapping[clean]) return mapping[clean];
+        if (clean.includes("Maidou") || clean.includes("X. Li")) return "X. Li no.6";
+        if (clean.includes("Xinrui")) return "Xinrui no.8";
         if (clean.includes("Linda")) return "Linda No.10";
         if (clean.includes("Najat")) return "Najat no.11";
-        if (clean.includes("Xinrui")) return "Xinrui no.8";
-        if (clean.includes("Tingshan")) return "T. Meng";
+        if (clean.includes("Fatima")) return "Fatima 015";
+        
         return clean; 
     };
 
-    // --- 3. 自动排班修正与扩展 ---
+    // 【核心】生成有效员工白名单 Set (用于快速过滤)
+    const validStaffNames = new Set(users.map((u: User) => u.name));
+
+    // --- 3. 自动排班修正 ---
     useEffect(() => {
         const initSchedule = async () => { await Cloud.ensureScheduleCoverage(); };
         initSchedule();
@@ -3053,16 +3141,20 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     };
     const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem('onesip_budget_max', b.toString()); };
 
-    // --- 6. 财务计算逻辑 (支持月度筛选) ---
+    // --- 6. 财务计算逻辑 (包含白名单过滤) ---
     const getShiftCost = (staff: string[], start: string, end: string) => {
         if (!staff || staff.length === 0 || !start || !end) return 0;
         const s = parseInt(start.split(':')[0]) + (parseInt(start.split(':')[1]||'0')/60);
         const e = parseInt(end.split(':')[0]) + (parseInt(end.split(':')[1]||'0')/60);
         const duration = Math.max(0, e - s);
-        return staff.reduce((acc, name) => acc + (duration * (wages[normalizeName(name)]?.value || 12)), 0);
+        return staff.reduce((acc, rawName) => {
+            const name = normalizeName(rawName);
+            // 【过滤】如果名字不在当前员工列表里，成本算作 0
+            if (!validStaffNames.has(name)) return acc;
+            return acc + (duration * (wages[name]?.value || 12));
+        }, 0);
     };
 
-    // 核心计算函数：根据 selectedMonth 筛选
     const calculateFinancials = (selectedMonth: string) => {
         const stats: Record<string, any> = {};
         const getStats = (rawName: string) => {
@@ -3071,26 +3163,21 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             return stats[name];
         };
 
-        // Init stats
+        // Init stats only for ACTIVE users
         activeStaff.forEach((m: User) => {
             const s = getStats(m.name);
             s.wageType = wages[m.name]?.type || 'hourly';
         });
         
-        // 1. 预计成本 (排班 - 按月过滤)
-        // 筛选出属于 selectedMonth 的排班日
+        // 1. 预计成本 (排班 - 按月过滤 + 白名单过滤)
         const filteredDays = (schedule?.days || []).filter((day: ScheduleDay) => {
             const [m, d] = day.date.split('-').map(Number);
-            // 假设排班数据的年份，需要结合当前年份判断
             const nowY = new Date().getFullYear();
             let y = nowY;
-            // 跨年判断：如果选的是 2026-01，排班是 1-xx，那就是 2026。如果选的是 2025-12，排班是 12-xx，那就是 2025
             if (parseInt(selectedMonth.split('-')[1]) === 1 && m === 12) y--; 
             else if (parseInt(selectedMonth.split('-')[1]) === 12 && m === 1) y++;
             
-            // 简单匹配：只看月份是否一致 (忽略年份边界情况，假设数据跨度不大)
-            // 更严谨：构造 YYYY-MM
-            const dayY = (new Date().getMonth()===11 && m===1) ? nowY+1 : nowY; // 简单推断年份
+            const dayY = (new Date().getMonth()===11 && m===1) ? nowY+1 : nowY;
             const dayMonthStr = `${dayY}-${String(m).padStart(2,'0')}`;
             return dayMonthStr === selectedMonth;
         });
@@ -3105,20 +3192,29 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         const endH = parseInt(s.end.split(':')[0]) + (parseInt(s.end.split(':')[1]||'0')/60);
                         hours = Math.max(0, endH - startH);
                     }
-                    if (Array.isArray(s.staff)) s.staff.forEach((p: string) => getStats(p).estHours += hours);
+                    if (Array.isArray(s.staff)) {
+                        s.staff.forEach((rawName: string) => {
+                            const name = normalizeName(rawName);
+                            // 【过滤】只统计在职员工
+                            if (validStaffNames.has(name)) {
+                                getStats(name).estHours += hours;
+                            }
+                        });
+                    }
                 });
             } else {
-                (day.morning || []).forEach(p => getStats(p).estHours += 5);
-                (day.evening || []).forEach(p => getStats(p).estHours += 5);
-                (day.night || []).forEach(p => getStats(p).estHours += 5);
+                // Fallback
+                [...(day.morning||[]), ...(day.evening||[]), ...(day.night||[])].forEach(rawName => {
+                    const name = normalizeName(rawName);
+                    if (validStaffNames.has(name)) getStats(name).estHours += 5;
+                });
             }
         }); 
         
-        // 2. 实际成本 (日志 - 按月过滤)
+        // 2. 实际成本 (日志 - 按月过滤 + 白名单过滤)
         const logsByUser: Record<string, LogEntry[]> = {};
         logs.forEach((l: LogEntry) => { 
             if (l.isDeleted || !safeParseDate(l.time)) return;
-            // 月份过滤
             const d = new Date(l.time);
             const logMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
             if (logMonth !== selectedMonth) return;
@@ -3126,6 +3222,10 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             let rawName = l.name || 'Unknown';
             if (l.userId) { const u = users.find(user => user.id === l.userId); if (u) rawName = u.name; }
             const finalName = normalizeName(rawName);
+            
+            // 【过滤】如果这个名字不在当前有效名单里，直接跳过，不计入统计
+            if (!validStaffNames.has(finalName)) return;
+
             if (!logsByUser[finalName]) logsByUser[finalName] = []; 
             logsByUser[finalName].push(l); 
         }); 
@@ -3150,12 +3250,14 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
 
         // 3. 汇总
         let totalEstCost = 0; let totalActualCost = 0;
+        // 只遍历在 stats 里且 validStaffNames 里有的名字
         Object.keys(stats).forEach(name => { 
+            if (!validStaffNames.has(name)) return; // 双重保险
+
             const s = stats[name];
             const setting = wages[name] || { type: 'hourly', value: 12 };
             
             if (setting.type === 'fixed') {
-                // 固定月薪：直接就是这个月的成本
                 s.estCost = setting.value; 
                 s.actualCost = setting.value; 
             } else {
@@ -3165,19 +3267,20 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             totalEstCost += s.estCost; totalActualCost += s.actualCost; 
         });
 
-        // 返回过滤后的天数，用于 daily breakdown
         return { stats, totalEstCost, totalActualCost, filteredDays };
     };
 
-    // 使用当前选中的 financialMonth 进行计算
     const { stats, totalEstCost, totalActualCost, filteredDays: monthlyDays } = calculateFinancials(financialMonth);
 
-    // Daily Breakdown: 只显示选中月份的天
+    // Daily Breakdown
     const getDailyFinancials = () => {
         return monthlyDays.map((day: ScheduleDay) => {
             const staffMap: Record<string, { est: number, act: number, setting: { type: string, value: number } }> = {};
+            
             const addEst = (rawName: string, hours: number) => {
                 const name = normalizeName(rawName);
+                if (!validStaffNames.has(name)) return; // 【过滤】
+
                 const setting = wages[name] || { type: 'hourly', value: 12 };
                 if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, setting };
                 if (setting.type === 'hourly') staffMap[name].est += hours * setting.value;
@@ -3195,7 +3298,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     if (Array.isArray(shift.staff)) shift.staff.forEach((p: string) => addEst(p, hours));
                 });
             } else {
-                 (day.morning||[]).forEach(p => addEst(p, 5)); (day.evening||[]).forEach(p => addEst(p, 5)); (day.night||[]).forEach(p => addEst(p, 5));
+                 [...(day.morning||[]), ...(day.evening||[]), ...(day.night||[])].forEach(p => addEst(p, 5));
             }
 
             // Actual
@@ -3205,11 +3308,13 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             dayLogs.forEach(l => {
                 if (l.type !== 'clock-out') return;
                 const name = normalizeName(l.name || 'Unknown');
+                if (!validStaffNames.has(name)) return; // 【过滤】
+
                 const setting = wages[name] || { type: 'hourly', value: 12 };
                 if (setting.type === 'fixed') return;
                 
                 const outTime = safeParseDate(l.time)?.getTime() || 0;
-                const matchingIn = dayLogs.find(i => i.type === 'clock-in' && i.name === l.name && (safeParseDate(i.time)?.getTime()||0) < outTime);
+                const matchingIn = dayLogs.find(i => i.type === 'clock-in' && normalizeName(i.name||'') === name && (safeParseDate(i.time)?.getTime()||0) < outTime);
                 
                 if (matchingIn) {
                     const hrs = (outTime - (safeParseDate(matchingIn.time)?.getTime()||0)) / 3600000;
@@ -3228,7 +3333,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         });
     };
 
-    // --- 7. CSV 导出 ---
+    // --- 7. CSV 导出 (带过滤) ---
     const handleExportFinancialCSV = () => {
         let csv = "FINANCIAL SUMMARY REPORT\n";
         csv += `Report Month,${financialMonth}\n`;
@@ -3238,9 +3343,10 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         csv += `Balance (Budget - Actual),${(budgetMax - totalActualCost).toFixed(2)}\n\n`;
         csv += "Name,Wage Type,Value,Est. Hours,Est. Cost,Act. Hours,Act. Cost,Difference\n";
         Object.keys(stats).forEach(name => {
+            if (!validStaffNames.has(name)) return; // 【过滤】
             const s = stats[name];
             const w = wages[name];
-            if (s.estHours > 0 || s.actualHours > 0) csv += `"${name}",${s.wageType},${w?.value||0},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)},${(s.actualCost - s.estCost).toFixed(2)}\n`;
+            if (s.estHours > 0 || s.actualHours > 0 || s.wageType === 'fixed') csv += `"${name}",${s.wageType},${w?.value||0},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)},${(s.actualCost - s.estCost).toFixed(2)}\n`;
         });
         const link = document.createElement("a"); link.href = encodeURI("data:text/csv;charset=utf-8," + csv); link.download = `financial_summary_${financialMonth}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
@@ -3251,6 +3357,8 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         logs.forEach(l => {
             if (l.isDeleted) return; 
             const finalName = normalizeName(l.name || 'Unknown');
+            if (!validStaffNames.has(finalName)) return; // 【过滤】
+            
             if (!logsByUser[finalName]) logsByUser[finalName] = [];
             logsByUser[finalName].push(l);
         });
@@ -3265,7 +3373,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 const logTime = safeParseDate(log.time);
                 if (!logTime) return;
                 const y = logTime.getFullYear(); const m = String(logTime.getMonth() + 1).padStart(2, '0');
-                if (`${y}-${m}` !== financialMonth) return; // 使用 financialMonth 过滤导出
+                if (`${y}-${m}` !== financialMonth) return; 
 
                 const dateStr = `${y}-${m}-${String(logTime.getDate()).padStart(2, '0')}`;
                 const timeStr = logTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -3289,7 +3397,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const link = document.createElement("a"); link.href = encodeURI("data:text/csv;charset=utf-8," + csv); link.download = `attendance_${financialMonth}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
-    // --- 8. 功能逻辑 (Swap, Publish, Save) ---
+    // --- 8. Swap & Publish ---
     const allReqs = swapRequests?.slice().sort((a: SwapRequest, b: SwapRequest) => b.timestamp - a.timestamp) || [];
     const visibleLogs = logs?.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
     
@@ -3423,20 +3531,13 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 )}
                 {view === 'financial' && (
                     <div className="space-y-4 pb-10">
-                        {/* 1. 顶部月份选择器 */}
                         <div className="bg-dark-surface p-4 rounded-xl border border-white/10 sticky top-0 z-20 shadow-md">
                             <div className="flex items-center justify-between">
                                 <span className="text-sm font-bold text-white">💰 Financial Month</span>
-                                <input 
-                                    type="month" 
-                                    value={financialMonth} 
-                                    onChange={(e) => setFinancialMonth(e.target.value)} 
-                                    className="bg-dark-bg border border-white/20 rounded-lg px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-dark-accent"
-                                />
+                                <input type="month" value={financialMonth} onChange={(e) => setFinancialMonth(e.target.value)} className="bg-dark-bg border border-white/20 rounded-lg px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-dark-accent" />
                             </div>
                         </div>
 
-                        {/* 2. 财务概览 */}
                         <div className="bg-dark-surface p-5 rounded-2xl shadow-lg border border-white/10">
                             <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Briefcase" size={16}/> Financial Overview</h3>
                             <div className="mb-6"><label className="block text-xs font-bold text-dark-text-light mb-1 uppercase">Monthly Budget Max (€)</label><input type="number" className="w-full border rounded-xl p-3 text-xl font-black bg-dark-bg border-white/10 text-white focus:ring-2 focus:ring-dark-accent outline-none" value={budgetMax} onChange={e => handleBudgetChange(e.target.value)} /></div>
@@ -3447,13 +3548,11 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                             <div><div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-dark-text-light uppercase">Budget Used</span><span className={`text-xs font-black ${totalActualCost > budgetMax ? 'text-red-400' : 'text-green-400'}`}>{totalActualCost > budgetMax ? 'OVER BUDGET' : `€${(budgetMax - totalActualCost).toFixed(0)} Left`}</span></div><div className="w-full bg-dark-bg rounded-full h-3 overflow-hidden border border-white/5"><div className={`h-full rounded-full transition-all duration-500 ${totalActualCost > budgetMax ? 'bg-red-500' : 'bg-gradient-to-r from-green-500 to-emerald-400'}`} style={{ width: `${Math.min(100, (totalActualCost/budgetMax)*100)}%` }}></div></div></div>
                         </div>
 
-                        {/* 3. 员工工资设置 */}
                         <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
                             <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center"><h4 className="font-bold text-sm text-white">Staff Wage Settings</h4><span className="text-[10px] text-dark-text-light">Auto-saved</span></div>
                             <table className="w-full text-xs"><thead className="bg-dark-bg text-dark-text-light uppercase"><tr><th className="p-3 text-left">Staff</th><th className="p-3 text-left">Type</th><th className="p-3 text-right">Value (€)</th><th className="p-3 text-right">Act Cost ({financialMonth})</th></tr></thead><tbody className="divide-y divide-white/10">{Object.keys(stats).map(name => { const wage = wages[name] || { type: 'hourly', value: 12 }; return (<tr key={name}><td className="p-3 font-bold text-dark-text">{name}</td><td className="p-3"><select className="bg-dark-bg border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-dark-accent text-[10px]" value={wage.type} onChange={(e) => { const newWages = { ...wages, [name]: { ...wage, type: e.target.value as any } }; saveWages(newWages); }}><option value="hourly">Hourly</option><option value="fixed">Monthly</option></select></td><td className="p-3 text-right"><input type="number" step={wage.type === 'hourly' ? "0.5" : "100"} className="w-20 text-right py-1 rounded bg-dark-bg border border-white/20 text-white font-mono focus:border-dark-accent outline-none px-2" value={wage.value || ''} onChange={(e) => { const val = parseFloat(e.target.value); const newWages = { ...wages, [name]: { ...wage, value: isNaN(val) ? 0 : val } }; saveWages(newWages); }} /></td><td className="p-3 text-right font-mono text-dark-text-light">€{stats[name].actualCost.toFixed(0)}</td></tr>)})}</tbody></table>
                         </div>
 
-                        {/* 4. 每日明细 */}
                         <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
                             <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center"><h4 className="font-bold text-sm text-white">Daily Breakdown ({financialMonth})</h4><span className="text-[10px] text-dark-text-light bg-dark-bg px-2 py-1 rounded">Est vs Act</span></div>
                             <div className="max-h-64 overflow-y-auto"><table className="w-full text-xs"><thead className="bg-dark-bg text-dark-text-light uppercase sticky top-0 z-10"><tr><th className="p-3 text-left">Date</th><th className="p-3 text-right">Est.</th><th className="p-3 text-right">Act.</th><th className="p-3 text-right">Diff</th></tr></thead><tbody className="divide-y divide-white/10">{getDailyFinancials().map((d: any) => (<React.Fragment key={d.date}><tr className="hover:bg-white/5 transition-colors bg-white/5 border-b border-white/5"><td className="p-3"><div className="font-bold text-white">{d.date}</div><div className="text-[10px] text-dark-text-light">{d.name}</div></td><td className="p-3 text-right font-mono text-dark-text-light">€{d.est.toFixed(0)}</td><td className="p-3 text-right font-mono font-bold text-white">€{d.act.toFixed(0)}</td><td className="p-3 text-right font-mono"><span className={`px-1.5 py-0.5 rounded ${Math.abs(d.diff) < 1 ? 'bg-white/5 text-gray-400' : d.diff < 0 ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>{d.diff > 0 ? '+' : ''}{d.diff.toFixed(0)}</span></td></tr>{d.details.length > 0 && (<tr><td colSpan={4} className="p-2 pl-4 border-b border-white/10 bg-dark-bg/30"><div className="grid grid-cols-2 gap-2">{d.details.map((staff: any, idx: number) => (<div key={idx} className="flex justify-between items-center text-[10px] bg-dark-surface p-1.5 rounded border border-white/5"><span className="text-dark-text font-bold">{staff.name}</span><div className="flex gap-2 font-mono"><span className="text-dark-text-light">E:{staff.est.toFixed(0)}</span><span className={`font-bold ${staff.act > staff.est ? 'text-red-400' : staff.act < staff.est ? 'text-blue-300' : 'text-green-400'}`}>A:{staff.act.toFixed(0)}</span></div></div>))}</div></td></tr>)}</React.Fragment>))}</tbody></table></div>

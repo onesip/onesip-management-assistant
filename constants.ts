@@ -256,44 +256,41 @@ export const TRANSLATIONS: Record<string, any> = {
 };
 
 // Updated Database with Passwords
+// 【更新】仅保留现有员工，添加新员工，移除离职员工
 export const USERS: User[] = [
-    { id: 'u_ruru', name: 'RURU', role: 'staff', phone: '31684684907', password: '490701' },
     { id: 'u_yang', name: 'Yang', role: 'boss', phone: '31625491808', password: '180802' },
-    { id: 'u_haohui', name: 'Haohui', role: 'maintenance', phone: '31681166148', password: '614803' },
     { id: 'u_lambert', name: 'Lambert', role: 'manager', phone: '31626419957', password: '995704' },
-    { id: 'u_zhiyi', name: 'Zhiyi', role: 'staff', phone: '31630047391', password: '739105' },
-    { id: 'u_tingshan', name: 'Tingshan', role: 'staff', phone: '31659343108', password: '310806' },
-    { id: 'u_kloe', name: 'Kloe', role: 'staff', phone: '31645747056', password: '705607' },
-    { id: 'u_maidou', name: 'Maidou', role: 'staff', phone: '31684866535', password: '653508' },
-    { id: 'u_xinrui', name: 'Xinrui', role: 'staff', phone: '31628895082', password: '508209' },
-    { id: 'u_linda', name: 'Linda', role: 'staff', phone: '31638100725', password: '072510' },
-    { id: 'u_mengchu', name: 'Mengchu', role: 'staff', phone: '31616928771', password: '877111' },
-    { id: 'u_najata', name: 'Najat', role: 'staff', phone: '31684244371', password: '437112' },
+    { id: 'u_ruru', name: 'RURU', role: 'staff', phone: '31684684907', password: '490701' },
+    { id: 'u_haohui', name: 'Haohui', role: 'maintenance', phone: '31681166148', password: '614803' },
+    // 重命名 Maidou -> X. Li no.6
+    { id: 'u_xli', name: 'X. Li no.6', role: 'staff', phone: '31684866535', password: '653508' },
+    // 更新名字后缀
+    { id: 'u_xinrui', name: 'Xinrui no.8', role: 'staff', phone: '31628895082', password: '508209' },
+    { id: 'u_linda', name: 'Linda No.10', role: 'staff', phone: '31638100725', password: '072510' },
+    { id: 'u_najata', name: 'Najat no.11', role: 'staff', phone: '31684244371', password: '437112' },
+    // 新增员工 (密码默认设为 000000，请让他们自行修改)
+    { id: 'u_fatima', name: 'Fatima 015', role: 'staff', phone: '', password: '000000' },
+    { id: 'u_jie', name: 'Jie', role: 'staff', phone: '', password: '000000' },
+    // 保留 Editor 用于系统调试
     { id: 'u_editor', name: 'Editor', role: 'editor', phone: '0413', password: '0413' },
-    { id: 'u_julia', name: 'Julia', role: 'staff', phone: '', password: '' },
 ];
 
-export const TEAM_MEMBERS: string[] = [
-    "RURU", "Yang", "Haohui", "Lambert", "Zhiyi", "Tingshan", 
-    "Kloe", "Maidou", "Xinrui", "Linda", "Mengchu", "Julia", "Najat"
-];
+export const TEAM_MEMBERS: string[] = USERS.map(u => u.name);
 
 export const CONTACTS_DATA: ContactItem[] = [
     { id: 'c_yang', name: 'Yang', role: { zh: '店主', en: 'Boss' }, phone: '+31 6 25491808' },
     { id: 'c_lambert', name: 'Lambert', role: { zh: '店长', en: 'Manager' }, phone: '+31 6 26419957' },
     { id: 'c_haohui', name: 'Haohui', role: { zh: '维修师傅', en: 'Maintenance' }, phone: '+31 6 81166148' },
     { id: 'c_ruru', name: 'RURU', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 84684907' },
-    { id: 'c_zhiyi', name: 'Zhiyi', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 30047391' },
-    { id: 'c_tingshan', name: 'Tingshan', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 59343108' },
-    { id: 'c_kloe', name: 'Kloe', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 45747056' },
-    { id: 'c_maidou', name: 'Maidou', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 84866535' },
-    { id: 'c_xinrui', name: 'Xinrui', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 28895082' },
-    { id: 'c_linda', name: 'Linda', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 38100725' },
-    { id: 'c_mengchu', name: 'Mengchu', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 16928771' },
-    { id: 'c_najata', name: 'Najat', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 84244371' },
-    { id: 'c_julia', name: 'Julia', role: { zh: '员工', en: 'Staff' }, phone: null },
+    { id: 'c_xli', name: 'X. Li no.6', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 84866535' },
+    { id: 'c_xinrui', name: 'Xinrui no.8', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 28895082' },
+    { id: 'c_linda', name: 'Linda No.10', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 38100725' },
+    { id: 'c_najata', name: 'Najat no.11', role: { zh: '员工', en: 'Staff' }, phone: '+31 6 84244371' },
+    { id: 'c_fatima', name: 'Fatima 015', role: { zh: '员工', en: 'Staff' }, phone: null },
+    { id: 'c_jie', name: 'Jie', role: { zh: '员工', en: 'Staff' }, phone: null },
 ];
 
+// ... (保留文件下方的 SOP, RECIPES 等内容)
 export const SOP_DATABASE: SopItem[] = [
     { 
         id: 'sop_clean_1', 
