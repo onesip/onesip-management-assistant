@@ -2959,7 +2959,7 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
 };
 
 // ============================================================================
-// 组件 5: 经理后台 (Manager Dashboard) - [离职员工彻底隐藏版]
+// 组件 5: 经理后台 (Manager Dashboard) - [财务双模块分离版]
 // ============================================================================
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { showNotification } = useNotification();
@@ -2970,7 +2970,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability' | 'confirmations'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' | 'all' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
-    const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+    const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7)); 
     const [financialMonth, setFinancialMonth] = useState(new Date().toISOString().slice(0, 7)); 
 
     // Logs 状态
@@ -3025,8 +3025,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             "Xinrui": "Xinrui no.8", "Linda": "Linda No.10",
             "Najat": "Najat no.11", "Najata": "Najat no.11",
             "Fatima": "Fatima 015",
-            // 旧员工映射（可选，如果想把旧数据强行归到新员工，否则它们会被下面的 validStaffNames 过滤掉）
-            "T. Meng no.5": "T. Meng", // 如果 T. Meng 彻底删除了，这里映射也没用，会被过滤
         };
         
         if (mapping[clean]) return mapping[clean];
@@ -3035,11 +3033,9 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         if (clean.includes("Linda")) return "Linda No.10";
         if (clean.includes("Najat")) return "Najat no.11";
         if (clean.includes("Fatima")) return "Fatima 015";
-        
         return clean; 
     };
 
-    // 【核心】生成有效员工白名单 Set (用于快速过滤)
     const validStaffNames = new Set(users.map((u: User) => u.name));
 
     // --- 3. 自动排班修正 ---
@@ -3141,7 +3137,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     };
     const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem('onesip_budget_max', b.toString()); };
 
-    // --- 6. 财务计算逻辑 (包含白名单过滤) ---
+    // --- 6. 财务计算逻辑 (双模块分离) ---
     const getShiftCost = (staff: string[], start: string, end: string) => {
         if (!staff || staff.length === 0 || !start || !end) return 0;
         const s = parseInt(start.split(':')[0]) + (parseInt(start.split(':')[1]||'0')/60);
@@ -3149,7 +3145,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const duration = Math.max(0, e - s);
         return staff.reduce((acc, rawName) => {
             const name = normalizeName(rawName);
-            // 【过滤】如果名字不在当前员工列表里，成本算作 0
             if (!validStaffNames.has(name)) return acc;
             return acc + (duration * (wages[name]?.value || 12));
         }, 0);
@@ -3163,23 +3158,20 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             return stats[name];
         };
 
-        // Init stats only for ACTIVE users
         activeStaff.forEach((m: User) => {
             const s = getStats(m.name);
             s.wageType = wages[m.name]?.type || 'hourly';
         });
         
-        // 1. 预计成本 (排班 - 按月过滤 + 白名单过滤)
+        // 1. 预计成本
         const filteredDays = (schedule?.days || []).filter((day: ScheduleDay) => {
             const [m, d] = day.date.split('-').map(Number);
             const nowY = new Date().getFullYear();
             let y = nowY;
             if (parseInt(selectedMonth.split('-')[1]) === 1 && m === 12) y--; 
             else if (parseInt(selectedMonth.split('-')[1]) === 12 && m === 1) y++;
-            
             const dayY = (new Date().getMonth()===11 && m===1) ? nowY+1 : nowY;
-            const dayMonthStr = `${dayY}-${String(m).padStart(2,'0')}`;
-            return dayMonthStr === selectedMonth;
+            return `${dayY}-${String(m).padStart(2,'0')}` === selectedMonth;
         });
 
         filteredDays.forEach((day: ScheduleDay) => { 
@@ -3195,15 +3187,11 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     if (Array.isArray(s.staff)) {
                         s.staff.forEach((rawName: string) => {
                             const name = normalizeName(rawName);
-                            // 【过滤】只统计在职员工
-                            if (validStaffNames.has(name)) {
-                                getStats(name).estHours += hours;
-                            }
+                            if (validStaffNames.has(name)) getStats(name).estHours += hours;
                         });
                     }
                 });
             } else {
-                // Fallback
                 [...(day.morning||[]), ...(day.evening||[]), ...(day.night||[])].forEach(rawName => {
                     const name = normalizeName(rawName);
                     if (validStaffNames.has(name)) getStats(name).estHours += 5;
@@ -3211,21 +3199,17 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             }
         }); 
         
-        // 2. 实际成本 (日志 - 按月过滤 + 白名单过滤)
+        // 2. 实际成本
         const logsByUser: Record<string, LogEntry[]> = {};
         logs.forEach((l: LogEntry) => { 
             if (l.isDeleted || !safeParseDate(l.time)) return;
             const d = new Date(l.time);
             const logMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
             if (logMonth !== selectedMonth) return;
-
             let rawName = l.name || 'Unknown';
             if (l.userId) { const u = users.find(user => user.id === l.userId); if (u) rawName = u.name; }
             const finalName = normalizeName(rawName);
-            
-            // 【过滤】如果这个名字不在当前有效名单里，直接跳过，不计入统计
             if (!validStaffNames.has(finalName)) return;
-
             if (!logsByUser[finalName]) logsByUser[finalName] = []; 
             logsByUser[finalName].push(l); 
         }); 
@@ -3248,39 +3232,42 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             });
         });
 
-        // 3. 汇总
+        // 3. 汇总 - 【区分 Fixed 和 Hourly】
         let totalEstCost = 0; let totalActualCost = 0;
-        // 只遍历在 stats 里且 validStaffNames 里有的名字
-        Object.keys(stats).forEach(name => { 
-            if (!validStaffNames.has(name)) return; // 双重保险
+        let totalHourlyEst = 0; let totalHourlyAct = 0; // 新增：仅时薪汇总
+        let totalFixed = 0; // 新增：仅固定月薪汇总
 
+        Object.keys(stats).forEach(name => { 
+            if (!validStaffNames.has(name)) return;
             const s = stats[name];
             const setting = wages[name] || { type: 'hourly', value: 12 };
             
             if (setting.type === 'fixed') {
                 s.estCost = setting.value; 
                 s.actualCost = setting.value; 
+                totalFixed += setting.value; // 计入固定池
             } else {
                 s.estCost = s.estHours * setting.value; 
                 s.actualCost = s.actualHours * setting.value;
+                totalHourlyEst += s.estCost; // 计入时薪池
+                totalHourlyAct += s.actualCost; // 计入时薪池
             }
             totalEstCost += s.estCost; totalActualCost += s.actualCost; 
         });
 
-        return { stats, totalEstCost, totalActualCost, filteredDays };
+        return { stats, totalEstCost, totalActualCost, totalHourlyEst, totalHourlyAct, totalFixed, filteredDays };
     };
 
-    const { stats, totalEstCost, totalActualCost, filteredDays: monthlyDays } = calculateFinancials(financialMonth);
+    // 结构出所有需要的变量
+    const { stats, totalEstCost, totalActualCost, totalHourlyEst, totalHourlyAct, totalFixed, filteredDays: monthlyDays } = calculateFinancials(financialMonth);
 
     // Daily Breakdown
     const getDailyFinancials = () => {
         return monthlyDays.map((day: ScheduleDay) => {
             const staffMap: Record<string, { est: number, act: number, setting: { type: string, value: number } }> = {};
-            
             const addEst = (rawName: string, hours: number) => {
                 const name = normalizeName(rawName);
-                if (!validStaffNames.has(name)) return; // 【过滤】
-
+                if (!validStaffNames.has(name)) return;
                 const setting = wages[name] || { type: 'hourly', value: 12 };
                 if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, setting };
                 if (setting.type === 'hourly') staffMap[name].est += hours * setting.value;
@@ -3301,21 +3288,17 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                  [...(day.morning||[]), ...(day.evening||[]), ...(day.night||[])].forEach(p => addEst(p, 5));
             }
 
-            // Actual
             const scheduleDateObj = new Date(parseInt(financialMonth.split('-')[0]), parseInt(financialMonth.split('-')[1])-1, parseInt(day.date.split('-')[1]));
             const dayLogs = logs.filter(l => !l.isDeleted && safeParseDate(l.time)?.toDateString() === scheduleDateObj.toDateString());
             
             dayLogs.forEach(l => {
                 if (l.type !== 'clock-out') return;
                 const name = normalizeName(l.name || 'Unknown');
-                if (!validStaffNames.has(name)) return; // 【过滤】
-
+                if (!validStaffNames.has(name)) return;
                 const setting = wages[name] || { type: 'hourly', value: 12 };
                 if (setting.type === 'fixed') return;
-                
                 const outTime = safeParseDate(l.time)?.getTime() || 0;
                 const matchingIn = dayLogs.find(i => i.type === 'clock-in' && normalizeName(i.name||'') === name && (safeParseDate(i.time)?.getTime()||0) < outTime);
-                
                 if (matchingIn) {
                     const hrs = (outTime - (safeParseDate(matchingIn.time)?.getTime()||0)) / 3600000;
                     if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, setting };
@@ -3333,7 +3316,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         });
     };
 
-    // --- 7. CSV 导出 (带过滤) ---
     const handleExportFinancialCSV = () => {
         let csv = "FINANCIAL SUMMARY REPORT\n";
         csv += `Report Month,${financialMonth}\n`;
@@ -3343,7 +3325,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         csv += `Balance (Budget - Actual),${(budgetMax - totalActualCost).toFixed(2)}\n\n`;
         csv += "Name,Wage Type,Value,Est. Hours,Est. Cost,Act. Hours,Act. Cost,Difference\n";
         Object.keys(stats).forEach(name => {
-            if (!validStaffNames.has(name)) return; // 【过滤】
+            if (!validStaffNames.has(name)) return;
             const s = stats[name];
             const w = wages[name];
             if (s.estHours > 0 || s.actualHours > 0 || s.wageType === 'fixed') csv += `"${name}",${s.wageType},${w?.value||0},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)},${(s.actualCost - s.estCost).toFixed(2)}\n`;
@@ -3357,27 +3339,22 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         logs.forEach(l => {
             if (l.isDeleted) return; 
             const finalName = normalizeName(l.name || 'Unknown');
-            if (!validStaffNames.has(finalName)) return; // 【过滤】
-            
+            if (!validStaffNames.has(finalName)) return;
             if (!logsByUser[finalName]) logsByUser[finalName] = [];
             logsByUser[finalName].push(l);
         });
-
         Object.entries(logsByUser).forEach(([userName, userLogs]) => {
             const wage = wages[userName]?.value || 12;
             userLogs.sort((a,b) => (safeParseDate(a.time)?.getTime()||0) - (safeParseDate(b.time)?.getTime()||0));
             const processedIds = new Set<number>();
-
             userLogs.forEach((log, idx) => {
                 if (processedIds.has(log.id)) return;
                 const logTime = safeParseDate(log.time);
                 if (!logTime) return;
                 const y = logTime.getFullYear(); const m = String(logTime.getMonth() + 1).padStart(2, '0');
                 if (`${y}-${m}` !== financialMonth) return; 
-
                 const dateStr = `${y}-${m}-${String(logTime.getDate()).padStart(2, '0')}`;
                 const timeStr = logTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-
                 if (log.type === 'clock-in') {
                     const matchingOut = userLogs.slice(idx + 1).find(l => l.type === 'clock-out' && !processedIds.has(l.id) && safeParseDate(l.time)?.toDateString() === logTime.toDateString());
                     if (matchingOut) {
@@ -3397,7 +3374,6 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const link = document.createElement("a"); link.href = encodeURI("data:text/csv;charset=utf-8," + csv); link.download = `attendance_${financialMonth}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
-    // --- 8. Swap & Publish ---
     const allReqs = swapRequests?.slice().sort((a: SwapRequest, b: SwapRequest) => b.timestamp - a.timestamp) || [];
     const visibleLogs = logs?.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
     
@@ -3408,21 +3384,14 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const startISO = `${year}-${startDate.split('-').map(p=>p.padStart(2,'0')).join('-')}`;
         const endISO = `${year}-${endDate.split('-').map(p=>p.padStart(2,'0')).join('-')}`;
         const cycleId = `${startISO}_${endISO}`;
-
         const confirmations: any = {};
         activeStaff.forEach((u: User) => { confirmations[u.id] = { status: 'pending', viewed: false }; });
-
         const newCycle = { cycleId, startDate: startISO, endDate: endISO, publishedAt: new Date().toISOString(), status: 'published', confirmations, snapshot: {} };
         const updatedCycles = scheduleCycles.filter((c: ScheduleCycle) => c.cycleId !== cycleId);
         updatedCycles.push(newCycle);
-
         await Cloud.updateScheduleCycles(updatedCycles);
         if (setScheduleCycles) setScheduleCycles(updatedCycles); 
-        
-        await Cloud.updateNotices([{
-            id: Date.now().toString(), type: 'announcement', title: "📅 New Schedule", 
-            content: `Schedule ${startDate} to ${endDate} is live. Please confirm.`, timestamp: Date.now(), sender: 'Manager', frequency: 'once'
-        }]);
+        await Cloud.updateNotices([{ id: Date.now().toString(), type: 'announcement', title: "📅 New Schedule", content: `Schedule ${startDate} to ${endDate} is live. Please confirm.`, timestamp: Date.now(), sender: 'Manager', frequency: 'once' }]);
         showNotification({ type: 'message', title: 'Published!', message: `Staff notified.`});
     };
 
@@ -3432,16 +3401,13 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const newSchedule = JSON.parse(JSON.stringify(schedule));
         const dayIndex = newSchedule.days.findIndex((d: ScheduleDay) => normalizeDateKey(d.date) === normalizeDateKey(req.requesterDate));
         if (dayIndex === -1) return;
-        
         const day = newSchedule.days[dayIndex];
         const targetShift = (day.shifts || []).find((s: any) => s.start.startsWith(req.requesterShift.split('-')[0].trim())); 
-        
         if (targetShift) {
              targetShift.staff = targetShift.staff.map((n:string) => n === req.requesterName ? req.targetName : n);
         } else if (day[req.requesterShift]) { 
              day[req.requesterShift] = day[req.requesterShift].map((n:string) => n === req.requesterName ? req.targetName : n);
         }
-
         try {
             await Cloud.saveSchedule(newSchedule);
             const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'completed', appliedToSchedule: true } : r);
@@ -3456,11 +3422,9 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const targetDay = displayedDays[dayIdx];
         const realIndex = schedule.days.findIndex((d: ScheduleDay) => d.date === targetDay.date);
         if (realIndex === -1) return;
-
         const newSched = JSON.parse(JSON.stringify(schedule));
         newSched.days[realIndex].shifts = updatedShifts;
         newSched.days[realIndex].morning = []; newSched.days[realIndex].evening = []; newSched.days[realIndex].night = [];
-        
         setSchedule(newSched); Cloud.saveSchedule(newSched); setEditingShift(null); 
     };
 
@@ -3529,30 +3493,58 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         })}
                     </div>
                 )}
+                
+                {/* --- 财务视图 (双模块优化版) --- */}
                 {view === 'financial' && (
                     <div className="space-y-4 pb-10">
+                        {/* 1. 月份选择器 */}
                         <div className="bg-dark-surface p-4 rounded-xl border border-white/10 sticky top-0 z-20 shadow-md">
                             <div className="flex items-center justify-between">
                                 <span className="text-sm font-bold text-white">💰 Financial Month</span>
-                                <input type="month" value={financialMonth} onChange={(e) => setFinancialMonth(e.target.value)} className="bg-dark-bg border border-white/20 rounded-lg px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-dark-accent" />
+                                <input 
+                                    type="month" 
+                                    value={financialMonth} 
+                                    onChange={(e) => setFinancialMonth(e.target.value)} 
+                                    className="bg-dark-bg border border-white/20 rounded-lg px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-dark-accent"
+                                />
                             </div>
                         </div>
 
-                        <div className="bg-dark-surface p-5 rounded-2xl shadow-lg border border-white/10">
-                            <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Briefcase" size={16}/> Financial Overview</h3>
-                            <div className="mb-6"><label className="block text-xs font-bold text-dark-text-light mb-1 uppercase">Monthly Budget Max (€)</label><input type="number" className="w-full border rounded-xl p-3 text-xl font-black bg-dark-bg border-white/10 text-white focus:ring-2 focus:ring-dark-accent outline-none" value={budgetMax} onChange={e => handleBudgetChange(e.target.value)} /></div>
+                        {/* 2. 模块一: Total Overview (含月薪) - 用于看总预算 */}
+                        <div className="bg-dark-surface p-5 rounded-2xl shadow-lg border border-white/10 relative overflow-hidden">
+                            <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Briefcase" size={16}/> Total Overview (Inc. Fixed Salaries)</h3>
+                            <div className="mb-4"><label className="block text-xs font-bold text-dark-text-light mb-1 uppercase">Monthly Budget Max (€)</label><input type="number" className="w-full border rounded-xl p-3 text-xl font-black bg-dark-bg border-white/10 text-white focus:ring-2 focus:ring-dark-accent outline-none" value={budgetMax} onChange={e => handleBudgetChange(e.target.value)} /></div>
                             <div className="grid grid-cols-2 gap-3 mb-4">
-                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5"><p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Projected (Sched)</p><p className="text-xl font-black text-white">€{totalEstCost.toFixed(0)}</p></div>
-                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5 relative overflow-hidden"><div className="absolute right-0 top-0 p-1"><div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div></div><p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Actual (Logs)</p><p className="text-xl font-black text-white">€{totalActualCost.toFixed(0)}</p></div>
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5"><p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Total Proj.</p><p className="text-xl font-black text-white">€{totalEstCost.toFixed(0)}</p></div>
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5 relative overflow-hidden"><p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Total Actual</p><p className="text-xl font-black text-white">€{totalActualCost.toFixed(0)}</p></div>
                             </div>
-                            <div><div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-dark-text-light uppercase">Budget Used</span><span className={`text-xs font-black ${totalActualCost > budgetMax ? 'text-red-400' : 'text-green-400'}`}>{totalActualCost > budgetMax ? 'OVER BUDGET' : `€${(budgetMax - totalActualCost).toFixed(0)} Left`}</span></div><div className="w-full bg-dark-bg rounded-full h-3 overflow-hidden border border-white/5"><div className={`h-full rounded-full transition-all duration-500 ${totalActualCost > budgetMax ? 'bg-red-500' : 'bg-gradient-to-r from-green-500 to-emerald-400'}`} style={{ width: `${Math.min(100, (totalActualCost/budgetMax)*100)}%` }}></div></div></div>
+                            <div><div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-dark-text-light uppercase">Total Budget Used</span><span className={`text-xs font-black ${totalActualCost > budgetMax ? 'text-red-400' : 'text-green-400'}`}>{totalActualCost > budgetMax ? 'OVER BUDGET' : `€${(budgetMax - totalActualCost).toFixed(0)} Left`}</span></div><div className="w-full bg-dark-bg rounded-full h-3 overflow-hidden border border-white/5"><div className={`h-full rounded-full transition-all duration-500 ${totalActualCost > budgetMax ? 'bg-red-500' : 'bg-gradient-to-r from-green-500 to-emerald-400'}`} style={{ width: `${Math.min(100, (totalActualCost/budgetMax)*100)}%` }}></div></div></div>
+                            <p className="text-[10px] text-center text-dark-text-light mt-3 border-t border-white/5 pt-2">Includes Fixed Salaries (Monthly): €{totalFixed.toFixed(0)}</p>
                         </div>
 
+                        {/* 3. 模块二: Operational Costs (仅时薪) - 用于看日常运营 */}
+                        <div className="bg-dark-surface p-5 rounded-2xl shadow-lg border border-white/10 border-l-4 border-l-blue-500">
+                            <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Grid" size={16}/> Operational Costs (Hourly Only)</h3>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5">
+                                    <p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Proj. Hourly</p>
+                                    <p className="text-xl font-black text-blue-400">€{totalHourlyEst.toFixed(0)}</p>
+                                </div>
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5">
+                                    <p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Act. Hourly</p>
+                                    <p className="text-xl font-black text-green-400">€{totalHourlyAct.toFixed(0)}</p>
+                                </div>
+                            </div>
+                            <p className="text-[10px] text-center text-dark-text-light mt-2">Real-time costs derived from shifts & logs (Excludes Fixed Salaries).</p>
+                        </div>
+
+                        {/* 4. 员工工资设置 */}
                         <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
                             <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center"><h4 className="font-bold text-sm text-white">Staff Wage Settings</h4><span className="text-[10px] text-dark-text-light">Auto-saved</span></div>
                             <table className="w-full text-xs"><thead className="bg-dark-bg text-dark-text-light uppercase"><tr><th className="p-3 text-left">Staff</th><th className="p-3 text-left">Type</th><th className="p-3 text-right">Value (€)</th><th className="p-3 text-right">Act Cost ({financialMonth})</th></tr></thead><tbody className="divide-y divide-white/10">{Object.keys(stats).map(name => { const wage = wages[name] || { type: 'hourly', value: 12 }; return (<tr key={name}><td className="p-3 font-bold text-dark-text">{name}</td><td className="p-3"><select className="bg-dark-bg border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-dark-accent text-[10px]" value={wage.type} onChange={(e) => { const newWages = { ...wages, [name]: { ...wage, type: e.target.value as any } }; saveWages(newWages); }}><option value="hourly">Hourly</option><option value="fixed">Monthly</option></select></td><td className="p-3 text-right"><input type="number" step={wage.type === 'hourly' ? "0.5" : "100"} className="w-20 text-right py-1 rounded bg-dark-bg border border-white/20 text-white font-mono focus:border-dark-accent outline-none px-2" value={wage.value || ''} onChange={(e) => { const val = parseFloat(e.target.value); const newWages = { ...wages, [name]: { ...wage, value: isNaN(val) ? 0 : val } }; saveWages(newWages); }} /></td><td className="p-3 text-right font-mono text-dark-text-light">€{stats[name].actualCost.toFixed(0)}</td></tr>)})}</tbody></table>
                         </div>
 
+                        {/* 5. 每日明细 */}
                         <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
                             <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center"><h4 className="font-bold text-sm text-white">Daily Breakdown ({financialMonth})</h4><span className="text-[10px] text-dark-text-light bg-dark-bg px-2 py-1 rounded">Est vs Act</span></div>
                             <div className="max-h-64 overflow-y-auto"><table className="w-full text-xs"><thead className="bg-dark-bg text-dark-text-light uppercase sticky top-0 z-10"><tr><th className="p-3 text-left">Date</th><th className="p-3 text-right">Est.</th><th className="p-3 text-right">Act.</th><th className="p-3 text-right">Diff</th></tr></thead><tbody className="divide-y divide-white/10">{getDailyFinancials().map((d: any) => (<React.Fragment key={d.date}><tr className="hover:bg-white/5 transition-colors bg-white/5 border-b border-white/5"><td className="p-3"><div className="font-bold text-white">{d.date}</div><div className="text-[10px] text-dark-text-light">{d.name}</div></td><td className="p-3 text-right font-mono text-dark-text-light">€{d.est.toFixed(0)}</td><td className="p-3 text-right font-mono font-bold text-white">€{d.act.toFixed(0)}</td><td className="p-3 text-right font-mono"><span className={`px-1.5 py-0.5 rounded ${Math.abs(d.diff) < 1 ? 'bg-white/5 text-gray-400' : d.diff < 0 ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>{d.diff > 0 ? '+' : ''}{d.diff.toFixed(0)}</span></td></tr>{d.details.length > 0 && (<tr><td colSpan={4} className="p-2 pl-4 border-b border-white/10 bg-dark-bg/30"><div className="grid grid-cols-2 gap-2">{d.details.map((staff: any, idx: number) => (<div key={idx} className="flex justify-between items-center text-[10px] bg-dark-surface p-1.5 rounded border border-white/5"><span className="text-dark-text font-bold">{staff.name}</span><div className="flex gap-2 font-mono"><span className="text-dark-text-light">E:{staff.est.toFixed(0)}</span><span className={`font-bold ${staff.act > staff.est ? 'text-red-400' : staff.act < staff.est ? 'text-blue-300' : 'text-green-400'}`}>A:{staff.act.toFixed(0)}</span></div></div>))}</div></td></tr>)}</React.Fragment>))}</tbody></table></div>
