@@ -4512,7 +4512,9 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
 };
 
 
-// --- MAIN APP ---
+// ============================================================================
+// MAIN APP COMPONENT - [修复版：强制云端同步]
+// ============================================================================
 const App = () => {
     const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('onesip_lang') as Lang) || 'zh');
     const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -4538,10 +4540,10 @@ const App = () => {
     const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
     const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
     
-    // ✅ 这里的 smartInventoryReports 是从云端订阅的数据
+    // ✅ 这里的 smartInventoryReports 是真正的云端数据
     const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
 
-    // ❌ 已删除旧的本地 smartReports 状态
+    // ❌ 【已删除】旧的本地 smartReports 状态，防止数据不同步
 
     const t = TRANSLATIONS[lang];
 
@@ -4554,8 +4556,12 @@ const App = () => {
         smartInventory, setSmartInventory, 
         smartInventoryReports, setSmartInventoryReports,
         
-        // 【关键修改】让 smartReports 指向云端数据，实现多设备同步
+        // 【关键修复】让 'smartReports' 直接指向云端数据 'smartInventoryReports'
+        // 这样 OwnerDashboard 读到的就是云端同步下来的数据，而不是本地缓存
         smartReports: smartInventoryReports, 
+        
+        // 这是一个空的 setter，因为云端数据是通过 subscription 自动更新的，
+        // 不需要手动 set，但为了兼容代码不报错，我们留着它
         setSmartReports: setSmartInventoryReports 
     };
 
@@ -4579,11 +4585,10 @@ const App = () => {
                 if (data?.training) setTrainingLevels(data.training);
                 if (data?.recipes) setRecipes(data.recipes);
             }),
-            // 订阅云端 Smart Reports
+            // ✅ 订阅云端 Smart Reports，一有更新，smartInventoryReports 就会变
             Cloud.subscribeToSmartInventoryReports(setSmartInventoryReports)
         ];
 
-        // Simulate initialization delay
         setTimeout(() => setIsLoading(false), 800);
 
         return () => {
@@ -4597,9 +4602,6 @@ const App = () => {
 
     const handleLogin = (user: User, keepLoggedIn: boolean) => {
         setCurrentUser(user);
-        if(keepLoggedIn) {
-             // Logic to persist session token could go here
-        }
     };
 
     const handleLogout = () => {
@@ -4641,7 +4643,6 @@ const App = () => {
                 />
             )}
             
-            {/* Admin Trigger for Login Screen */}
             {!currentUser && !adminMode && (
                 <div className="fixed bottom-6 right-6 z-50">
                     <button 
