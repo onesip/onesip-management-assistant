@@ -2557,11 +2557,12 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
         </div>
     );
 };
+
 // ============================================================================
-// 组件 5: 店长总控台 (Owner Dashboard) - [修复版：云端同步 + 导出]
+// 组件 5: 店长总控台 (Owner Dashboard) - [修复版：强力导出 CSV]
 // ============================================================================
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    // 这里的 smartReports 现在将通过 App 组件从云端获取
+    // 这里的 smartReports 是云端实时同步下来的数据
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, setSmartReports } = data;
     const { showNotification } = useNotification();
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
@@ -2575,6 +2576,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
 
     // --- Smart History States ---
     const [expandedSmartId, setExpandedSmartId] = useState<string | null>(null);
+    const [smartReportToDelete, setSmartReportToDelete] = useState<any | null>(null);
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     
@@ -2604,14 +2606,10 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         setTimeout(checkFridayReminder, 2000);
     }, [smartReports]);
 
-    // --- 提交 Smart Weekly Report (修复：上传到云端) ---
+    // --- 提交 Smart Weekly Report (上传到云端) ---
     const handleSaveSmartReport = async (report: SmartInventoryReport) => {
         try {
-            // 1. 直接保存到云端数据库
             await Cloud.saveSmartInventoryReport(report);
-            
-            // 2. 本地状态会在 Cloud 订阅回调中自动更新，不需要手动 setSmartReports
-            // 但为了界面即时反馈，我们可以保留通知
             showNotification({ type: 'success', title: "Submitted", message: "Weekly report uploaded to cloud!" });
             setOwnerSubView('smart_history'); 
         } catch (error) {
@@ -2620,70 +2618,136 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         }
     };
 
-    // --- CSV 导出 (Smart Warehouse) (修复：增强健壮性) ---
+    // --- 删除 Smart Report (标记删除) ---
+    const handleDeleteSmartReport = async () => {
+        if (!smartReportToDelete) return;
+        try {
+            // 标记为已删除并覆盖上传
+            const updatedReport = { ...smartReportToDelete, status: 'deleted' };
+            await Cloud.saveSmartInventoryReport(updatedReport);
+            setSmartReportToDelete(null);
+            showNotification({ type: 'success', title: "Deleted", message: "Report marked as deleted." });
+        } catch (e) {
+            alert("Delete failed.");
+        }
+    };
+
+    // --- CSV 导出 (Smart Warehouse) [强力修复版] ---
     const handleExportSmartCsv = () => {
-        if (!smartReports || smartReports.length === 0) {
-            alert("No reports found to export. (Is the data synced?)");
+        // 1. 检查数据源
+        if (!smartReports || !Array.isArray(smartReports) || smartReports.length === 0) {
+            alert("No reports found to export. (Data list is empty)");
             return;
         }
 
         try {
-            const headers = "Week,Date Range,Submitted By,Item,Category,Supplier,Stock,Safety,Status\n";
-            const csvRows = smartReports.flatMap((report: SmartInventoryReport) => {
-                return (report.items || []).map(item => {
-                    // 处理可能包含逗号的字段，加上引号
-                    return `"${report.weekStr}","${report.dateRange}","${report.submittedBy}","${item.name}","${item.category}","${item.supplier}","${item.currentStock}","${item.safetyStock}","${item.status}"`;
-                });
+            // 2. 准备 CSV 内容 (BOM 防止乱码)
+            let csvContent = "\uFEFF"; 
+            csvContent += "Week,Date Range,Submitted By,Item Name,Category,Supplier,Stock,Safety Stock,Status\n";
+
+            let rowCount = 0;
+
+            // 3. 安全遍历
+            smartReports.forEach((report: any) => {
+                // 跳过无效或已删除的
+                if (!report || report.status === 'deleted') return;
+
+                const items = report.items;
+                if (items && Array.isArray(items)) {
+                    items.forEach((item: any) => {
+                        if (!item) return;
+
+                        // 4. 安全提取字段 (处理 null/undefined)
+                        const week = report.weekStr || '-';
+                        const range = report.dateRange || '-';
+                        const by = report.submittedBy || '-';
+                        const name = (item.name || 'Unknown').replace(/"/g, '""'); // 处理名称中的引号
+                        const cat = item.category || '-';
+                        const sup = item.supplier || '-';
+                        const stock = item.currentStock ?? 0; // 使用 ?? 确保 0 不会被变成 default
+                        const safety = item.safetyStock ?? 0;
+                        const status = item.status || '-';
+
+                        // 5. 拼接行 (全部加引号最安全)
+                        csvContent += `"${week}","${range}","${by}","${name}","${cat}","${sup}",${stock},${safety},"${status}"\n`;
+                        rowCount++;
+                    });
+                }
             });
 
-            const csvString = headers + csvRows.join('\n');
-            // 添加 BOM 以防止 Excel 打开中文乱码
-            const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-            const blob = new Blob([bom, csvString], { type: 'text/csv;charset=utf-8;' });
-            
+            if (rowCount === 0) {
+                alert("Found reports, but they contain no items.");
+                return;
+            }
+
+            // 6. 触发下载
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
-            const date = new Date().toISOString().split('T')[0];
-            link.setAttribute("download", `smart_warehouse_history_${date}.csv`);
+            const dateStr = new Date().toISOString().split('T')[0];
+            link.href = url;
+            link.setAttribute("download", `smart_warehouse_history_${dateStr}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+
         } catch (e) {
             console.error("Export Error:", e);
-            alert("Export failed. See console for details.");
+            alert("Export failed! Error: " + (e as Error).message);
         }
     };
 
-    // ... (Prep 的逻辑保持不变) ...
+    // --- CSV 导出 (Prep History) [强力修复版] ---
+    const handleExportPrepCsv = () => { 
+         if (!inventoryHistory || inventoryHistory.length === 0) {
+             alert("No prep history found to export.");
+             return;
+         }
+
+         try {
+             let csvContent = "\uFEFFDate,Shift,Staff,Item,Count,Loss\n";
+             
+             inventoryHistory.forEach((r: any) => {
+                if (r && r.data) {
+                    Object.entries(r.data).forEach(([id, val]: any) => {
+                         const itemDef = inventoryList.find((i:any) => i.id === id);
+                         const name = itemDef ? (itemDef.name.en || itemDef.name.zh) : id;
+                         const cleanName = (name || 'Unknown').replace(/"/g, '""');
+                         const end = val.end ?? 0;
+                         const loss = val.loss ?? 0;
+                         
+                         csvContent += `"${r.date}","${r.shift}","${r.submittedBy}","${cleanName}",${end},${loss}\n`;
+                    });
+                }
+             });
+
+             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+             const url = URL.createObjectURL(blob);
+             const link = document.createElement("a");
+             link.href = url;
+             link.download = `prep_history_${new Date().toISOString().split('T')[0]}.csv`;
+             document.body.appendChild(link);
+             link.click();
+             document.body.removeChild(link);
+         } catch (e) {
+             console.error("Prep Export Error:", e);
+             alert("Prep export failed: " + (e as Error).message);
+         }
+    };
+
     const handleUpdateLogs = (allLogs: any[]) => Cloud.updateLogs(allLogs);
+    
+    // Prep 删除
     const handleDeleteReport = async () => { 
         if (!reportToDelete) return;
-        // 这里的逻辑需要完善，目前暂时只做 UI 演示，实际需 Cloud 支持删除 InventoryHistory
-        // 由于 InventoryHistory 是单文档数组结构，删除比较麻烦，这里暂时只在本地过滤（需完善 Cloud API 才能真删）
         const newHistory = inventoryHistory.filter((r:any) => r.id !== reportToDelete.id);
         await Cloud.updateInventoryHistory(newHistory);
         setReportToDelete(null);
         showNotification({ type: 'message', title: 'Deleted', message: 'Report removed.'});
     };
-    // 这是一个 placeholder，因为 InventoryView 里已经处理了单项删除
+
+    // 占位
     const handleDeleteItemFromReport = async (reportId: string, itemId: string) => { }; 
-    const handleExportPrepCsv = () => { 
-        // 简单的 Prep 导出逻辑
-         const headers = "Date,Shift,Staff,Item,Count,Loss\n";
-         const rows = inventoryHistory.flatMap((r:any) => 
-            Object.entries(r.data).map(([id, val]: any) => {
-                 const itemDef = inventoryList.find((i:any) => i.id === id);
-                 const name = itemDef ? (itemDef.name.en || itemDef.name.zh) : id;
-                 return `${r.date},${r.shift},${r.submittedBy},"${name}",${val.end},${val.loss||0}`;
-            })
-         );
-         const blob = new Blob(["\uFEFF"+headers + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-         const url = URL.createObjectURL(blob);
-         const link = document.createElement("a");
-         link.href = url;
-         link.download = `prep_history.csv`;
-         link.click();
-    };
 
     if (view === 'manager') return <ManagerDashboard data={data} onExit={() => setView('main')} />;
     
@@ -2697,34 +2761,62 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 </button>
             </div>
             {(!smartReports || smartReports.length === 0) && <p className="text-dark-text-light text-center py-10">No weekly reports found in cloud.</p>}
-            {smartReports && [...smartReports].reverse().map((report: SmartInventoryReport) => (
-                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10">
-                    <div onClick={() => setExpandedSmartId(expandedSmartId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
-                        <div>
-                            <p className="text-sm font-bold text-white">{report.weekStr} <span className="text-xs font-normal text-dark-text-light">({report.dateRange})</span></p>
-                            <p className="text-xs text-dark-text-light">by {report.submittedBy} • {report.items?.length || 0} items</p>
-                        </div>
-                        <Icon name={expandedSmartId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
-                    </div>
-                    
-                    {expandedSmartId === report.id && (
-                        <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 max-h-60 overflow-y-auto">
-                            <div className="grid grid-cols-4 font-bold text-dark-text-light mb-1">
-                                <span className="col-span-2">Item</span>
-                                <span className="text-center">Stock</span>
-                                <span className="text-center">Status</span>
+            
+            {smartReports && [...smartReports].reverse().map((report: any) => {
+                // 过滤掉已删除的
+                if (report.status === 'deleted') return null;
+
+                return (
+                    <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group">
+                        <div className="flex justify-between items-center">
+                            <div onClick={() => setExpandedSmartId(expandedSmartId === report.id ? null : report.id)} className="flex-1 cursor-pointer">
+                                <p className="text-sm font-bold text-white flex items-center gap-2">
+                                    {report.weekStr} 
+                                    <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light font-normal">
+                                        {(report.items || []).length} items
+                                    </span>
+                                </p>
+                                <p className="text-xs text-dark-text-light mt-0.5">
+                                    {report.dateRange} • by {report.submittedBy}
+                                </p>
                             </div>
-                            {(report.items || []).map((item, idx) => (
-                                <div key={idx} className="grid grid-cols-4 items-center py-1 border-b border-white/5 last:border-0">
-                                    <span className="col-span-2 text-white truncate">{item.name}</span>
-                                    <span className="text-center font-mono text-purple-300">{item.currentStock}</span>
-                                    <span className={`text-center font-bold ${item.status==='LOW'?'text-red-400':'text-green-400'}`}>{item.status}</span>
+                            
+                            <div className="flex items-center gap-3">
+                                {/* 删除按钮 */}
+                                <button 
+                                    onClick={() => setSmartReportToDelete(report)}
+                                    className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 opacity-80 hover:opacity-100 transition-all"
+                                    title="Delete Report"
+                                >
+                                    <Icon name="Trash" size={16} />
+                                </button>
+                                <div onClick={() => setExpandedSmartId(expandedSmartId === report.id ? null : report.id)} className="cursor-pointer p-1">
+                                    <Icon name={expandedSmartId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
                                 </div>
-                            ))}
+                            </div>
                         </div>
-                    )}
-                </div>
-            ))}
+                        
+                        {expandedSmartId === report.id && (
+                            <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 max-h-60 overflow-y-auto animate-fade-in">
+                                <div className="grid grid-cols-4 font-bold text-dark-text-light mb-1">
+                                    <span className="col-span-2">Item</span>
+                                    <span className="text-center">Stock</span>
+                                    <span className="text-center">Status</span>
+                                </div>
+                                {(report.items || []).map((item: any, idx: number) => (
+                                    <div key={idx} className="grid grid-cols-4 items-center py-1 border-b border-white/5 last:border-0 hover:bg-white/5">
+                                        <span className="col-span-2 text-white truncate">{item.name}</span>
+                                        <span className={`text-center font-mono ${item.currentStock === 0 ? 'text-gray-500' : 'text-purple-300 font-bold'}`}>
+                                            {item.currentStock}
+                                        </span>
+                                        <span className={`text-center font-bold ${item.status==='LOW'?'text-red-400':'text-green-400'}`}>{item.status}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 
@@ -2838,10 +2930,23 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                     </div>
                 </div>
             )}
+
+            {/* Smart 删除确认弹窗 (新增) */}
+            {smartReportToDelete && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
+                    <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl">
+                        <h3 className="text-lg font-bold text-white mb-2 text-red-400">Delete Warehouse Report?</h3>
+                        <p className="text-sm text-dark-text-light mb-6">This will mark the report as deleted.</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setSmartReportToDelete(null)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
+                            <button onClick={handleDeleteSmartReport} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold">Confirm Delete</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
-
 // ============================================================================
 
 const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (user: User) => void, onClose: () => void }) => {
