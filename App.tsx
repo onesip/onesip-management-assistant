@@ -2255,54 +2255,49 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     );
 };
 // ============================================================================
-// 组件 4: Smart Inventory View (后台仓库 - 盘点 & 管理双模式)
+// 组件 4: Smart Inventory View (后台仓库 - 显示当前库存 + 提交反馈)
 // ============================================================================
 const SmartInventoryView = ({ data, onSaveReport }: any) => {
     const { smartInventory, setSmartInventory } = data;
     const [supplierFilter, setSupplierFilter] = useState<'All' | "I'tea" | 'Joybuy' | 'Open Mkt'>('All');
     
     // --- 模式状态 ---
-    const [isManageMode, setIsManageMode] = useState(false); // false=盘点模式, true=管理模式
-    const [manageList, setManageList] = useState<any[]>([]); // 管理模式下的临时数据
+    const [isManageMode, setIsManageMode] = useState(false);
+    const [manageList, setManageList] = useState<any[]>([]); 
 
     // --- 盘点模式数据 ---
-    // 存储填表数据：itemId -> { count: string, add: string }
     const [inputs, setInputs] = useState<Record<string, { count: string, add: string }>>({});
 
-    // 进入管理模式时，克隆一份数据用于编辑
     useEffect(() => {
         if (isManageMode) {
             setManageList(JSON.parse(JSON.stringify(smartInventory || [])));
         }
     }, [isManageMode, smartInventory]);
 
-    // --- 辅助：处理盘点输入 ---
     const handleInputChange = (id: string, field: 'count' | 'add', val: string) => {
-        setInputs(prev => ({
-            ...prev,
-            [id]: { ...prev[id], [field]: val }
-        }));
+        setInputs(prev => ({ ...prev, [id]: { ...prev[id], [field]: val } }));
     };
 
-    // --- 辅助：计算单项 Total ---
-    const calculateTotal = (id: string) => {
-        const itemInput = inputs[id] || {};
+    // 计算预览 Total (仅用于显示本次操作后的结果)
+    const calculatePreviewTotal = (item: any) => {
+        const itemInput = inputs[item.id] || {};
+        // 如果填了 Count (盘点)，则以 Count 为准 + Add
+        // 如果没填 Count，则以 数据库原库存 (Current) 为准 + Add
+        // *通常盘点是覆盖式，所以这里逻辑是：只要填了 Count，就覆盖 Current。没填 Count，默认为 0 (开始盘点)*
+        // 但为了避免误解，我们显示: (Count || 0) + (Add || 0)
         const count = parseFloat(itemInput.count) || 0;
         const add = parseFloat(itemInput.add) || 0;
         return count + add;
     };
 
-    // --- 管理模式：修改字段 ---
     const handleEditItem = (id: string, field: string, value: any) => {
-        setManageList(prev => prev.map(item => 
-            item.id === id ? { ...item, [field]: value } : item
-        ));
+        setManageList(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
     };
 
-    // --- 管理模式：添加新物品 ---
     const handleAddItem = () => {
         const newItem = {
             id: `item_${Date.now()}`,
+            area: 'Storage', // 默认
             name: 'New Item',
             category: 'Others',
             position: 'Z9',
@@ -2312,39 +2307,25 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
             currentStock: 0
         };
         setManageList(prev => [...prev, newItem]);
-        // 自动滚动到底部
-        setTimeout(() => {
-            const el = document.getElementById('manage-list-bottom');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
+        setTimeout(() => { const el = document.getElementById('manage-list-bottom'); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 100);
     };
 
-    // --- 管理模式：删除物品 ---
     const handleDeleteItem = (id: string) => {
-        if (confirm("Delete this item permanently?")) {
-            setManageList(prev => prev.filter(item => item.id !== id));
-        }
+        if (confirm("Delete this item permanently?")) setManageList(prev => prev.filter(item => item.id !== id));
     };
 
-    // --- 管理模式：保存更改 ---
     const handleSaveManagement = async () => {
-        // 简单校验
-        if (manageList.some(i => !i.name)) {
-            alert("Error: Item name cannot be empty.");
-            return;
-        }
-        
-        // 更新本地和云端
+        if (manageList.some(i => !i.name)) { alert("Error: Item name cannot be empty."); return; }
         setSmartInventory(manageList);
         await Cloud.saveSmartInventory(manageList);
-        
         setIsManageMode(false);
         alert("✅ Warehouse settings updated!");
     };
 
-    // --- 提交周报 (盘点模式) ---
+    // --- 提交周报 (核心修改：增加统计和反馈) ---
     const handleSubmitWeekly = () => {
         const now = new Date();
+        // 计算周号
         const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
         d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
         const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
@@ -2352,213 +2333,221 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
         const currentWeekStr = `${now.getFullYear()}-W${weekNum}`;
         const dateRange = `${now.toLocaleDateString()}`;
 
-        if (!confirm(`Submit Weekly Inventory Report (${currentWeekStr})?\n\nThis will update all "Current Stock" values based on your inputs.`)) return;
+        // 统计有多少项被修改了
+        const inputKeys = Object.keys(inputs);
+        const modifiedCount = inputKeys.length;
 
-        const reportItems: any[] = [];
-        const newInventoryList = smartInventory.map((item: any) => {
-            const inp = inputs[item.id] || {};
-            const countVal = parseFloat(inp.count) || 0;
-            const addVal = parseFloat(inp.add) || 0;
-            const totalVal = countVal + addVal;
+        if (modifiedCount === 0) {
+            if (!confirm("⚠️ Warning: You haven't entered any numbers. Submit an EMPTY report?")) return;
+        } else {
+            if (!confirm(`Submit Inventory Report (${currentWeekStr})?\n\nYou have updated ${modifiedCount} items.`)) return;
+        }
 
-            reportItems.push({
-                id: item.id,
-                name: item.name,
-                category: item.category,
-                supplier: item.supplier,
-                unit: item.unit,
-                count: countVal,
-                added: addVal,
-                currentStock: totalVal,
-                safetyStock: item.safetyStock,
-                status: totalVal < item.safetyStock ? 'LOW' : 'OK'
+        try {
+            const reportItems: any[] = [];
+            let updatedCount = 0;
+
+            const newInventoryList = smartInventory.map((item: any) => {
+                const inp = inputs[item.id];
+                
+                // 如果用户没填，我们默认保持原库存？还是归零？
+                // 既然是 Weekly Count，通常没填的视为 0 或者 未盘点。
+                // 这里的逻辑：如果 inp 存在，说明填了，更新库存。如果不存在，保持原库存 (Current Stock)。
+                // *修改*：为了防止意外归零，我们只更新有输入的项。
+                
+                let totalVal = item.currentStock; // 默认保持不变
+                let countVal = 0;
+                let addVal = 0;
+
+                if (inp) {
+                    countVal = parseFloat(inp.count) || 0;
+                    addVal = parseFloat(inp.add) || 0;
+                    totalVal = countVal + addVal;
+                    updatedCount++;
+                }
+
+                reportItems.push({
+                    id: item.id,
+                    name: item.name,
+                    category: item.category,
+                    supplier: item.supplier,
+                    unit: item.unit,
+                    count: inp ? countVal : item.currentStock, // 报表里记录
+                    added: addVal,
+                    currentStock: totalVal,
+                    safetyStock: item.safetyStock,
+                    status: totalVal < item.safetyStock ? 'LOW' : 'OK'
+                });
+
+                return { ...item, currentStock: totalVal, lastUpdated: new Date().toISOString() };
             });
 
-            return { ...item, currentStock: totalVal, lastUpdated: new Date().toISOString() };
-        });
+            // 保存到 Cloud
+            setSmartInventory(newInventoryList);
+            Cloud.saveSmartInventory(newInventoryList);
 
-        setSmartInventory(newInventoryList);
-        Cloud.saveSmartInventory(newInventoryList);
+            const report: SmartInventoryReport = {
+                id: Date.now().toString(),
+                weekStr: currentWeekStr,
+                dateRange: dateRange,
+                submittedBy: 'Owner',
+                submittedAt: new Date().toISOString(),
+                items: reportItems
+            };
 
-        const report: SmartInventoryReport = {
-            id: Date.now().toString(),
-            weekStr: currentWeekStr,
-            dateRange: dateRange,
-            submittedBy: 'Owner',
-            submittedAt: new Date().toISOString(),
-            items: reportItems
-        };
-
-        if (onSaveReport) {
-            onSaveReport(report);
-            setInputs({});
+            if (onSaveReport) {
+                onSaveReport(report);
+                setInputs({});
+                // 【新增】成功提示
+                alert(`✅ Success!\n\nInventory updated.\n${updatedCount} items changed.\nReport saved to history.`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("❌ Save Failed! Please check your connection.");
         }
     };
 
     // --- 筛选与排序 ---
-    // 根据模式决定使用哪个列表
     const targetList = isManageMode ? manageList : smartInventory;
-    
-    const filteredList = (targetList || [])
+    const sortedList = (targetList || [])
         .filter((item: any) => supplierFilter === 'All' || item.supplier === supplierFilter)
-        // 按位置排序 (A1 -> A2 -> B1)
-        .sort((a: any, b: any) => (a.position || 'Z99').localeCompare(b.position || 'Z99', undefined, { numeric: true, sensitivity: 'base' }));
+        .sort((a: any, b: any) => {
+            const posA = a.position ? a.position.toUpperCase() : 'ZZZ';
+            const posB = b.position ? b.position.toUpperCase() : 'ZZZ';
+            return posA.localeCompare(posB, undefined, { numeric: true, sensitivity: 'base' });
+        });
+    
+    // 分区域显示 (Storage / Shop)
+    const storageList = sortedList.filter((i:any) => i.area !== 'Shop');
+    const shopList = sortedList.filter((i:any) => i.area === 'Shop');
 
-    const categories = Array.from(new Set(filteredList.map((i: any) => i.category)));
+    const renderList = (list: any[]) => (
+        <div className="space-y-2">
+            {list.map((item: any) => {
+                // --- 管理模式 ---
+                if (isManageMode) {
+                    return (
+                        <div key={item.id} className="p-3 bg-dark-surface rounded-xl border border-white/10 flex flex-col gap-3">
+                            <div className="flex gap-2">
+                                <div className="w-20"><label className="text-[9px] text-gray-500 uppercase">Pos</label><input className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-center text-white text-xs font-bold outline-none" value={item.position} onChange={e => handleEditItem(item.id, 'position', e.target.value)} /></div>
+                                <div className="flex-1"><label className="text-[9px] text-gray-500 uppercase">Name</label><input className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-white text-xs font-bold outline-none" value={item.name} onChange={e => handleEditItem(item.id, 'name', e.target.value)} /></div>
+                            </div>
+                            <div className="grid grid-cols-4 gap-2">
+                                <div><label className="text-[9px] text-gray-500 uppercase">Area</label><select className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-xs text-white" value={item.area || 'Storage'} onChange={e => handleEditItem(item.id, 'area', e.target.value)}><option value="Storage">Storage</option><option value="Shop">Shop</option></select></div>
+                                <div><label className="text-[9px] text-gray-500 uppercase">Supplier</label><select className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-xs text-white" value={item.supplier} onChange={e => handleEditItem(item.id, 'supplier', e.target.value)}><option value="I'tea">I'tea</option><option value="Joybuy">Joybuy</option><option value="Open Mkt">Open Mkt</option><option value="Other">Other</option></select></div>
+                                <div><label className="text-[9px] text-gray-500 uppercase">Unit</label><input className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-xs text-white" value={item.unit} onChange={e => handleEditItem(item.id, 'unit', e.target.value)} /></div>
+                                <div><label className="text-[9px] text-gray-500 uppercase text-red-300">Safe</label><input type="number" className="w-full bg-dark-bg border border-red-500/30 rounded p-1.5 text-xs text-red-300 font-bold" value={item.safetyStock} onChange={e => handleEditItem(item.id, 'safetyStock', parseFloat(e.target.value))} /></div>
+                            </div>
+                            <button onClick={() => handleDeleteItem(item.id)} className="w-full py-1.5 mt-1 bg-red-500/10 text-red-400 rounded text-[10px] font-bold hover:bg-red-500/20">Delete</button>
+                        </div>
+                    );
+                }
+
+                // --- 盘点模式 (修复：显示 Current Stock) ---
+                const previewTotal = calculatePreviewTotal(item);
+                const isLow = previewTotal < item.safetyStock;
+                const hasInput = inputs[item.id] !== undefined;
+
+                return (
+                    <div key={item.id} className={`p-3 rounded-xl border flex flex-col gap-2 ${isLow ? 'bg-red-500/5 border-red-500/30' : 'bg-dark-surface border-white/5'}`}>
+                        <div className="flex justify-between items-start">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded bg-black/30 flex items-center justify-center border border-white/10 shrink-0">
+                                    <span className="text-sm font-black text-purple-300">{item.position}</span>
+                                </div>
+                                <div>
+                                    <div className="font-bold text-sm text-white">{item.name}</div>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                        <span className="text-[9px] bg-white/10 px-1.5 rounded text-gray-300 uppercase">{item.category}</span>
+                                        {/* 【新增】显示数据库里的当前库存 */}
+                                        <span className="text-[9px] text-blue-300 bg-blue-500/10 px-1.5 rounded border border-blue-500/20">
+                                            Current: {item.currentStock} {item.unit}
+                                        </span>
+                                        <span className="text-[9px] text-dark-text-light pl-1">Safe: {item.safetyStock}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className={`px-2 py-0.5 rounded text-[9px] font-bold border ${isLow ? 'bg-red-500/20 text-red-300 border-red-500/30' : 'bg-green-500/20 text-green-300 border-green-500/30'}`}>
+                                {isLow ? 'LOW' : 'OK'}
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-10 gap-2 items-end bg-black/20 p-2 rounded-lg">
+                            <div className="col-span-3">
+                                <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Count (剩)</label>
+                                <input type="number" className="w-full bg-dark-bg border border-white/10 rounded p-1.5 text-center text-white text-sm font-bold focus:border-purple-500 outline-none" placeholder={item.currentStock} value={inputs[item.id]?.count || ''} onChange={e => handleInputChange(item.id, 'count', e.target.value)} />
+                            </div>
+                            <div className="col-span-1 flex justify-center items-center pb-2 text-gray-500">+</div>
+                            <div className="col-span-3">
+                                <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Add (增)</label>
+                                <input type="number" className="w-full bg-dark-bg border border-white/10 rounded p-1.5 text-center text-green-400 text-sm font-bold focus:border-green-500 outline-none" placeholder="0" value={inputs[item.id]?.add || ''} onChange={e => handleInputChange(item.id, 'add', e.target.value)} />
+                            </div>
+                            <div className="col-span-1 flex justify-center items-center pb-2 text-gray-500">=</div>
+                            <div className="col-span-2">
+                                <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Total</label>
+                                {/* 如果有输入，显示预览值；如果没有输入，显示当前数据库值 */}
+                                <div className={`w-full bg-white/5 border border-white/10 rounded p-1.5 text-center text-sm font-black ${isLow ? 'text-red-400' : 'text-white'}`}>
+                                    {hasInput ? previewTotal : item.currentStock}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
 
     return (
         <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
-            {/* Header */}
             <div className="p-4 bg-dark-surface border-b border-white/10 sticky top-0 z-10 shadow-md">
                 <div className="flex justify-between items-center mb-3">
                     <h2 className="text-xl font-black text-white flex items-center gap-2">
                         <Icon name="Package" className="text-purple-400" /> 
-                        {isManageMode ? "Edit Warehouse Items" : "Smart Warehouse"}
+                        {isManageMode ? "Edit Items" : "Smart Warehouse"}
                     </h2>
-                    
                     <div className="flex gap-2">
                         {isManageMode ? (
                             <>
                                 <button onClick={() => setIsManageMode(false)} className="bg-white/10 text-white px-3 py-2 rounded-lg text-xs font-bold">Cancel</button>
-                                <button onClick={handleSaveManagement} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg">
-                                    <Icon name="Save" size={16} /> Save
-                                </button>
+                                <button onClick={handleSaveManagement} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg"><Icon name="Save" size={16} /> Save</button>
                             </>
                         ) : (
                             <>
-                                <button 
-                                    onClick={() => setIsManageMode(true)}
-                                    className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"
-                                >
-                                    <Icon name="Edit" size={14} /> Manage Items
-                                </button>
-                                <button 
-                                    onClick={handleSubmitWeekly}
-                                    className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg transition-all"
-                                >
-                                    <Icon name="Save" size={16} /> Submit Count
-                                </button>
+                                <button onClick={() => setIsManageMode(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 shadow-lg"><Icon name="Edit" size={14} /> Manage</button>
+                                <button onClick={handleSubmitWeekly} className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg transition-all"><Icon name="Save" size={16} /> Submit</button>
                             </>
                         )}
                     </div>
                 </div>
-                             
-                {/* Filters */}
                 <div className="flex gap-2 overflow-x-auto no-scrollbar">
                     {['All', "I'tea", 'Joybuy', 'Open Mkt'].map(s => (
-                        <button key={s} onClick={() => setSupplierFilter(s as any)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all ${supplierFilter === s ? 'bg-purple-600 text-white shadow' : 'bg-white/5 text-dark-text-light hover:bg-white/10'}`}>
-                            {s}
-                        </button>
+                        <button key={s} onClick={() => setSupplierFilter(s as any)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all ${supplierFilter === s ? 'bg-purple-600 text-white shadow' : 'bg-white/5 text-dark-text-light hover:bg-white/10'}`}>{s}</button>
                     ))}
                 </div>
             </div>
 
-            {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-4 pb-20">
-                {categories.map((cat: any) => (
-                    <div key={cat}>
-                        <h3 className="text-xs font-bold text-dark-text-light uppercase px-2 mb-2 mt-2 border-b border-white/5 sticky top-0 bg-dark-bg/95 backdrop-blur-sm py-1 z-0">{cat}</h3>
-                        <div className="space-y-2">
-                            {filteredList.filter((i: any) => i.category === cat).map((item: any) => {
-                                // --- 管理模式渲染 ---
-                                if (isManageMode) {
-                                    return (
-                                        <div key={item.id} className="p-3 bg-dark-surface rounded-xl border border-white/10 flex flex-col gap-3">
-                                            {/* Row 1: Position & Name */}
-                                            <div className="flex gap-2">
-                                                <div className="w-16">
-                                                    <label className="text-[9px] text-gray-500 uppercase">Pos</label>
-                                                    <input 
-                                                        className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-center text-white text-xs font-bold focus:border-blue-500 outline-none"
-                                                        value={item.position}
-                                                        onChange={e => handleEditItem(item.id, 'position', e.target.value)}
-                                                    />
-                                                </div>
-                                                <div className="flex-1">
-                                                    <label className="text-[9px] text-gray-500 uppercase">Name</label>
-                                                    <input 
-                                                        className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-white text-xs font-bold focus:border-blue-500 outline-none"
-                                                        value={item.name}
-                                                        onChange={e => handleEditItem(item.id, 'name', e.target.value)}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Row 2: Details */}
-                                            <div className="grid grid-cols-4 gap-2">
-                                                <div>
-                                                    <label className="text-[9px] text-gray-500 uppercase">Category</label>
-                                                    <input className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-xs text-white" value={item.category} onChange={e => handleEditItem(item.id, 'category', e.target.value)} />
-                                                </div>
-                                                <div>
-                                                    <label className="text-[9px] text-gray-500 uppercase">Supplier</label>
-                                                    <select className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-xs text-white" value={item.supplier} onChange={e => handleEditItem(item.id, 'supplier', e.target.value)}>
-                                                        <option value="I'tea">I'tea</option><option value="Joybuy">Joybuy</option><option value="Open Mkt">Open Mkt</option><option value="Other">Other</option>
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label className="text-[9px] text-gray-500 uppercase">Unit</label>
-                                                    <input className="w-full bg-dark-bg border border-white/20 rounded p-1.5 text-xs text-white" value={item.unit} onChange={e => handleEditItem(item.id, 'unit', e.target.value)} />
-                                                </div>
-                                                <div>
-                                                    <label className="text-[9px] text-gray-500 uppercase text-red-300">Safe Stock</label>
-                                                    <input type="number" className="w-full bg-dark-bg border border-red-500/30 rounded p-1.5 text-xs text-red-300 font-bold" value={item.safetyStock} onChange={e => handleEditItem(item.id, 'safetyStock', parseFloat(e.target.value))} />
-                                                </div>
-                                            </div>
-                                            
-                                            <button onClick={() => handleDeleteItem(item.id)} className="w-full py-1.5 mt-1 bg-red-500/10 text-red-400 rounded text-[10px] font-bold hover:bg-red-500/20">Delete Item</button>
-                                        </div>
-                                    );
-                                }
-
-                                // --- 盘点模式渲染 (原有) ---
-                                const total = calculateTotal(item.id);
-                                const isLow = total < item.safetyStock;
-                                return (
-                                    <div key={item.id} className={`p-3 rounded-xl border flex flex-col gap-2 ${isLow ? 'bg-red-500/5 border-red-500/30' : 'bg-dark-surface border-white/5'}`}>
-                                        <div className="flex justify-between items-start">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded bg-black/30 flex items-center justify-center border border-white/10 shrink-0">
-                                                    <span className="text-xs font-black text-purple-300">{item.position}</span>
-                                                </div>
-                                                <div>
-                                                    <div className="font-bold text-sm text-white">{item.name}</div>
-                                                    <div className="flex items-center gap-2 mt-0.5">
-                                                        <span className="text-[9px] bg-white/5 px-1.5 rounded text-dark-text-light">{item.supplier}</span>
-                                                        <span className="text-[9px] text-dark-text-light">Safe: {item.safetyStock} {item.unit}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className={`px-2 py-0.5 rounded text-[9px] font-bold border ${isLow ? 'bg-red-500/20 text-red-300 border-red-500/30' : 'bg-green-500/20 text-green-300 border-green-500/30'}`}>
-                                                {isLow ? 'LOW' : 'OK'}
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-10 gap-2 items-end bg-black/20 p-2 rounded-lg">
-                                            <div className="col-span-3">
-                                                <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Count (剩)</label>
-                                                <input type="number" className="w-full bg-dark-bg border border-white/10 rounded p-1.5 text-center text-white text-sm font-bold focus:border-purple-500 outline-none" placeholder="0" value={inputs[item.id]?.count || ''} onChange={e => handleInputChange(item.id, 'count', e.target.value)} />
-                                            </div>
-                                            <div className="col-span-1 flex justify-center items-center pb-2 text-gray-500">+</div>
-                                            <div className="col-span-3">
-                                                <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Add (增)</label>
-                                                <input type="number" className="w-full bg-dark-bg border border-white/10 rounded p-1.5 text-center text-green-400 text-sm font-bold focus:border-green-500 outline-none" placeholder="0" value={inputs[item.id]?.add || ''} onChange={e => handleInputChange(item.id, 'add', e.target.value)} />
-                                            </div>
-                                            <div className="col-span-1 flex justify-center items-center pb-2 text-gray-500">=</div>
-                                            <div className="col-span-2">
-                                                <label className="text-[9px] text-gray-400 block mb-1 uppercase text-center">Total</label>
-                                                <div className={`w-full bg-white/5 border border-white/10 rounded p-1.5 text-center text-sm font-black ${isLow ? 'text-red-400' : 'text-white'}`}>{total}</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
+            <div className="flex-1 overflow-y-auto p-2 pb-20">
+                {/* 区域 1: STORAGE */}
+                {(storageList.length > 0 || isManageMode) && (
+                    <div className="mb-6">
+                        <h3 className="sticky top-0 z-0 bg-dark-bg/95 backdrop-blur-sm px-2 py-2 mb-2 border-b border-purple-500/30 text-purple-400 font-black text-sm uppercase tracking-wider flex items-center gap-2">
+                            <Icon name="Package" size={16}/> Storage Area
+                        </h3>
+                        {renderList(storageList)}
                     </div>
-                ))}
+                )}
+
+                {/* 区域 2: SHOP */}
+                {(shopList.length > 0 || isManageMode) && (
+                    <div className="mb-6">
+                         <h3 className="sticky top-0 z-0 bg-dark-bg/95 backdrop-blur-sm px-2 py-2 mb-2 border-b border-orange-500/30 text-orange-400 font-black text-sm uppercase tracking-wider flex items-center gap-2">
+                            <Icon name="Coffee" size={16}/> Shop Area
+                        </h3>
+                        {renderList(shopList)}
+                    </div>
+                )}
                 
-                {/* 仅在管理模式显示：添加按钮 */}
                 {isManageMode && (
-                    <div id="manage-list-bottom" className="pt-4">
+                    <div id="manage-list-bottom" className="pt-4 px-2">
                         <button onClick={handleAddItem} className="w-full py-4 border-2 border-dashed border-white/20 rounded-xl text-dark-text-light font-bold hover:border-blue-500 hover:text-blue-400 transition-all flex items-center justify-center gap-2">
                             <Icon name="Plus" size={20} /> Add New Item
                         </button>
@@ -2569,9 +2558,10 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
     );
 };
 // ============================================================================
-// 组件 5: 店长总控台 (Owner Dashboard) - [全功能版]
+// 组件 5: 店长总控台 (Owner Dashboard) - [修复版：云端同步 + 导出]
 // ============================================================================
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
+    // 这里的 smartReports 现在将通过 App 组件从云端获取
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, setSmartReports } = data;
     const { showNotification } = useNotification();
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
@@ -2594,14 +2584,12 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
             const now = new Date();
             const day = now.getDay(); // 5 = Friday
             if (day === 5) {
-                // 计算当前周号
                 const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
                 d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
                 const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
                 const weekNum = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
                 const currentWeekStr = `${now.getFullYear()}-W${weekNum}`;
 
-                // 检查本周是否已提交过 Smart Report
                 const hasSubmitted = (smartReports || []).some((r: any) => r.weekStr === currentWeekStr);
                 
                 if (!hasSubmitted) {
@@ -2613,52 +2601,89 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 }
             }
         };
-        // 延时一下执行，确保数据已加载
         setTimeout(checkFridayReminder, 2000);
     }, [smartReports]);
 
-    // --- 提交 Smart Weekly Report ---
+    // --- 提交 Smart Weekly Report (修复：上传到云端) ---
     const handleSaveSmartReport = async (report: SmartInventoryReport) => {
-        const newReports = [...(smartReports || []), report];
-        // 这里假设 App.tsx 里有 setSmartReports 并且 Cloud 有对应方法
-        // 如果 Cloud 没有 saveSmartReports，你需要去 Cloud.ts 加一个，或者暂时存到 localStorage
-        if (setSmartReports) {
-            setSmartReports(newReports);
-            // 模拟保存到云端 (实际需在 services/cloud.ts 添加)
-            // await Cloud.saveSmartReports(newReports); 
-            // 暂时用 localStorage 兜底
-            localStorage.setItem('onesip_smart_reports', JSON.stringify(newReports));
+        try {
+            // 1. 直接保存到云端数据库
+            await Cloud.saveSmartInventoryReport(report);
             
-            showNotification({ type: 'success', title: "Submitted", message: "Weekly report saved!" });
-            setOwnerSubView('smart_history'); // 自动跳转到历史查看
+            // 2. 本地状态会在 Cloud 订阅回调中自动更新，不需要手动 setSmartReports
+            // 但为了界面即时反馈，我们可以保留通知
+            showNotification({ type: 'success', title: "Submitted", message: "Weekly report uploaded to cloud!" });
+            setOwnerSubView('smart_history'); 
+        } catch (error) {
+            console.error("Upload failed", error);
+            alert("Error uploading report. Please check internet connection.");
         }
     };
 
-    // --- CSV 导出 (Smart Warehouse) ---
+    // --- CSV 导出 (Smart Warehouse) (修复：增强健壮性) ---
     const handleExportSmartCsv = () => {
-        const headers = "Week,Date Range,Item,Category,Supplier,Stock,Safety,Status\n";
-        const csvRows = (smartReports || []).flatMap((report: SmartInventoryReport) => {
-            return report.items.map(item => {
-                return `"${report.weekStr}","${report.dateRange}","${item.name}","${item.category}","${item.supplier}","${item.currentStock}","${item.safetyStock}","${item.status}"`;
-            });
-        });
+        if (!smartReports || smartReports.length === 0) {
+            alert("No reports found to export. (Is the data synced?)");
+            return;
+        }
 
-        const csvString = headers + csvRows.join('\n');
-        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        const date = new Date().toISOString().split('T')[0];
-        link.setAttribute("download", `smart_warehouse_history_${date}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        try {
+            const headers = "Week,Date Range,Submitted By,Item,Category,Supplier,Stock,Safety,Status\n";
+            const csvRows = smartReports.flatMap((report: SmartInventoryReport) => {
+                return (report.items || []).map(item => {
+                    // 处理可能包含逗号的字段，加上引号
+                    return `"${report.weekStr}","${report.dateRange}","${report.submittedBy}","${item.name}","${item.category}","${item.supplier}","${item.currentStock}","${item.safetyStock}","${item.status}"`;
+                });
+            });
+
+            const csvString = headers + csvRows.join('\n');
+            // 添加 BOM 以防止 Excel 打开中文乱码
+            const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            const blob = new Blob([bom, csvString], { type: 'text/csv;charset=utf-8;' });
+            
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            const date = new Date().toISOString().split('T')[0];
+            link.setAttribute("download", `smart_warehouse_history_${date}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (e) {
+            console.error("Export Error:", e);
+            alert("Export failed. See console for details.");
+        }
     };
 
-    // ... (Prep 的删除/导出逻辑保持不变) ...
+    // ... (Prep 的逻辑保持不变) ...
     const handleUpdateLogs = (allLogs: any[]) => Cloud.updateLogs(allLogs);
-    const handleDeleteReport = async () => { /* ...代码保持不变... */ };
-    const handleDeleteItemFromReport = async (reportId: string, itemId: string) => { /* ...代码保持不变... */ };
-    const handleExportPrepCsv = () => { /* ...代码保持不变... */ };
+    const handleDeleteReport = async () => { 
+        if (!reportToDelete) return;
+        // 这里的逻辑需要完善，目前暂时只做 UI 演示，实际需 Cloud 支持删除 InventoryHistory
+        // 由于 InventoryHistory 是单文档数组结构，删除比较麻烦，这里暂时只在本地过滤（需完善 Cloud API 才能真删）
+        const newHistory = inventoryHistory.filter((r:any) => r.id !== reportToDelete.id);
+        await Cloud.updateInventoryHistory(newHistory);
+        setReportToDelete(null);
+        showNotification({ type: 'message', title: 'Deleted', message: 'Report removed.'});
+    };
+    // 这是一个 placeholder，因为 InventoryView 里已经处理了单项删除
+    const handleDeleteItemFromReport = async (reportId: string, itemId: string) => { }; 
+    const handleExportPrepCsv = () => { 
+        // 简单的 Prep 导出逻辑
+         const headers = "Date,Shift,Staff,Item,Count,Loss\n";
+         const rows = inventoryHistory.flatMap((r:any) => 
+            Object.entries(r.data).map(([id, val]: any) => {
+                 const itemDef = inventoryList.find((i:any) => i.id === id);
+                 const name = itemDef ? (itemDef.name.en || itemDef.name.zh) : id;
+                 return `${r.date},${r.shift},${r.submittedBy},"${name}",${val.end},${val.loss||0}`;
+            })
+         );
+         const blob = new Blob(["\uFEFF"+headers + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+         const url = URL.createObjectURL(blob);
+         const link = document.createElement("a");
+         link.href = url;
+         link.download = `prep_history.csv`;
+         link.click();
+    };
 
     if (view === 'manager') return <ManagerDashboard data={data} onExit={() => setView('main')} />;
     
@@ -2671,13 +2696,13 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                     <Icon name="List" size={16} /> Export CSV
                 </button>
             </div>
-            {(!smartReports || smartReports.length === 0) && <p className="text-dark-text-light text-center py-10">No weekly reports found.</p>}
+            {(!smartReports || smartReports.length === 0) && <p className="text-dark-text-light text-center py-10">No weekly reports found in cloud.</p>}
             {smartReports && [...smartReports].reverse().map((report: SmartInventoryReport) => (
                 <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10">
                     <div onClick={() => setExpandedSmartId(expandedSmartId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
                         <div>
                             <p className="text-sm font-bold text-white">{report.weekStr} <span className="text-xs font-normal text-dark-text-light">({report.dateRange})</span></p>
-                            <p className="text-xs text-dark-text-light">by {report.submittedBy} • {report.items.length} items</p>
+                            <p className="text-xs text-dark-text-light">by {report.submittedBy} • {report.items?.length || 0} items</p>
                         </div>
                         <Icon name={expandedSmartId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
                     </div>
@@ -2689,7 +2714,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                                 <span className="text-center">Stock</span>
                                 <span className="text-center">Status</span>
                             </div>
-                            {report.items.map((item, idx) => (
+                            {(report.items || []).map((item, idx) => (
                                 <div key={idx} className="grid grid-cols-4 items-center py-1 border-b border-white/5 last:border-0">
                                     <span className="col-span-2 text-white truncate">{item.name}</span>
                                     <span className="text-center font-mono text-purple-300">{item.currentStock}</span>
@@ -2703,7 +2728,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         </div>
     );
 
-    // --- Prep History View (含温度确认显示) ---
+    // --- Prep History View ---
     const InventoryHistoryView = () => (
         <div className="p-4 space-y-3">
              <div className="flex justify-between items-center">
@@ -2720,7 +2745,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                             <div className="flex items-center gap-2">
                                 <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'}</p>
                                 <span className="text-[10px] bg-white/10 px-1 rounded uppercase text-purple-300">{report.shift}</span>
-                                {/* 【新增】显示温度确认状态 */}
                                 {report.fridgeChecked && (
                                     <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-0.5" title="Fridge Temp < 6°C Confirmed">
                                         <Icon name="Snowflake" size={10} /> OK
@@ -2734,7 +2758,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                             <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
                         </div>
                     </div>
-                    {/* ... (下方详情部分保持不变) ... */}
                     {expandedReportId === report.id && (
                         <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 animate-fade-in">
                             {Object.entries(report.data || {}).map(([itemId, val]: any) => {
@@ -2747,7 +2770,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                                         <div className="flex items-center gap-3">
                                             <span className="font-mono text-white font-bold">{val.end}</span>
                                             {val.loss && <span className="text-[10px] text-red-400 font-bold">(-{val.loss})</span>}
-                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteItemFromReport(report.id, itemId); }} className="text-red-500 opacity-50 hover:opacity-100 hover:bg-red-500/10 p-1 rounded transition-all"><Icon name="X" size={14} /></button>
                                         </div>
                                     </div>
                                 );
@@ -2775,7 +2797,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Manage Prep</button>
                 <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep History</button>
                 
-                {/* 分割线 */}
                 <div className="w-px bg-white/10 mx-1"></div>
 
                 <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-purple-600 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Smart Warehouse</button>
@@ -2804,12 +2825,12 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={handleUpdateLogs} />}
             </div>
             
-            {/* Prep 删除确认弹窗 (保持原样) */}
+            {/* Prep 删除确认弹窗 */}
             {reportToDelete && (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
                     <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl">
                         <h3 className="text-lg font-bold text-white mb-2">Delete Report?</h3>
-                        <p className="text-sm text-dark-text-light mb-6">Confirm deletion?</p>
+                        <p className="text-sm text-dark-text-light mb-6">Confirm deletion? (This might not be fully reversible on cloud history)</p>
                         <div className="flex gap-3">
                             <button onClick={() => setReportToDelete(null)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
                             <button onClick={handleDeleteReport} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold">Delete</button>
@@ -2820,6 +2841,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         </div>
     );
 };
+
 // ============================================================================
 
 const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (user: User) => void, onClose: () => void }) => {
@@ -4410,27 +4432,26 @@ const App = () => {
     const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
     const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
     const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
+    
+    // ✅ 这里的 smartInventoryReports 是从云端订阅的数据
     const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
-    const [smartReports, setSmartReports] = useState<SmartInventoryReport[]>(() => {
-    // 尝试从本地加载，如果已连接 Cloud 则通过 useEffect 加载
-    const saved = localStorage.getItem('onesip_smart_reports');
-    return saved ? JSON.parse(saved) : [];
-});
 
-
-
+    // ❌ 已删除旧的本地 smartReports 状态
 
     const t = TRANSLATIONS[lang];
-
-
-
 
     const appData = {
         lang, setLang, users, inventoryList, setInventoryList, inventoryHistory, 
         schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
         setDirectMessages, swapRequests, setSwapRequests, sales, sopList, 
         setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
-        confirmations, scheduleCycles, setScheduleCycles, smartInventoryReports, smartInventory, setSmartInventory, smartReports, setSmartReports
+        confirmations, scheduleCycles, setScheduleCycles, 
+        smartInventory, setSmartInventory, 
+        smartInventoryReports, setSmartInventoryReports,
+        
+        // 【关键修改】让 smartReports 指向云端数据，实现多设备同步
+        smartReports: smartInventoryReports, 
+        setSmartReports: setSmartInventoryReports 
     };
 
     useEffect(() => {
@@ -4453,32 +4474,21 @@ const App = () => {
                 if (data?.training) setTrainingLevels(data.training);
                 if (data?.recipes) setRecipes(data.recipes);
             }),
+            // 订阅云端 Smart Reports
             Cloud.subscribeToSmartInventoryReports(setSmartInventoryReports)
         ];
 
-
-
-
         // Simulate initialization delay
         setTimeout(() => setIsLoading(false), 800);
-
-
-
 
         return () => {
             unsubs.forEach(unsub => unsub && unsub());
         };
     }, []);
 
-
-
-
     useEffect(() => {
         localStorage.setItem('onesip_lang', lang);
     }, [lang]);
-
-
-
 
     const handleLogin = (user: User, keepLoggedIn: boolean) => {
         setCurrentUser(user);
@@ -4487,36 +4497,22 @@ const App = () => {
         }
     };
 
-
-
-
     const handleLogout = () => {
         setCurrentUser(null);
         setAdminMode(null);
     };
 
-
-
     if (isLoading) {
         return <div className="min-h-screen flex items-center justify-center bg-secondary text-primary font-bold animate-pulse">Loading ONESIP...</div>;
     }
-
-
-
 
     if (adminMode === 'editor') {
         return <EditorDashboard data={appData} onExit={() => setAdminMode(null)} />;
     }
 
-
-
-
     if (adminMode === 'owner' || adminMode === 'manager') {
         return <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />;
     }
-
-
-
 
     return (
         <>
@@ -4529,7 +4525,6 @@ const App = () => {
                     setLang={setLang}
                 />
             )}
-
 
             {currentUser && (
                 <StaffApp 
@@ -4553,9 +4548,6 @@ const App = () => {
                 </div>
             )}
 
-
-
-
             <AdminLoginModal 
                 isOpen={adminModalOpen} 
                 onClose={() => setAdminModalOpen(false)} 
@@ -4568,8 +4560,5 @@ const App = () => {
         </>
     );
 };
-
-
-
 
 export default App;
