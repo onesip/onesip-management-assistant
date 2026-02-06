@@ -2559,7 +2559,7 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
 };
 
 // ============================================================================
-// 组件 5: 店长总控台 (Owner Dashboard) - [修复版：强力导出 CSV]
+// 组件 5: 店长总控台 (Owner Dashboard) - [修复版：CSV 包含 Count/Add/Total]
 // ============================================================================
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     // 这里的 smartReports 是云端实时同步下来的数据
@@ -2632,7 +2632,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         }
     };
 
-    // --- CSV 导出 (Smart Warehouse) [强力修复版] ---
+    // --- CSV 导出 (Smart Warehouse) [升级版：包含 Count/Add/Total] ---
     const handleExportSmartCsv = () => {
         // 1. 检查数据源
         if (!smartReports || !Array.isArray(smartReports) || smartReports.length === 0) {
@@ -2641,9 +2641,9 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         }
 
         try {
-            // 2. 准备 CSV 内容 (BOM 防止乱码)
+            // 2. 准备表头 (新增 Count 和 Add 列)
             let csvContent = "\uFEFF"; 
-            csvContent += "Week,Date Range,Submitted By,Item Name,Category,Supplier,Stock,Safety Stock,Status\n";
+            csvContent += "Week,Date Range,Submitted By,Item Name,Category,Supplier,Count (Rem),Add (New),Total Stock,Safety Stock,Status\n";
 
             let rowCount = 0;
 
@@ -2661,15 +2661,20 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                         const week = report.weekStr || '-';
                         const range = report.dateRange || '-';
                         const by = report.submittedBy || '-';
-                        const name = (item.name || 'Unknown').replace(/"/g, '""'); // 处理名称中的引号
+                        const name = (item.name || 'Unknown').replace(/"/g, '""'); 
                         const cat = item.category || '-';
                         const sup = item.supplier || '-';
-                        const stock = item.currentStock ?? 0; // 使用 ?? 确保 0 不会被变成 default
+                        
+                        // 【新增】提取详细数据
+                        const count = item.count ?? 0;
+                        const add = item.added ?? 0;
+                        const total = item.currentStock ?? 0; // Total = Count + Add
+                        
                         const safety = item.safetyStock ?? 0;
                         const status = item.status || '-';
 
-                        // 5. 拼接行 (全部加引号最安全)
-                        csvContent += `"${week}","${range}","${by}","${name}","${cat}","${sup}",${stock},${safety},"${status}"\n`;
+                        // 5. 拼接行
+                        csvContent += `"${week}","${range}","${by}","${name}","${cat}","${sup}",${count},${add},${total},${safety},"${status}"\n`;
                         rowCount++;
                     });
                 }
@@ -2922,7 +2927,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
                     <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl">
                         <h3 className="text-lg font-bold text-white mb-2">Delete Report?</h3>
-                        <p className="text-sm text-dark-text-light mb-6">Confirm deletion? (This might not be fully reversible on cloud history)</p>
+                        <p className="text-sm text-dark-text-light mb-6">Confirm deletion?</p>
                         <div className="flex gap-3">
                             <button onClick={() => setReportToDelete(null)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
                             <button onClick={handleDeleteReport} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold">Delete</button>
@@ -2947,6 +2952,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         </div>
     );
 };
+
 // ============================================================================
 
 const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (user: User) => void, onClose: () => void }) => {
