@@ -3092,7 +3092,7 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
 };
 
 // ============================================================================
-// 组件 5: 经理后台 (Manager Dashboard) - [财务双模块分离版]
+// 组件 5: 经理后台 (Manager Dashboard) - [修复变量丢失 Bug]
 // ============================================================================
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { showNotification } = useNotification();
@@ -3103,7 +3103,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability' | 'confirmations'>('requests');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' | 'all' } | null>(null);
     const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
-    const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7)); 
+    const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
     const [financialMonth, setFinancialMonth] = useState(new Date().toISOString().slice(0, 7)); 
 
     // Logs 状态
@@ -3111,6 +3111,9 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
     const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+
+    // 【修复点】：显式定义 today，防止 ReferenceError
+    const today = new Date(); 
 
     // --- 1. 工资状态初始化 ---
     const [wages, setWages] = useState<Record<string, { type: 'hourly'|'fixed', value: number }>>(() => {
