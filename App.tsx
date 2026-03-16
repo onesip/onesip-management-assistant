@@ -1291,13 +1291,15 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
 
 // --- DASHBOARDS ---
 
+// ============================================================================
+// 组件: 内容编辑器 (Editor Dashboard) - 修改置顶文案
+// ============================================================================
 const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t } = data;
     const [view, setView] = useState<'training' | 'sop' | 'recipes'>('training');
     const [editingItem, setEditingItem] = useState<any>(null);
     const [isProcessingPdf, setIsProcessingPdf] = useState(false);
     
-    // FIX: Define a response schema for structured JSON output from Gemini.
     const recipeSchema = {
         type: Type.OBJECT,
         properties: {
@@ -1321,21 +1323,14 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     const handleSave = async () => {
         if (!editingItem) return;
 
-        // Helper to recursively remove undefined values which Firestore cannot handle
         const removeUndefinedRecursive = (obj: any): any => {
-            if (obj === null || typeof obj !== 'object') {
-                return obj;
-            }
-            if (Array.isArray(obj)) {
-                return obj.map(item => removeUndefinedRecursive(item)).filter(item => item !== undefined);
-            }
+            if (obj === null || typeof obj !== 'object') return obj;
+            if (Array.isArray(obj)) return obj.map(item => removeUndefinedRecursive(item)).filter(item => item !== undefined);
             const newObj: { [key: string]: any } = {};
             for (const key in obj) {
                 if (Object.prototype.hasOwnProperty.call(obj, key)) {
                     const value = obj[key];
-                    if (value !== undefined) {
-                        newObj[key] = removeUndefinedRecursive(value);
-                    }
+                    if (value !== undefined) newObj[key] = removeUndefinedRecursive(value);
                 }
             }
             return newObj;
@@ -1343,19 +1338,15 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
 
         let updatedList;
         let setList;
-        let listKey: 'sops' | 'training' | 'recipes' = 'recipes'; // default for type safety
+        let listKey: 'sops' | 'training' | 'recipes' = 'recipes'; 
 
         if (view === 'sop') {
             listKey = 'sops';
-            updatedList = sopList.some((i: any) => i.id === editingItem.id)
-                ? sopList.map((i: any) => (i.id === editingItem.id ? editingItem : i))
-                : [...sopList, editingItem];
+            updatedList = sopList.some((i: any) => i.id === editingItem.id) ? sopList.map((i: any) => (i.id === editingItem.id ? editingItem : i)) : [...sopList, editingItem];
             setList = setSopList;
         } else if (view === 'training') {
             listKey = 'training';
-            updatedList = trainingLevels.some((i: any) => i.id === editingItem.id)
-                ? trainingLevels.map((i: any) => (i.id === editingItem.id ? editingItem : i))
-                : [...trainingLevels, editingItem];
+            updatedList = trainingLevels.some((i: any) => i.id === editingItem.id) ? trainingLevels.map((i: any) => (i.id === editingItem.id ? editingItem : i)) : [...trainingLevels, editingItem];
             setList = setTrainingLevels;
         } else if (view === 'recipes') {
             listKey = 'recipes';
@@ -1363,11 +1354,9 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                 ...editingItem,
                 coverImageUrl: editingItem.coverImageUrl?.trim() || undefined,
                 tutorialVideoUrl: editingItem.tutorialVideoUrl?.trim() || undefined,
-                recipeType: editingItem.recipeType || 'product', // Ensure recipeType exists
+                recipeType: editingItem.recipeType || 'product', 
             };
-            updatedList = recipes.some((i: any) => i.id === editingItem.id)
-                ? recipes.map((i: any) => (i.id === editingItem.id ? sanitizedItem : i))
-                : [...recipes, sanitizedItem];
+            updatedList = recipes.some((i: any) => i.id === editingItem.id) ? recipes.map((i: any) => (i.id === editingItem.id ? sanitizedItem : i)) : [...recipes, sanitizedItem];
             setList = setRecipes;
         }
 
@@ -1375,19 +1364,10 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
             try {
                 const listToSave = removeUndefinedRecursive(updatedList);
                 await Cloud.saveContent(listKey, listToSave);
-                console.log(`${listKey} saved ok`);
-                // For robust validation, rely on the onSnapshot listener to update the state.
-                // Optimistically updating UI here after successful save.
                 setList(listToSave);
                 setEditingItem(null);
-            } catch (error: any) {
-                console.error(error);
-                alert(error.message);
-            }
-        } else {
-            // Fallback in case something goes wrong with the logic
-            setEditingItem(null);
-        }
+            } catch (error: any) { alert(error.message); }
+        } else { setEditingItem(null); }
     };
     const handleDelete = (id: string) => { if(!window.confirm("Delete this item?")) return; if (view === 'sop') { const list = sopList.filter((i:any) => i.id !== id); setSopList(list); Cloud.saveContent('sops', list); } else if (view === 'training') { const list = trainingLevels.filter((i:any) => i.id !== id); setTrainingLevels(list); Cloud.saveContent('training', list); } else { const list = recipes.filter((i:any) => i.id !== id); setRecipes(list); Cloud.saveContent('recipes', list); } };
     
@@ -1395,28 +1375,20 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
         const sortedRecipes = [...recipes].sort((a, b) => {
             const orderA = a.sortOrder ?? Infinity;
             const orderB = b.sortOrder ?? Infinity;
-            if (orderA !== orderB) {
-                return orderA - orderB;
-            }
+            if (orderA !== orderB) return orderA - orderB;
             const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
             const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
             return dateB - dateA;
         });
 
-        if ((direction === 'up' && indexToMove === 0) || (direction === 'down' && indexToMove === sortedRecipes.length - 1)) {
-            return;
-        }
+        if ((direction === 'up' && indexToMove === 0) || (direction === 'down' && indexToMove === sortedRecipes.length - 1)) return;
 
         const targetIndex = direction === 'up' ? indexToMove - 1 : indexToMove + 1;
         const reorderedList = [...sortedRecipes];
         const [movedItem] = reorderedList.splice(indexToMove, 1);
         reorderedList.splice(targetIndex, 0, movedItem);
 
-        const updatedList = reorderedList.map((recipe, index) => ({
-            ...recipe,
-            sortOrder: index,
-        }));
-
+        const updatedList = reorderedList.map((recipe, index) => ({ ...recipe, sortOrder: index }));
         setRecipes(updatedList);
         Cloud.saveContent('recipes', updatedList);
     };
@@ -1424,96 +1396,48 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !process.env.API_KEY) return;
-
         setIsProcessingPdf(true);
         try {
             const reader = new FileReader();
             reader.onload = async (event) => {
                 const base64Data = (event.target?.result as string).split(',')[1];
-                
                 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
                 const prompt = `You are a recipe processing assistant.
                 1. First, analyze the provided PDF and extract the recipe information into a JSON object with ONLY English values for the fields: "name", "cat", "size", "ice", "sugar", "toppings", and "steps" (for both "cold" and "warm").
                 2. Second, translate the extracted English text for "name", "toppings", and "steps" into Simplified Chinese.
-                3. Finally, return a single, complete JSON object that includes both the original English and the translated Chinese, formatted exactly like this:
-                {
-                  "name": {"en": "...", "zh": "..."},
-                  "cat": "...",
-                  "size": "...",
-                  "ice": "...",
-                  "sugar": "...",
-                  "toppings": {"en": "...", "zh": "..."},
-                  "steps": {
-                    "cold": [{"en": "...", "zh": "..."}],
-                    "warm": [{"en": "...", "zh": "..."}]
-                  }
-                }
-                - For 'cat', 'size', 'ice', 'sugar', just extract the value; do not create en/zh objects.
-                - The 'steps' arrays must contain objects, each with 'en' and 'zh' keys.
-                - If a section (like warm steps) is missing, return an empty array for it.
-                - Infer missing details reasonably but prioritize accuracy from the PDF.`;
+                3. Finally, return a single, complete JSON object that includes both the original English and the translated Chinese.`;
 
-                // FIX: Upgraded model and implemented structured JSON output for reliability.
                 const response = await ai.models.generateContent({
                     model: 'gemini-3-pro-preview',
-                    contents: {
-                        parts: [
-                            { text: prompt },
-                            { inlineData: { mimeType: 'application/pdf', data: base64Data } }
-                        ]
-                    },
-                    config: {
-                        responseMimeType: "application/json",
-                        responseSchema: recipeSchema,
-                    }
+                    contents: { parts: [{ text: prompt }, { inlineData: { mimeType: 'application/pdf', data: base64Data } }] },
+                    config: { responseMimeType: "application/json", responseSchema: recipeSchema }
                 });
 
                 const text = response.text;
                 if (text) {
-                    // FIX: Improved JSON parsing to handle clean output from Gemini's JSON mode.
                     try {
                         const jsonStr = text.trim().replace(/^```json\s*/, '').replace(/```$/, '');
                         const extracted = JSON.parse(jsonStr);
-                        
-                        // "Fill empty fields only" logic
                         setEditingItem((prev: DrinkRecipe) => {
                             const updated = JSON.parse(JSON.stringify(prev));
-
                             if (!updated.name.en && extracted.name?.en) updated.name.en = extracted.name.en;
                             if (!updated.name.zh && extracted.name?.zh) updated.name.zh = extracted.name.zh;
-
                             if (!updated.cat && extracted.cat) updated.cat = extracted.cat;
                             if (!updated.size && extracted.size) updated.size = extracted.size;
                             if (!updated.ice && extracted.ice) updated.ice = extracted.ice;
                             if (!updated.sugar && extracted.sugar) updated.sugar = extracted.sugar;
-
                             if (!updated.toppings.en && extracted.toppings?.en) updated.toppings.en = extracted.toppings.en;
                             if (!updated.toppings.zh && extracted.toppings?.zh) updated.toppings.zh = extracted.toppings.zh;
-
-                            if ((!updated.steps.cold || updated.steps.cold.length === 0) && extracted.steps?.cold) {
-                                updated.steps.cold = extracted.steps.cold;
-                            }
-                            if ((!updated.steps.warm || updated.steps.warm.length === 0) && extracted.steps?.warm) {
-                                updated.steps.warm = extracted.steps.warm;
-                            }
-
+                            if ((!updated.steps.cold || updated.steps.cold.length === 0) && extracted.steps?.cold) updated.steps.cold = extracted.steps.cold;
+                            if ((!updated.steps.warm || updated.steps.warm.length === 0) && extracted.steps?.warm) updated.steps.warm = extracted.steps.warm;
                             return updated;
                         });
-
                         alert("✅ Recipe auto-filled from PDF!\n已从 PDF 识别英文内容并生成中文翻译草稿。");
-                    } catch (parseError) {
-                         alert("Could not parse recipe from PDF. Please check the console.");
-                        console.error("Gemini Response (JSON parse failed):", text, parseError);
-                    }
+                    } catch (parseError) { alert("Could not parse recipe from PDF."); }
                 }
             };
             reader.readAsDataURL(file);
-        } catch (err) {
-            console.error(err);
-            alert("Error processing PDF. Please check the console for details.");
-        } finally {
-            setIsProcessingPdf(false);
-        }
+        } catch (err) { alert("Error processing PDF."); } finally { setIsProcessingPdf(false); }
     };
 
     const renderEditorFields = () => {
@@ -1530,46 +1454,20 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                 <div><label className="block text-xs font-bold text-red-500 mb-1 flex items-center gap-2"><Icon name="Play" size={12}/> YOUTUBE VIDEO LINK</label>
                     <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://youtu.be/..." value={editingItem.youtubeLink || ''} onChange={e => setEditingItem({...editingItem, youtubeLink: e.target.value})} />
                 </div>
-                
-                {/* NEW IMAGE GALLERY SECTION */}
                 <div>
                     <label className="block text-xs font-bold text-blue-400 mb-1 flex items-center gap-2"><Icon name="Camera" size={12}/> IMAGE GALLERY (Max 6)</label>
                     <div className="space-y-2">
                         {(editingItem.imageUrls || []).map((url: string, idx: number) => (
                             <div key={idx} className="flex gap-2">
-                                <input 
-                                    className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" 
-                                    placeholder="Image URL..." 
-                                    value={url} 
-                                    onChange={e => {
-                                        const newUrls = [...(editingItem.imageUrls || [])];
-                                        newUrls[idx] = e.target.value;
-                                        setEditingItem({...editingItem, imageUrls: newUrls});
-                                    }} 
-                                />
-                                <button 
-                                    onClick={() => {
-                                        const newUrls = [...(editingItem.imageUrls || [])];
-                                        newUrls.splice(idx, 1);
-                                        setEditingItem({...editingItem, imageUrls: newUrls});
-                                    }}
-                                    className="px-3 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"
-                                >
-                                    <Icon name="Trash" size={14}/>
-                                </button>
+                                <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Image URL..." value={url} onChange={e => { const newUrls = [...(editingItem.imageUrls || [])]; newUrls[idx] = e.target.value; setEditingItem({...editingItem, imageUrls: newUrls}); }} />
+                                <button onClick={() => { const newUrls = [...(editingItem.imageUrls || [])]; newUrls.splice(idx, 1); setEditingItem({...editingItem, imageUrls: newUrls}); }} className="px-3 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20"><Icon name="Trash" size={14}/></button>
                             </div>
                         ))}
                         {(editingItem.imageUrls?.length || 0) < 6 && (
-                            <button 
-                                onClick={() => setEditingItem({...editingItem, imageUrls: [...(editingItem.imageUrls || []), '']})}
-                                className="text-xs bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded font-bold hover:bg-blue-500/20"
-                            >
-                                + Add Image URL
-                            </button>
+                            <button onClick={() => setEditingItem({...editingItem, imageUrls: [...(editingItem.imageUrls || []), '']})} className="text-xs bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded font-bold hover:bg-blue-500/20">+ Add Image URL</button>
                         )}
                     </div>
                 </div>
-
                 <div><label className="block text-xs font-bold text-dark-accent/70 mb-2">CONTENT SECTIONS</label>
                     {editingItem.content?.map((section: any, idx: number) => (
                     <div key={idx} className="bg-dark-bg p-3 rounded mb-2 border border-white/10">
@@ -1584,12 +1482,8 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
             return (<div className="space-y-4">
                 <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm font-bold" placeholder="Title (EN)" value={editingItem.title?.en || ''} onChange={e => setEditingItem({...editingItem, title: {...(editingItem.title || {zh:'', en:''}), en: e.target.value}})} />
                 <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Category (e.g. Opening)" value={editingItem.category || ''} onChange={e => setEditingItem({...editingItem, category: e.target.value})} />
-                <div><label className="block text-xs font-bold text-dark-accent/70 mb-1">CONTENT (EN)</label>
-                    <textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-40 font-mono" value={editingItem.content?.en || ''} onChange={e => setEditingItem({...editingItem, content: {...(editingItem.content || {zh:'', en:''}), en: e.target.value}})} />
-                </div>
-                <div><label className="block text-xs font-bold text-dark-accent/70 mb-1">CONTENT (ZH)</label>
-                    <textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-40 font-mono" value={editingItem.content?.zh || ''} onChange={e => setEditingItem({...editingItem, content: {...(editingItem.content || {zh:'', en:''}), zh: e.target.value}})} />
-                </div>
+                <div><label className="block text-xs font-bold text-dark-accent/70 mb-1">CONTENT (EN)</label><textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-40 font-mono" value={editingItem.content?.en || ''} onChange={e => setEditingItem({...editingItem, content: {...(editingItem.content || {zh:'', en:''}), en: e.target.value}})} /></div>
+                <div><label className="block text-xs font-bold text-dark-accent/70 mb-1">CONTENT (ZH)</label><textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-40 font-mono" value={editingItem.content?.zh || ''} onChange={e => setEditingItem({...editingItem, content: {...(editingItem.content || {zh:'', en:''}), zh: e.target.value}})} /></div>
             </div>); 
         }
         if (view === 'recipes') { 
@@ -1602,55 +1496,30 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                 </div>
                  <div className="border-t border-white/10 pt-4 mt-2">
                     <h4 className="text-xs font-bold text-green-400 mb-2 uppercase">Display Assets (Optional)</h4>
-                    <div>
-                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Cover Image URL</label>
-                        <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://..." value={editingItem.coverImageUrl || ''} onChange={e => setEditingItem({...editingItem, coverImageUrl: e.target.value})} /> 
-                    </div>
-                    <div className="mt-2">
-                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Tutorial Video URL (YouTube)</label>
-                        <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://youtu.be/..." value={editingItem.tutorialVideoUrl || ''} onChange={e => setEditingItem({...editingItem, tutorialVideoUrl: e.target.value})} />
-                    </div>
+                    <div><label className="text-[10px] uppercase font-bold text-dark-text-light">Cover Image URL</label><input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://..." value={editingItem.coverImageUrl || ''} onChange={e => setEditingItem({...editingItem, coverImageUrl: e.target.value})} /></div>
+                    <div className="mt-2"><label className="text-[10px] uppercase font-bold text-dark-text-light">Tutorial Video URL (YouTube)</label><input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://youtu.be/..." value={editingItem.tutorialVideoUrl || ''} onChange={e => setEditingItem({...editingItem, tutorialVideoUrl: e.target.value})} /></div>
                 </div>
                 <div className="border-t border-white/10 pt-4 mt-2 space-y-3">
                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input 
-                            type="checkbox" 
-                            checked={editingItem.isPublished !== false}
-                            onChange={e => setEditingItem({...editingItem, isPublished: e.target.checked})}
-                            className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
-                        />
+                        <input type="checkbox" checked={editingItem.isPublished !== false} onChange={e => setEditingItem({...editingItem, isPublished: e.target.checked})} className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent" />
                         <span className="font-bold text-dark-accent">在员工端显示 / Publish to staff app</span>
                     </label>
                     <div>
                         <label className="text-[10px] uppercase font-bold text-dark-text-light">Recipe Type</label>
-                        <select 
-                            className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" 
-                            value={editingItem.recipeType || 'product'} 
-                            onChange={e => setEditingItem({...editingItem, recipeType: e.target.value})}
-                        >
+                        <select className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" value={editingItem.recipeType || 'product'} onChange={e => setEditingItem({...editingItem, recipeType: e.target.value})}>
                             <option value="product">Product (成品配方)</option>
                             <option value="premix">Premix (基底/半成品)</option>
                         </select>
                     </div>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                        <input 
-                            type="checkbox" 
-                            checked={!!editingItem.isNew} 
-                            onChange={e => setEditingItem({...editingItem, isNew: e.target.checked})}
-                            className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
-                        />
-                        <span className="font-bold text-dark-accent">标记为新菜谱 / Mark as NEW recipe</span>
+                    {/* 【核心修改：文案明确指代置顶功能】 */}
+                    <label className="flex items-center gap-3 cursor-pointer bg-dark-bg p-3 rounded-lg border border-red-500/30">
+                        <input type="checkbox" checked={!!editingItem.isNew} onChange={e => setEditingItem({...editingItem, isNew: e.target.checked})} className="w-5 h-5 rounded bg-dark-bg border-white/20 text-red-400 focus:ring-red-400" />
+                        <span className="font-bold text-red-400">标记为新配方并在员工端首页置顶 (Pin to Home)</span>
                     </label>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                    <div>
-                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Name (EN)</label>
-                        <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm font-bold" placeholder="Name (EN)" value={editingItem.name?.en || ''} onChange={e => setEditingItem({...editingItem, name: {...(editingItem.name || {zh:'', en:''}), en: e.target.value}})} /> 
-                    </div>
-                    <div>
-                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Name (ZH)</label>
-                        <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm font-bold" placeholder="Name (ZH)" value={editingItem.name?.zh || ''} onChange={e => setEditingItem({...editingItem, name: {...(editingItem.name || {zh:'', en:''}), zh: e.target.value}})} />
-                    </div>
+                    <div><label className="text-[10px] uppercase font-bold text-dark-text-light">Name (EN)</label><input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm font-bold" placeholder="Name (EN)" value={editingItem.name?.en || ''} onChange={e => setEditingItem({...editingItem, name: {...(editingItem.name || {zh:'', en:''}), en: e.target.value}})} /></div>
+                    <div><label className="text-[10px] uppercase font-bold text-dark-text-light">Name (ZH)</label><input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm font-bold" placeholder="Name (ZH)" value={editingItem.name?.zh || ''} onChange={e => setEditingItem({...editingItem, name: {...(editingItem.name || {zh:'', en:''}), zh: e.target.value}})} /></div>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                     <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="Category" value={editingItem.cat || ''} onChange={e => setEditingItem({...editingItem, cat: e.target.value})} />
@@ -1667,14 +1536,8 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
 
                 <div className="border-t border-white/10 pt-4 mt-4">
                     <h4 className="text-xs font-bold text-green-400 mb-2 uppercase">原料/基底配制说明 (可选)</h4>
-                    <div>
-                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Base Prep (EN)</label>
-                        <textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-20" placeholder="Instructions for preparing base ingredients..." value={editingItem.basePreparation?.en || ''} onChange={e => setEditingItem({...editingItem, basePreparation: {...(editingItem.basePreparation || {zh:'', en:''}), en: e.target.value}})} />
-                    </div>
-                    <div className="mt-2">
-                        <label className="text-[10px] uppercase font-bold text-dark-text-light">基底配制 (ZH)</label>
-                        <textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-20" placeholder="配制基底原料的步骤..." value={editingItem.basePreparation?.zh || ''} onChange={e => setEditingItem({...editingItem, basePreparation: {...(editingItem.basePreparation || {zh:'', en:''}), zh: e.target.value}})} />
-                    </div>
+                    <div><label className="text-[10px] uppercase font-bold text-dark-text-light">Base Prep (EN)</label><textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-20" placeholder="Instructions for preparing base ingredients..." value={editingItem.basePreparation?.en || ''} onChange={e => setEditingItem({...editingItem, basePreparation: {...(editingItem.basePreparation || {zh:'', en:''}), en: e.target.value}})} /></div>
+                    <div className="mt-2"><label className="text-[10px] uppercase font-bold text-dark-text-light">基底配制 (ZH)</label><textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-20" placeholder="配制基底原料的步骤..." value={editingItem.basePreparation?.zh || ''} onChange={e => setEditingItem({...editingItem, basePreparation: {...(editingItem.basePreparation || {zh:'', en:''}), zh: e.target.value}})} /></div>
                 </div>
 
                 <div className="border-t border-white/10 pt-4 mt-2">
@@ -1712,9 +1575,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
     const sortedRecipesForDisplay = [...(view === 'recipes' ? recipes : [])].sort((a, b) => {
         const orderA = a.sortOrder ?? Infinity;
         const orderB = b.sortOrder ?? Infinity;
-        if (orderA !== orderB) {
-            return orderA - orderB;
-        }
+        if (orderA !== orderB) return orderA - orderB;
         const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return dateB - dateA;
@@ -1749,20 +1610,8 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                                <div className="flex gap-2">
                                    {view === 'recipes' && (
                                        <>
-                                           <button
-                                               onClick={() => handleMoveRecipe(index, 'up')}
-                                               disabled={index === 0}
-                                               className="p-2 bg-white/5 text-dark-text-light rounded hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"
-                                            >
-                                               <Icon name="ChevronUp" size={16}/>
-                                           </button>
-                                            <button
-                                               onClick={() => handleMoveRecipe(index, 'down')}
-                                               disabled={index === sortedRecipesForDisplay.length - 1}
-                                               className="p-2 bg-white/5 text-dark-text-light rounded hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"
-                                           >
-                                               <Icon name="ChevronDown" size={16}/>
-                                           </button>
+                                           <button onClick={() => handleMoveRecipe(index, 'up')} disabled={index === 0} className="p-2 bg-white/5 text-dark-text-light rounded hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"><Icon name="ChevronUp" size={16}/></button>
+                                           <button onClick={() => handleMoveRecipe(index, 'down')} disabled={index === sortedRecipesForDisplay.length - 1} className="p-2 bg-white/5 text-dark-text-light rounded hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed"><Icon name="ChevronDown" size={16}/></button>
                                        </>
                                    )}
                                    <button onClick={() => setEditingItem(JSON.parse(JSON.stringify(item)))} className="p-2 bg-blue-500/10 text-blue-400 rounded hover:bg-blue-500/20 transition-all"><Icon name="Edit" size={16}/></button>
@@ -3867,20 +3716,16 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
     );
 };
 
+
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [终极合并版]
+// 组件 4: 员工端 (Staff App) - [移除打卡，新增置顶配方/公告]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    // 1. 解构数据
-    const { lang, setLang, schedule, notices, logs, setLogs, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles } = data;
+    const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles } = data;
     const { showNotification } = useNotification();
 
-    // 2. 状态定义 (保留所有原有状态)
     const [view, setView] = useState<StaffViewMode>('home');
-    const [inventoryShiftMode, setInventoryShiftMode] = useState<'morning'|'evening'>('morning');
-    const [clockBtnText, setClockBtnText] = useState({ in: t.clock_in, out: t.clock_out });
     const [currentShift, setCurrentShift] = useState<string>('opening'); 
-    const [onInventorySuccess, setOnInventorySuccess] = useState<(() => void) | null>(null);
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
@@ -3903,7 +3748,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const scheduleReminderShown = useRef(false);
     const swapReminderShown = useRef(false);
 
-    // Helper
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
     // Schedule Cycle Info
@@ -3915,11 +3759,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     });
     const userConfirmation = currentCycle?.confirmations[currentUser.id];
 
-    // ========================================================================
-    // 3. 核心逻辑 (Effect & Functions)
-    // ========================================================================
+    // --- 【新增：提取公告和置顶配方】 ---
+    const activeNotices = (notices || []).filter((n: Notice) => n.status !== 'cancelled');
+    const latestNotice = activeNotices.length > 0 ? activeNotices[activeNotices.length - 1] : null;
+    const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
 
-    // --- A. Recipe Acknowledgment (保留原有) ---
     useEffect(() => {
         if (recipeReminderCheckDone.current || !recipes || !currentUser || recipes.length === 0) return;
         const allNewRecipes = recipes.filter((r: DrinkRecipe) => r.isNew === true);
@@ -3950,72 +3794,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         showNotification({ type: 'message', title: 'Acknowledgment Recorded', message: 'Your confirmation has been sent.' });
     };
 
-    // --- B. 智能班次提醒 (Smart Shift Reminders) - [修复版] ---
-    useEffect(() => {
-        if (!schedule?.days) return;
-
-        const timer = setInterval(() => {
-            const now = new Date();
-            // 1. 稳健日期匹配
-            const m = now.getMonth() + 1;
-            const d = now.getDate();
-            const dateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
-            
-            const todaySchedule = schedule.days.find((day: any) => dateKeys.includes(day.date));
-            if (!todaySchedule || !todaySchedule.shifts) return;
-
-            // 2. 筛选我的班次
-            const myShifts = todaySchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
-
-            myShifts.forEach((shift: any) => {
-                const [startH, startM] = shift.start.split(':').map(Number);
-                const [endH, endM] = shift.end.split(':').map(Number);
-                
-                const shiftStart = new Date(now);
-                shiftStart.setHours(startH, startM, 0, 0);
-                
-                const shiftEnd = new Date(now);
-                shiftEnd.setHours(endH, endM, 0, 0);
-
-                // --- 上班提醒 ---
-                const diffStart = (now.getTime() - shiftStart.getTime()) / 60000;
-                // 防止双班次冲突：只检查该班次时间段附近的打卡
-                const hasClockedInThisShift = logs.some((l: any) => 
-                    l.userId === currentUser.id && l.type === 'clock-in' &&
-                    new Date(l.time).getTime() > (shiftStart.getTime() - 2 * 3600000) && 
-                    new Date(l.time).getTime() < shiftEnd.getTime()
-                );
-
-                if (!hasClockedInThisShift && diffStart >= -15 && diffStart <= 15) {
-                    const dedupeKey = `in-${dateKeys[0]}-${shift.id || shift.start}-${Math.floor(now.getTime() / 300000)}`;
-                    showNotification({ type: 'clock_in_reminder', title: 'Clock-in Reminder', message: `Your shift (${shift.start}) starts soon!`, dedupeKey });
-                }
-
-                // --- 下班提醒 ---
-                const diffEnd = (now.getTime() - shiftEnd.getTime()) / 60000;
-                const hasClockedOutThisShift = logs.some((l: any) => 
-                    l.userId === currentUser.id && l.type === 'clock-out' &&
-                    new Date(l.time).getTime() > shiftStart.getTime()
-                );
-
-                if (!hasClockedOutThisShift && diffEnd >= -15 && diffEnd <= 15) {
-                    const dedupeKey = `out-${dateKeys[0]}-${shift.id || shift.end}-${Math.floor(now.getTime() / 300000)}`;
-                    showNotification({ type: 'clock_out_reminder', title: 'Clock-out Reminder', message: `Your shift ends at ${shift.end}. Don't forget to clock out!`, dedupeKey });
-                }
-            });
-        }, 60000); 
-        return () => clearInterval(timer);
-    }, [currentUser, schedule, logs, showNotification]);
-
-    // --- C. Swap & Schedule Reminders (保留原有) ---
     useEffect(() => {
         if (view !== 'home' || deviationData || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) return;
 
         const runChecks = async () => {
             if (!swapReminderShown.current) {
-                const pendingSwaps = (swapRequests || []).filter(
-                    (r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending'
-                );
+                const pendingSwaps = (swapRequests || []).filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
                 if (pendingSwaps.length > 0) {
                     setPendingSwapCount(pendingSwaps.length);
                     setIsSwapReminderOpen(true);
@@ -4032,7 +3816,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return () => clearTimeout(timer);
     }, [currentUser, swapRequests, schedule, view, deviationData, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder, userConfirmation]);
 
-    // --- D. 公告逻辑 (保留原有) ---
     useEffect(() => {
         if (!notices || notices.length === 0) return;
         const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
@@ -4057,208 +3840,58 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
     }, [notices, showNotification, t.team_board]);
 
-    // --- E. 智能计算下一次值班 (Next Shift) - [对象返回版] ---
     const myNextShift = useMemo(() => {
         if (!schedule?.days) return null;
         
         const now = new Date();
         const m = now.getMonth() + 1;
         const d = now.getDate();
-        // 构造今天的日期字符串列表，确保能匹配上
         const todayDateKeys = [
-            `${m}-${d}`, // 1-27
-            `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}` // 01-27
+            `${m}-${d}`,
+            `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
         ];
 
-        // 扁平化所有班次
         const allShifts = schedule.days.flatMap((day: any) => {
-            // 1. 解析日期 (处理 1-27 这种非标准格式)
             let date = new Date(day.date);
             if (isNaN(date.getTime()) || day.date.indexOf('-') > -1) {
                 const parts = day.date.split('-');
                 if (parts.length >= 2) {
                     const dm = parseInt(parts[0]);
                     const dd = parseInt(parts[1]);
-                    const currentYear = now.getFullYear();
-                    let year = currentYear;
-                    // 跨年逻辑 (比如现在12月，排班是1月)
+                    let year = now.getFullYear();
                     if (now.getMonth() === 11 && dm === 1) year++;
                     date = new Date(year, dm - 1, dd);
                 }
             }
 
-            // 2. 过滤我的班次 (忽略大小写匹配 !!!)
             const myName = currentUser.name.trim().toLowerCase();
-            const myShifts = (day.shifts || []).filter((s: any) => 
-                s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myName)
-            );
+            const myShifts = (day.shifts || []).filter((s: any) => s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myName));
             
             return myShifts.map((s: any) => {
                 const [sh, sm] = s.start.split(':').map(Number);
                 const [eh, em] = s.end.split(':').map(Number);
                 
-                const fullStart = new Date(date); 
-                fullStart.setHours(sh, sm, 0, 0);
+                const fullStart = new Date(date); fullStart.setHours(sh, sm, 0, 0);
+                const fullEnd = new Date(date); fullEnd.setHours(eh, em, 0, 0);
                 
-                const fullEnd = new Date(date); 
-                fullEnd.setHours(eh, em, 0, 0);
-                
-                // 处理跨夜班次 (比如 22:00 - 02:00)
-                if (fullEnd < fullStart) {
-                    fullEnd.setDate(fullEnd.getDate() + 1);
-                }
+                if (fullEnd < fullStart) fullEnd.setDate(fullEnd.getDate() + 1);
 
-                return { 
-                    dateStr: day.date, 
-                    dateObj: date, 
-                    start: s.start, 
-                    end: s.end, 
-                    fullStart, 
-                    fullEnd 
-                };
+                return { dateStr: day.date, dateObj: date, start: s.start, end: s.end, fullStart, fullEnd };
             });
         });
 
-        // 3. 排序：按结束时间先后排序
         allShifts.sort((a: any, b: any) => a.fullEnd.getTime() - b.fullEnd.getTime());
-        
-        // 4. 找到还没结束的第一个班次 (结束时间 > 现在)
         const next = allShifts.find((shift: any) => shift.fullEnd > now);
 
         if (next) {
-            // 检查是否是今天
             const isToday = todayDateKeys.includes(next.dateStr) || next.dateObj.toDateString() === now.toDateString();
-            
             const displayDate = isToday ? (t.today || "Today") : `${next.dateObj.getMonth() + 1}/${next.dateObj.getDate()}`;
-            
-            // 【关键】返回对象格式，匹配您的 JSX 渲染逻辑
-            return { 
-                date: displayDate, 
-                shift: `${next.start} - ${next.end}` 
-            };
+            return { date: displayDate, shift: `${next.start} - ${next.end}` };
         }
         
         return null;
     }, [schedule, currentUser, t]);
 
-    // --- F. 打卡与记录 (Clocking Logic) ---
-    const recordLog = (type: ClockType, note: string, deviationInfo?: any) => {
-        const newLog: LogEntry = {
-            id: Date.now(), shift: type, name: currentUser.name, userId: currentUser.id, time: new Date().toLocaleString(),
-            type: type, reason: note,
-            ...(deviationInfo && {
-                deviationMinutes: deviationInfo.details.deviationMinutes, deviationDirection: deviationInfo.details.direction, deviationReason: deviationInfo.reason,
-            })
-        };
-        setLogs((prevLogs: LogEntry[]) => [newLog, ...prevLogs]);
-        Cloud.saveLog(newLog);
-
-        if (deviationInfo) {
-            const managerLog: LogEntry = {
-                id: Date.now() + 1, shift: 'attendance_deviation', type: 'attendance_deviation', name: currentUser.name, userId: currentUser.id, time: new Date().toLocaleString(),
-                reason: deviationInfo.reason, deviationMinutes: deviationInfo.details.deviationMinutes, deviationDirection: deviationInfo.details.direction,
-                scheduledTime: deviationInfo.details.scheduledTime, actualTime: deviationInfo.details.actualTime, shiftType: deviationInfo.type as ClockType,
-            };
-            setLogs((prevLogs: LogEntry[]) => [managerLog, ...prevLogs]);
-            Cloud.saveLog(managerLog);
-        }
-        setClockBtnText({ in: t.clock_in, out: t.clock_out });
-    };
-
-    const performClocking = (type: ClockType) => {
-        setClockBtnText(p => ({ ...p, [type === 'clock-in' ? 'in' : 'out']: '📡...' }));
-        
-        const processClocking = (locTag: string) => {
-            const now = new Date();
-            // 简单偏差检查逻辑 (此处简化，详细偏差逻辑保留您原有的即可)
-            alert(`✅ Success!\n${locTag}`);
-            recordLog(type, locTag);
-        };
-
-        if (!navigator.geolocation) { processClocking("GPS Not Supported"); return; }
-        navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                const dist = getDistanceFromLatLonInKm(pos.coords.latitude, pos.coords.longitude, STORE_COORDS.lat, STORE_COORDS.lng);
-                processClocking(dist <= 500 ? `In Range (<500m)` : `Out Range (${Math.round(dist)}m)`);
-            },
-            (err) => { console.error(err); processClocking("GPS Error"); },
-            { timeout: 10000, enableHighAccuracy: true }
-        );
-    };
-    
-    // --- G. 核心打卡入口 (Handle Clock Log) ---
-    const handleClockLog = (type: ClockType) => {
-        if (type === 'clock-out') {
-            // 下班：强制检查库存
-            const now = new Date();
-            const hour = now.getHours();
-            let targetShift: 'morning' | 'evening' = 'morning';
-
-            // 尝试从排班表智能推断
-            const todayStr = `${now.getMonth() + 1}-${now.getDate()}`;
-            const daySched = schedule?.days?.find((d: any) => d.date === todayStr);
-            if (daySched && daySched.shifts) {
-                const myShifts = daySched.shifts.filter((s: any) => s.staff.includes(currentUser.name));
-                // 如果我有晚班 (开始时间>=16点)，就算晚班下班
-                const hasEveningShift = myShifts.some((s: any) => parseInt(s.start) >= 16);
-                targetShift = hasEveningShift ? 'evening' : 'morning';
-            } else {
-                // 兜底：根据当前时间判断
-                targetShift = hour >= 16 ? 'evening' : 'morning';
-            }
-
-            setInventoryShiftMode(targetShift);
-            alert(t.inventory_before_clock_out || `Please complete ${targetShift.toUpperCase()} inventory check before clocking out.`);
-            
-            // 设置回调：只有 InventoryView 成功提交后，才会触发 performClocking('clock-out')
-            setOnInventorySuccess(() => () => performClocking('clock-out'));
-            setView('inventory');
-        } else {
-            // 上班：直接打卡
-            performClocking('clock-in');
-        }
-    };
-
-    const cancelInventoryClockOut = () => {
-        if (window.confirm(t.cancel_clock_out_confirm)) {
-            setOnInventorySuccess(null);
-            setView('home');
-        }
-    };
-
-    // --- H. Inventory Submit Callback ---
-    const handleInventorySubmit = (report: any) => {
-        const completeReport = {
-            ...report,
-            id: Date.now().toString(), // Ensure string ID
-            date: new Date().toISOString(),
-        };
-        Cloud.saveInventoryReport(completeReport);
-        
-        // Log individual item changes (optional log)
-        const logs: InventoryLog[] = [];
-        const timestamp = new Date().toLocaleString();
-        Object.keys(report.data).forEach(itemId => {
-            const itemData = report.data[itemId];
-            if (itemData.end || itemData.loss) {
-                logs.push({
-                    id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-                    timestamp, operator: report.submittedBy, itemId, itemName: itemId,
-                    newStock: itemData.end || '0', waste: itemData.loss || '0', actionType: 'report'
-                });
-            }
-        });
-        if (logs.length > 0) Cloud.saveInventoryLogs(logs);
-
-        // Success Callback (Clock Out)
-        if (onInventorySuccess) {
-            onInventorySuccess();
-            setOnInventorySuccess(null);
-            setView('home');
-        }
-    };
-
-    // --- I. Swap & Schedule Logic ---
     const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
         const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
         if(!req) return;
@@ -4270,13 +3903,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const handleConfirmSchedule = async () => {
         if (!currentCycle) return;
-        const updatedCycle = {
-            ...currentCycle,
-            confirmations: {
-                ...currentCycle.confirmations,
-                [currentUser.id]: { status: 'confirmed', viewed: true }
-            }
-        };
+        const updatedCycle = { ...currentCycle, confirmations: { ...currentCycle.confirmations, [currentUser.id]: { status: 'confirmed', viewed: true } } };
         const updatedCycles = scheduleCycles.map((c: ScheduleCycle) => c.cycleId === updatedCycle.cycleId ? updatedCycle : c);
         await Cloud.updateScheduleCycles(updatedCycles);
         showNotification({ type: 'message', title: 'Schedule Confirmed!', message: 'Thank you.' });
@@ -4297,9 +3924,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setIsSwapModalOpen(false); setReason(''); setTargetEmployeeId('');
     };
 
-    // ========================================================================
-    // 4. SUB-VIEWS (Render Functions)
-    // ========================================================================
     const ConfirmationBanner = () => {
         if (!currentCycle || !userConfirmation || userConfirmation.status !== 'pending') return null;
         return ( <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in"><div className="flex-1"><h4 className="font-bold">Please Confirm Your Schedule</h4><p className="text-sm mt-1">Review upcoming shifts ({currentCycle.startDate} - {currentCycle.endDate})</p></div><button onClick={handleConfirmSchedule} className="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg text-sm shadow-md w-full sm:w-auto">Confirm Schedule</button></div>);
@@ -4328,7 +3952,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return (<div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.training}</h2><div className="space-y-3">{trainingLevels.map((l: TrainingLevel) => (<div key={l.id} onClick={() => setActiveLevel(l)} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:shadow-md transition-all"><div className="w-12 h-12 bg-primary-light text-primary rounded-full flex items-center justify-center font-bold text-lg">{l.id}</div><div className="flex-1"><h3 className="font-bold text-text">{l.title?.[lang] || l.title?.['zh']}</h3><p className="text-xs text-text-light">{l.subtitle?.[lang] || l.subtitle?.['zh']}</p></div><Icon name="ChevronRight" className="text-gray-300"/></div>))}</div></div>);
     };
 
-    // --- Render View Switcher ---
     const renderView = () => {
         if (view === 'team') {
             const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -4361,7 +3984,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                 <div className="space-y-3">
                                 {week.days.map((dayInfo) => {
                                     const daySchedule = scheduleMap.get(normalizeDateKey(dayInfo.dateStr));
-                                    // 适配新 shifts 数组
                                     let shiftsToRender = daySchedule?.shifts || [];
                                     const isTodayClass = dayInfo.isToday ? 'ring-2 ring-primary ring-offset-2 border-primary/20' : 'border-gray-100';
                                     return (
@@ -4419,28 +4041,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
         if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
         
-        // 核心修改：渲染 InventoryView 组件
-        if (view === 'inventory') { 
-            return (
-                <InventoryView 
-                    lang={lang} 
-                    t={t} 
-                    inventoryList={data.inventoryList} 
-                    setInventoryList={data.setInventoryList} 
-                    onSubmit={handleInventorySubmit} 
-                    currentUser={currentUser} 
-                    isForced={!!onInventorySuccess} 
-                    onCancel={cancelInventoryClockOut} 
-                    forcedShift={inventoryShiftMode} 
-                    isOwner={false} // Staff 模式
-                />
-            ); 
-        }
-        
-        if (view === 'checklist') {
-            const checklist = CHECKLIST_TEMPLATES[currentShift];
-            return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
-        }
         if (view === 'availability') { return <AvailabilityModal isOpen={true} onClose={() => setView('home')} t={t} currentUser={currentUser} />; }
         if (view === 'swapRequests') {
             const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
@@ -4456,23 +4056,61 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return null;
     };
 
+    // --- HOME VIEW 核心修改区 ---
     const homeView = (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
                 <div><h1 className="text-2xl font-black">{t.hello} {currentUser.name}</h1><p className="text-text-light text-sm">{t.ready}</p></div>
                 <div className="flex items-center gap-2"><button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light font-bold text-sm">{lang === 'zh' ? 'En' : '中'}</button><button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button><button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button></div>
             </div>
-            <div className="grid grid-cols-2 gap-3 mb-4">
-                <button onClick={() => handleClockLog('clock-in')} className="bg-green-100 text-green-700 font-bold py-5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-transform"><Icon name="LogIn" /><span>{clockBtnText.in}</span></button>
-                <button onClick={() => handleClockLog('clock-out')} className="bg-red-100 text-red-700 font-bold py-5 rounded-2xl flex flex-col items-center justify-center gap-1.5 active:scale-95 transition-transform"><Icon name="LogOut" /><span>{clockBtnText.out}</span></button>
-            </div>
+
+            {/* --- 新增：置顶新配方推荐 --- */}
+            {featuredRecipes.length > 0 && (
+                <div className="mb-4 animate-fade-in">
+                    <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1"><Icon name="Flame" size={14}/> 新品配方推荐 / New Recipes</h3>
+                    <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+                        {featuredRecipes.map((recipe: DrinkRecipe) => (
+                            <div 
+                                key={recipe.id} 
+                                onClick={() => { 
+                                    setView('recipes'); 
+                                    setRecipeSearchQuery(recipe.name.zh || recipe.name.en); 
+                                }} 
+                                className="min-w-[240px] bg-gradient-to-br from-red-500 to-orange-500 rounded-2xl p-4 shadow-md text-white shrink-0 relative overflow-hidden cursor-pointer active:scale-95 transition-transform"
+                            >
+                                {/* 装饰性背景 */}
+                                <div className="absolute -right-4 -bottom-4 opacity-20"><Icon name="Coffee" size={80}/></div>
+                                <h4 className="font-black text-lg mb-1 relative z-10">{recipe.name[lang] || recipe.name.zh}</h4>
+                                <p className="text-xs opacity-90 relative z-10">{recipe.cat}</p>
+                                <button className="mt-4 bg-white text-red-500 px-4 py-1.5 rounded-full text-xs font-bold relative z-10 shadow-sm hover:bg-gray-50 flex items-center gap-1">
+                                    <Icon name="PlayCircle" size={14} /> 查看做法
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* --- 新增：最新群公告 --- */}
+            {latestNotice && (
+                <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in">
+                    <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
+                    <div className="flex items-center gap-2 mb-2">
+                        <Icon name="Megaphone" size={16} className="text-blue-500"/>
+                        <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wider">团队公告 / Announcement</h3>
+                    </div>
+                    <p className="text-sm text-gray-800 font-medium whitespace-pre-line">{latestNotice.content}</p>
+                    {latestNotice.imageUrl && <img src={latestNotice.imageUrl} alt="notice" className="mt-3 rounded-xl w-full max-h-40 object-cover border border-blue-100/50 shadow-sm" />}
+                    <div className="mt-2 text-[10px] text-blue-400 font-bold text-right">{latestNotice.author} • {new Date(latestNotice.date).toLocaleDateString()}</div>
+                </div>
+            )}
+
+            {/* 下一次值班卡片 */}
             <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
                 <p className="text-xs text-text-light font-bold uppercase mb-2">{t.next_shift}</p>
                 {myNextShift ? (<p className="font-bold text-text text-lg">{myNextShift.date} <span className="text-primary">{myNextShift.shift}</span></p>) : <p className="text-sm text-text-light italic">{t.no_shift}</p>}
             </div>
             
-            <LastRefillCard inventoryHistory={data.inventoryHistory} inventoryList={data.inventoryList} lang={lang} t={t} />
-
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
                 <div className="grid grid-cols-2 gap-3">
@@ -4504,7 +4142,8 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
         { key: 'home', icon: 'Grid', label: t.home },
         { key: 'training', icon: 'Award', label: t.training },
         { key: 'recipes', icon: 'Coffee', label: t.recipes },
-        { key: 'inventory', icon: 'Package', label: t.stock },
+        // 注释或保留：如果不需要通过底部导航进入盘点，可以把这行删掉
+        { key: 'inventory', icon: 'Package', label: t.stock }, 
         { key: 'chat', icon: 'MessageSquare', label: t.chat },
     ];
     return (
@@ -4519,7 +4158,6 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
         </div>
     );
 };
-
 
 // ============================================================================
 // MAIN APP COMPONENT - [修复版：强制云端同步]
