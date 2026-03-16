@@ -3718,7 +3718,7 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [彻底清理打卡残留 + 新增公告配方置顶]
+// 组件 4: 员工端 (Staff App) - [彻底清理打卡残留，修复 Vercel 报错]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles } = data;
@@ -4110,27 +4110,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
         if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
         
-        if (view === 'inventory') { 
-            return (
-                <InventoryView 
-                    lang={lang} 
-                    t={t} 
-                    inventoryList={data.inventoryList} 
-                    setInventoryList={data.setInventoryList} 
-                    onSubmit={handleInventorySubmit} 
-                    currentUser={currentUser} 
-                    isForced={false} 
-                    onCancel={() => setView('home')} 
-                    forcedShift="morning" 
-                    isOwner={false} 
-                />
-            ); 
-        }
-        
-        if (view === 'checklist') {
-            const checklist = CHECKLIST_TEMPLATES[currentShift];
-            return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
-        }
         if (view === 'availability') { return <AvailabilityModal isOpen={true} onClose={() => setView('home')} t={t} currentUser={currentUser} />; }
         if (view === 'swapRequests') {
             const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
@@ -4154,7 +4133,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 <div className="flex items-center gap-2"><button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light font-bold text-sm">{lang === 'zh' ? 'En' : '中'}</button><button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button><button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button></div>
             </div>
 
-            {/* --- 新增：置顶新配方推荐 --- */}
+            {/* --- 置顶新配方推荐 --- */}
             {featuredRecipes.length > 0 && (
                 <div className="mb-4 animate-fade-in">
                     <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1"><Icon name="Flame" size={14}/> 新品配方推荐 / New Recipes</h3>
@@ -4168,7 +4147,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                 }} 
                                 className="min-w-[240px] bg-gradient-to-br from-red-500 to-orange-500 rounded-2xl p-4 shadow-md text-white shrink-0 relative overflow-hidden cursor-pointer active:scale-95 transition-transform"
                             >
-                                {/* 装饰性背景 */}
                                 <div className="absolute -right-4 -bottom-4 opacity-20"><Icon name="Coffee" size={80}/></div>
                                 <h4 className="font-black text-lg mb-1 relative z-10">{recipe.name[lang] || recipe.name.zh}</h4>
                                 <p className="text-xs opacity-90 relative z-10">{recipe.cat}</p>
@@ -4181,7 +4159,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             )}
 
-            {/* --- 新增：最新群公告 --- */}
+            {/* --- 最新群公告 --- */}
             {latestNotice && (
                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
@@ -4221,23 +4199,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             {currentUser && <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />}
             <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={users} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
             <ActionReminderModal isOpen={isScheduleReminderOpen} title="排班确认提醒" message="你未来两周有排班安排，请尽快确认。" confirmText="去排班页面" cancelText="稍后" onConfirm={() => { setView('team'); setIsScheduleReminderOpen(false); }} onCancel={() => setIsScheduleReminderOpen(false)} />
-             <ActionReminderModal isOpen={isSwapReminderOpen} title="换班申请提醒" message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`} confirmText="去处理" cancelText="稍后" onConfirm={() => { setView('swapRequests'); setIsSwapReminderOpen(false); }} onCancel={() => setIsSwapReminderOpen(false)} />
-        </div>
-    );
-};
-
-// ... 后续代码保持不变 (StaffBottomNav, etc.)
-    
-    return (
-        <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative pt-[calc(env(safe-area-inset-top)_+_1rem)]">
-            {view === 'home' ? homeView : renderView()}
-            {currentUser && <StaffBottomNav activeView={view} setActiveView={setView} t={t} hasUnreadChat={hasUnreadChat} />}
-            <AvailabilityReminderModal isOpen={showAvailabilityReminder} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} onCancel={() => setShowAvailabilityReminder(false)} t={t} />
-            {currentUser && <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />}
-            <DeviationReasonModal isOpen={!!deviationData} onClose={() => { setDeviationData(null); setClockBtnText({ in: t.clock_in, out: t.clock_out }); }} onSubmit={(reason: string) => { recordLog(deviationData.type, deviationData.locTag, { reason, details: deviationData.details }); setDeviationData(null); }} details={deviationData?.details} t={t} />
-             <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={users} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
-            <ActionReminderModal isOpen={isScheduleReminderOpen} title="排班确认提醒" message="你未来两周有排班安排，请尽快确认。" confirmText="去排班页面" cancelText="稍后" onConfirm={() => { setView('team'); setIsScheduleReminderOpen(false); }} onCancel={() => setIsScheduleReminderOpen(false)} />
-             <ActionReminderModal isOpen={isSwapReminderOpen} title="换班申请提醒" message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`} confirmText="去处理" cancelText="稍后" onConfirm={() => { setView('swapRequests'); setIsSwapReminderOpen(false); }} onCancel={() => setIsSwapReminderOpen(false)} />
+            <ActionReminderModal isOpen={isSwapReminderOpen} title="换班申请提醒" message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`} confirmText="去处理" cancelText="稍后" onConfirm={() => { setView('swapRequests'); setIsSwapReminderOpen(false); }} onCancel={() => setIsSwapReminderOpen(false)} />
         </div>
     );
 };
@@ -4247,8 +4209,6 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
         { key: 'home', icon: 'Grid', label: t.home },
         { key: 'training', icon: 'Award', label: t.training },
         { key: 'recipes', icon: 'Coffee', label: t.recipes },
-        // 注释或保留：如果不需要通过底部导航进入盘点，可以把这行删掉
-        { key: 'inventory', icon: 'Package', label: t.stock }, 
         { key: 'chat', icon: 'MessageSquare', label: t.chat },
     ];
     return (
