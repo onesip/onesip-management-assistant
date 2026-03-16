@@ -3718,7 +3718,7 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [彻底清理打卡残留，修复 Vercel 报错]
+// 组件 4: 员工端 (Staff App) - [修复首页点击配方自动展开不隐藏其他配方]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles } = data;
@@ -3734,6 +3734,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
     const [recipeTypeFilter, setRecipeTypeFilter] = useState<'product' | 'premix'>('product');
     const [newRecipesToAck, setNewRecipesToAck] = useState<DrinkRecipe[]>([]);
+    
+    // 【新增】用于记录需要自动展开的配方 ID
+    const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
+    
     const recipeReminderCheckDone = useRef(false);
 
     // Swap & Schedule States
@@ -3813,10 +3817,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 const shiftStart = new Date(now);
                 shiftStart.setHours(startH, startM, 0, 0);
                 
-                // 距离上班还有多少分钟
                 const diffStart = (shiftStart.getTime() - now.getTime()) / 60000;
 
-                // 提前 15 分钟提醒
                 if (diffStart > 0 && diffStart <= 15) {
                     const dedupeKey = `shift_start_${dateKeys[0]}_${shift.start}`;
                     showNotification({ 
@@ -3930,33 +3932,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return null;
     }, [schedule, currentUser, t]);
 
-    // --- 独立盘点提交逻辑 (因为不需要联动下班了) ---
-    const handleInventorySubmit = (report: any) => {
-        const completeReport = {
-            ...report,
-            id: Date.now().toString(),
-            date: new Date().toISOString(),
-        };
-        Cloud.saveInventoryReport(completeReport);
-        
-        const logs: InventoryLog[] = [];
-        const timestamp = new Date().toLocaleString();
-        Object.keys(report.data).forEach(itemId => {
-            const itemData = report.data[itemId];
-            if (itemData.end || itemData.loss) {
-                logs.push({
-                    id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-                    timestamp, operator: report.submittedBy, itemId, itemName: itemId,
-                    newStock: itemData.end || '0', waste: itemData.loss || '0', actionType: 'report'
-                });
-            }
-        });
-        if (logs.length > 0) Cloud.saveInventoryLogs(logs);
-
-        showNotification({ type: 'message', title: 'Inventory Saved', message: '盘点数据已成功保存。' });
-        setView('home');
-    };
-
     // --- Swap & Schedule Confirm Actions ---
     const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
         const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
@@ -4008,10 +3983,48 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return (<div className="h-full overflow-y-auto p-4 pb-24 bg-secondary animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.contact_title}</h2><div className="space-y-3">{CONTACTS_DATA.map(c => (<div key={c.id} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between"><div><h3 className="font-bold text-text">{c.name}</h3><p className="text-xs text-text-light">{c.role?.[lang]}</p>{c.phone && <p onClick={() => handleCopy(c.phone!)} className="text-xs text-primary mt-1 cursor-pointer hover:underline">{c.phone}</p>}</div>{c.phone ? (<a href={`tel:${c.phone}`} className="bg-green-100 text-green-600 p-3 rounded-full hover:bg-green-200 transition-all"><Icon name="Phone" size={20} /></a>) : (<span className="text-gray-300 text-xs italic">No Phone</span>)}</div>))}</div></div>);
     };
 
-    interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; }
-    const DrinkCard: React.FC<DrinkCardProps> = ({ drink, lang, t }) => {
-        const [expanded, setExpanded] = useState(false);
-        return (<div className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer" onClick={() => setExpanded(!expanded)}><div className="flex justify-between items-center"><div><h3 className="font-bold text-text">{drink.name?.[lang] || drink.name?.['zh']}</h3><p className="text-xs text-text-light">{drink.cat} • {drink.size}</p></div><Icon name={expanded ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" /></div>{expanded && (<div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in"><p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p><p><strong>Sugar:</strong> {drink.sugar}</p><p><strong>Ice:</strong> {drink.ice}</p>{drink.coverImageUrl && (<img src={drink.coverImageUrl} alt={drink.name?.[lang] || drink.name?.['zh']} className="w-full h-auto rounded-lg my-2 object-cover shadow-md" />)}{(drink.basePreparation?.en || drink.basePreparation?.zh) && (<div className="bg-yellow-500/10 p-3 rounded-lg my-2"><p className="font-bold text-yellow-800 mb-1 text-xs uppercase">Base Preparation</p><p className="text-sm text-yellow-900 whitespace-pre-line leading-relaxed">{drink.basePreparation?.[lang] || drink.basePreparation?.['zh']}</p></div>)}<div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div><div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>{drink.tutorialVideoUrl && (<a href={drink.tutorialVideoUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block w-full text-center bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-lg text-sm transition-all">观看教学视频</a>)}</div>)}</div>);
+    // --- 【修改点 1】: 增加 autoExpand 属性处理自动展开 ---
+    interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: boolean; }
+    const DrinkCard: React.FC<DrinkCardProps> = ({ drink, lang, t, autoExpand }) => {
+        const [expanded, setExpanded] = useState(autoExpand || false);
+        
+        useEffect(() => {
+            if (autoExpand) {
+                setExpanded(true);
+            }
+        }, [autoExpand]);
+
+        return (
+            <div id={`recipe-${drink.id}`} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer transition-all" onClick={() => setExpanded(!expanded)}>
+                <div className="flex justify-between items-center">
+                    <div>
+                        <h3 className="font-bold text-text flex items-center gap-2">
+                            {drink.name?.[lang] || drink.name?.['zh']}
+                            {drink.isNew && <span className="bg-red-100 text-red-500 text-[10px] px-1.5 py-0.5 rounded uppercase">New</span>}
+                        </h3>
+                        <p className="text-xs text-text-light">{drink.cat} • {drink.size}</p>
+                    </div>
+                    <Icon name={expanded ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" />
+                </div>
+                {expanded && (
+                    <div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in">
+                        <p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p>
+                        <p><strong>Sugar:</strong> {drink.sugar}</p>
+                        <p><strong>Ice:</strong> {drink.ice}</p>
+                        {drink.coverImageUrl && (<img src={drink.coverImageUrl} alt={drink.name?.[lang] || drink.name?.['zh']} className="w-full h-auto rounded-lg my-2 object-cover shadow-md" />)}
+                        {(drink.basePreparation?.en || drink.basePreparation?.zh) && (
+                            <div className="bg-yellow-500/10 p-3 rounded-lg my-2">
+                                <p className="font-bold text-yellow-800 mb-1 text-xs uppercase">Base Preparation</p>
+                                <p className="text-sm text-yellow-900 whitespace-pre-line leading-relaxed">{drink.basePreparation?.[lang] || drink.basePreparation?.['zh']}</p>
+                            </div>
+                        )}
+                        <div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
+                        <div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
+                        {drink.tutorialVideoUrl && (<a href={drink.tutorialVideoUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block w-full text-center bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-lg text-sm transition-all">观看教学视频</a>)}
+                    </div>
+                )}
+            </div>
+        );
     };
 
     const TrainingView = ({ data, onComplete }: { data: any, onComplete: (levelId: number) => void }) => {
@@ -4094,22 +4107,50 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
         if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} isManager={true} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />; }
         if (view === 'contact') { return <ContactView t={t} lang={lang} />; }
+        
+        // --- 【修改点 2】: 配方库视图，传递 autoExpand 属性 ---
         if (view === 'recipes') {
-             const filteredRecipes = recipes.filter((r: DrinkRecipe) => r.isPublished !== false).filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType))).filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
+             const filteredRecipes = recipes
+                .filter((r: DrinkRecipe) => r.isPublished !== false)
+                .filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType)))
+                .filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
+             
              return (
                 <div className="h-full flex flex-col bg-secondary animate-fade-in-up text-text">
                     <div className="p-4 sticky top-0 bg-secondary z-10">
                         <h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2>
-                        <div className="relative mb-4"><Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/><input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm"/></div>
-                         <div className="flex gap-2"><button onClick={() => setRecipeTypeFilter('product')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'product' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Product</button><button onClick={() => setRecipeTypeFilter('premix')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'premix' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Premix</button></div>
+                        <div className="relative mb-4">
+                            <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+                            <input 
+                                value={recipeSearchQuery} 
+                                onChange={e => setRecipeSearchQuery(e.target.value)} 
+                                placeholder="Search recipes..." 
+                                className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm"
+                            />
+                        </div>
+                         <div className="flex gap-2">
+                            <button onClick={() => setRecipeTypeFilter('product')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'product' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Product</button>
+                            <button onClick={() => setRecipeTypeFilter('premix')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'premix' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Premix</button>
+                        </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-4 pt-0 pb-24">{filteredRecipes.map((r: DrinkRecipe) => <DrinkCard key={r.id} drink={r} lang={lang} t={t} />)}</div>
+                    <div className="flex-1 overflow-y-auto p-4 pt-0 pb-24">
+                        {filteredRecipes.map((r: DrinkRecipe) => (
+                            <DrinkCard 
+                                key={r.id} 
+                                drink={r} 
+                                lang={lang} 
+                                t={t} 
+                                autoExpand={expandedRecipeId === r.id} // 如果是首页点进来的，自动展开
+                            />
+                        ))}
+                        {filteredRecipes.length === 0 && <p className="text-center text-text-light py-10 text-sm">没有找到相关配方 / No recipes found.</p>}
+                    </div>
                 </div>
             );
         }
+        
         if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
         if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
-        
         if (view === 'availability') { return <AvailabilityModal isOpen={true} onClose={() => setView('home')} t={t} currentUser={currentUser} />; }
         if (view === 'swapRequests') {
             const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
@@ -4125,7 +4166,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return null;
     };
 
-    // --- HOME VIEW 核心修改区 ---
+    // --- 【修改点 3】: HOME VIEW 核心修改区，处理卡片点击 ---
     const homeView = (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
@@ -4142,8 +4183,16 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             <div 
                                 key={recipe.id} 
                                 onClick={() => { 
+                                    // 核心修改：不使用搜索过滤，而是使用 autoExpand
                                     setView('recipes'); 
-                                    setRecipeSearchQuery(recipe.name.zh || recipe.name.en); 
+                                    setRecipeSearchQuery(''); // 清除之前的搜索
+                                    setRecipeTypeFilter(recipe.recipeType || 'product'); // 切到正确的 Tab
+                                    setExpandedRecipeId(recipe.id); // 记录需要展开的 ID
+                                    
+                                    // 延迟滚动，等 DOM 渲染出来
+                                    setTimeout(() => {
+                                        document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }, 200);
                                 }} 
                                 className="min-w-[240px] bg-gradient-to-br from-red-500 to-orange-500 rounded-2xl p-4 shadow-md text-white shrink-0 relative overflow-hidden cursor-pointer active:scale-95 transition-transform"
                             >
@@ -4191,10 +4240,22 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         </div>
     );
     
+    // --- 【修改点 4】: 给 NavBar 传递包裹过的 setActiveView 函数 ---
+    const handleNavSwitch = (v: StaffViewMode) => {
+        setView(v);
+        // 如果离开配方页面，清除展开记录，防止下次点进配方库时自动展开上次的内容
+        if (v !== 'recipes') {
+            setExpandedRecipeId(null);
+            setRecipeSearchQuery(''); // 顺便清空搜索
+        }
+    };
+
     return (
         <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative pt-[calc(env(safe-area-inset-top)_+_1rem)]">
             {view === 'home' ? homeView : renderView()}
-            {currentUser && <StaffBottomNav activeView={view} setActiveView={setView} t={t} hasUnreadChat={hasUnreadChat} />}
+            
+            {currentUser && <StaffBottomNav activeView={view} setActiveView={handleNavSwitch} t={t} hasUnreadChat={hasUnreadChat} />}
+            
             <AvailabilityReminderModal isOpen={showAvailabilityReminder} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} onCancel={() => setShowAvailabilityReminder(false)} t={t} />
             {currentUser && <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />}
             <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={users} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
