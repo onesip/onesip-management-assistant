@@ -3718,7 +3718,7 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [移除打卡，新增置顶配方/公告]
+// 组件 4: 员工端 (Staff App) - [彻底清理打卡残留 + 新增公告配方置顶]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles } = data;
@@ -3729,7 +3729,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
-    const [deviationData, setDeviationData] = useState<any | null>(null);
     
     // Recipe States
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
@@ -3759,11 +3758,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     });
     const userConfirmation = currentCycle?.confirmations[currentUser.id];
 
-    // --- 【新增：提取公告和置顶配方】 ---
+    // --- 提取公告和置顶配方 ---
     const activeNotices = (notices || []).filter((n: Notice) => n.status !== 'cancelled');
     const latestNotice = activeNotices.length > 0 ? activeNotices[activeNotices.length - 1] : null;
     const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
 
+    // --- Recipe Acknowledgment ---
     useEffect(() => {
         if (recipeReminderCheckDone.current || !recipes || !currentUser || recipes.length === 0) return;
         const allNewRecipes = recipes.filter((r: DrinkRecipe) => r.isNew === true);
@@ -3794,8 +3794,46 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         showNotification({ type: 'message', title: 'Acknowledgment Recorded', message: 'Your confirmation has been sent.' });
     };
 
+    // --- 智能班次提醒 (无打卡版) ---
     useEffect(() => {
-        if (view !== 'home' || deviationData || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) return;
+        if (!schedule?.days) return;
+        const timer = setInterval(() => {
+            const now = new Date();
+            const m = now.getMonth() + 1;
+            const d = now.getDate();
+            const dateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
+            
+            const todaySchedule = schedule.days.find((day: any) => dateKeys.includes(day.date));
+            if (!todaySchedule || !todaySchedule.shifts) return;
+
+            const myShifts = todaySchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
+
+            myShifts.forEach((shift: any) => {
+                const [startH, startM] = shift.start.split(':').map(Number);
+                const shiftStart = new Date(now);
+                shiftStart.setHours(startH, startM, 0, 0);
+                
+                // 距离上班还有多少分钟
+                const diffStart = (shiftStart.getTime() - now.getTime()) / 60000;
+
+                // 提前 15 分钟提醒
+                if (diffStart > 0 && diffStart <= 15) {
+                    const dedupeKey = `shift_start_${dateKeys[0]}_${shift.start}`;
+                    showNotification({ 
+                        type: 'announcement', 
+                        title: 'Upcoming Shift', 
+                        message: `你的班次 (${shift.start}) 即将开始，请做好准备！`, 
+                        dedupeKey 
+                    });
+                }
+            });
+        }, 60000); 
+        return () => clearInterval(timer);
+    }, [currentUser, schedule, showNotification]);
+
+    // --- Swap & Schedule Reminders ---
+    useEffect(() => {
+        if (view !== 'home' || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) return;
 
         const runChecks = async () => {
             if (!swapReminderShown.current) {
@@ -3814,8 +3852,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         };
         const timer = setTimeout(runChecks, 1500);
         return () => clearTimeout(timer);
-    }, [currentUser, swapRequests, schedule, view, deviationData, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder, userConfirmation]);
+    }, [currentUser, swapRequests, schedule, view, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder, userConfirmation]);
 
+    // --- 公告弹出逻辑 ---
     useEffect(() => {
         if (!notices || notices.length === 0) return;
         const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
@@ -3840,6 +3879,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
     }, [notices, showNotification, t.team_board]);
 
+    // --- 下一次值班 ---
     const myNextShift = useMemo(() => {
         if (!schedule?.days) return null;
         
@@ -3873,7 +3913,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 
                 const fullStart = new Date(date); fullStart.setHours(sh, sm, 0, 0);
                 const fullEnd = new Date(date); fullEnd.setHours(eh, em, 0, 0);
-                
                 if (fullEnd < fullStart) fullEnd.setDate(fullEnd.getDate() + 1);
 
                 return { dateStr: day.date, dateObj: date, start: s.start, end: s.end, fullStart, fullEnd };
@@ -3888,10 +3927,37 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const displayDate = isToday ? (t.today || "Today") : `${next.dateObj.getMonth() + 1}/${next.dateObj.getDate()}`;
             return { date: displayDate, shift: `${next.start} - ${next.end}` };
         }
-        
         return null;
     }, [schedule, currentUser, t]);
 
+    // --- 独立盘点提交逻辑 (因为不需要联动下班了) ---
+    const handleInventorySubmit = (report: any) => {
+        const completeReport = {
+            ...report,
+            id: Date.now().toString(),
+            date: new Date().toISOString(),
+        };
+        Cloud.saveInventoryReport(completeReport);
+        
+        const logs: InventoryLog[] = [];
+        const timestamp = new Date().toLocaleString();
+        Object.keys(report.data).forEach(itemId => {
+            const itemData = report.data[itemId];
+            if (itemData.end || itemData.loss) {
+                logs.push({
+                    id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                    timestamp, operator: report.submittedBy, itemId, itemName: itemId,
+                    newStock: itemData.end || '0', waste: itemData.loss || '0', actionType: 'report'
+                });
+            }
+        });
+        if (logs.length > 0) Cloud.saveInventoryLogs(logs);
+
+        showNotification({ type: 'message', title: 'Inventory Saved', message: '盘点数据已成功保存。' });
+        setView('home');
+    };
+
+    // --- Swap & Schedule Confirm Actions ---
     const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
         const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
         if(!req) return;
@@ -3924,6 +3990,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setIsSwapModalOpen(false); setReason(''); setTargetEmployeeId('');
     };
 
+    // ========================================================================
+    // 4. SUB-VIEWS (Render Functions)
+    // ========================================================================
     const ConfirmationBanner = () => {
         if (!currentCycle || !userConfirmation || userConfirmation.status !== 'pending') return null;
         return ( <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in"><div className="flex-1"><h4 className="font-bold">Please Confirm Your Schedule</h4><p className="text-sm mt-1">Review upcoming shifts ({currentCycle.startDate} - {currentCycle.endDate})</p></div><button onClick={handleConfirmSchedule} className="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg text-sm shadow-md w-full sm:w-auto">Confirm Schedule</button></div>);
@@ -4041,6 +4110,27 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
         if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
         
+        if (view === 'inventory') { 
+            return (
+                <InventoryView 
+                    lang={lang} 
+                    t={t} 
+                    inventoryList={data.inventoryList} 
+                    setInventoryList={data.setInventoryList} 
+                    onSubmit={handleInventorySubmit} 
+                    currentUser={currentUser} 
+                    isForced={false} 
+                    onCancel={() => setView('home')} 
+                    forcedShift="morning" 
+                    isOwner={false} 
+                />
+            ); 
+        }
+        
+        if (view === 'checklist') {
+            const checklist = CHECKLIST_TEMPLATES[currentShift];
+            return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
+        }
         if (view === 'availability') { return <AvailabilityModal isOpen={true} onClose={() => setView('home')} t={t} currentUser={currentUser} />; }
         if (view === 'swapRequests') {
             const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
@@ -4122,6 +4212,21 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             </div>
         </div>
     );
+    
+    return (
+        <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative pt-[calc(env(safe-area-inset-top)_+_1rem)]">
+            {view === 'home' ? homeView : renderView()}
+            {currentUser && <StaffBottomNav activeView={view} setActiveView={setView} t={t} hasUnreadChat={hasUnreadChat} />}
+            <AvailabilityReminderModal isOpen={showAvailabilityReminder} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} onCancel={() => setShowAvailabilityReminder(false)} t={t} />
+            {currentUser && <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />}
+            <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={users} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
+            <ActionReminderModal isOpen={isScheduleReminderOpen} title="排班确认提醒" message="你未来两周有排班安排，请尽快确认。" confirmText="去排班页面" cancelText="稍后" onConfirm={() => { setView('team'); setIsScheduleReminderOpen(false); }} onCancel={() => setIsScheduleReminderOpen(false)} />
+             <ActionReminderModal isOpen={isSwapReminderOpen} title="换班申请提醒" message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`} confirmText="去处理" cancelText="稍后" onConfirm={() => { setView('swapRequests'); setIsSwapReminderOpen(false); }} onCancel={() => setIsSwapReminderOpen(false)} />
+        </div>
+    );
+};
+
+// ... 后续代码保持不变 (StaffBottomNav, etc.)
     
     return (
         <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative pt-[calc(env(safe-area-inset-top)_+_1rem)]">
