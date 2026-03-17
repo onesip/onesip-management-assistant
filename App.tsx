@@ -3717,15 +3717,11 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 };
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [修复变量丢失和所有报错]
+// 组件 4: 员工端 (Staff App) - [终极防崩溃 + 修复变量丢失]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    // 【修复1】：完整解构所有需要的变量，包括 setInventoryList, directMessages 等
-    const { 
-        lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, 
-        directMessages, setDirectMessages, users, recipes, scheduleCycles, setScheduleCycles, 
-        inventoryHistory, inventoryList, setInventoryList, sopList, trainingLevels 
-    } = data;
+    // 【修复点 1】：确保所有需要的变量都被正确提取，包括 setInventoryList
+    const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles, inventoryList, setInventoryList, inventoryHistory } = data;
     const { showNotification } = useNotification();
 
     const [view, setView] = useState<StaffViewMode>('home');
@@ -3754,22 +3750,21 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
-    // 【修复2】：在此处明确定义 today 变量
+    // 【修复点 2】：确保 today 在组件最顶层被定义
     const today = new Date();
     
-    const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
+    const currentCycle = (scheduleCycles || []).find((c: ScheduleCycle) => {
       const start = new Date(c.startDate);
       const end = new Date(c.endDate);
       return today >= start && today <= end && c.status === 'published';
     });
-    const userConfirmation = currentCycle?.confirmations[currentUser.id];
+    const userConfirmation = currentCycle?.confirmations?.[currentUser.id];
 
-    // --- 提取公告和置顶配方 ---
     const activeNotices = (notices || []).filter((n: Notice) => n.status !== 'cancelled');
     const latestNotice = activeNotices.length > 0 ? activeNotices[activeNotices.length - 1] : null;
     const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
 
-    // --- 【强制盘点逻辑】检查今天是否需要盘点 ---
+    // --- 强制盘点逻辑检查 ---
     const m = today.getMonth() + 1;
     const d = today.getDate();
     const todayDateKeys = [
@@ -3792,25 +3787,19 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const needsToSubmitPrep = hasShiftToday && !hasSubmittedToday;
 
-    // --- 强力盘点弹窗提醒 (距离下班不到 30 分钟时不断提醒) ---
+    // --- 强力盘点弹窗提醒 ---
     useEffect(() => {
         if (!needsToSubmitPrep) return;
-
         const timer = setInterval(() => {
             const now = new Date();
             let shouldAlert = false;
-
             myShiftsToday.forEach((shift: any) => {
                 const [endH, endM] = shift.end.split(':').map(Number);
                 const shiftEnd = new Date();
                 shiftEnd.setHours(endH, endM, 0, 0);
-                
                 const diffMins = (shiftEnd.getTime() - now.getTime()) / 60000;
-                if (diffMins <= 30) {
-                    shouldAlert = true;
-                }
+                if (diffMins <= 30) shouldAlert = true;
             });
-
             if (shouldAlert && view !== 'inventory') {
                 showNotification({
                     type: 'clock_out_reminder',
@@ -3821,7 +3810,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 });
             }
         }, 60000);
-
         return () => clearInterval(timer);
     }, [needsToSubmitPrep, myShiftsToday, view, showNotification]);
 
@@ -3856,7 +3844,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         showNotification({ type: 'message', title: 'Acknowledgment Recorded', message: 'Your confirmation has been sent.' });
     };
 
-    // --- 智能班次提醒 (无打卡版) ---
+    // --- 智能班次提醒 ---
     useEffect(() => {
         if (!schedule?.days) return;
         const timer = setInterval(() => {
@@ -3864,27 +3852,17 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const m = now.getMonth() + 1;
             const d = now.getDate();
             const dateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
-            
             const todaySchedule = schedule.days.find((day: any) => dateKeys.includes(day.date));
             if (!todaySchedule || !todaySchedule.shifts) return;
-
             const myShifts = todaySchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
-
             myShifts.forEach((shift: any) => {
                 const [startH, startM] = shift.start.split(':').map(Number);
                 const shiftStart = new Date(now);
                 shiftStart.setHours(startH, startM, 0, 0);
-                
                 const diffStart = (shiftStart.getTime() - now.getTime()) / 60000;
-
                 if (diffStart > 0 && diffStart <= 15) {
                     const dedupeKey = `shift_start_${dateKeys[0]}_${shift.start}`;
-                    showNotification({ 
-                        type: 'announcement', 
-                        title: 'Upcoming Shift', 
-                        message: `你的班次 (${shift.start}) 即将开始，请做好准备！`, 
-                        dedupeKey 
-                    });
+                    showNotification({ type: 'announcement', title: 'Upcoming Shift', message: `你的班次 (${shift.start}) 即将开始，请做好准备！`, dedupeKey });
                 }
             });
         }, 60000); 
@@ -3894,7 +3872,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     // --- Swap & Schedule Reminders ---
     useEffect(() => {
         if (view !== 'home' || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) return;
-
         const runChecks = async () => {
             if (!swapReminderShown.current) {
                 const pendingSwaps = (swapRequests || []).filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
@@ -3919,22 +3896,16 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (!notices || notices.length === 0) return;
         const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
         if (activeNotices.length === 0) return;
-        
         const latest = activeNotices[activeNotices.length - 1];
         const seenKey = `notice_seen_${latest.id}`;
         const lastSeen = localStorage.getItem(seenKey);
         let shouldShow = false;
-
         if (!latest.frequency || latest.frequency === 'always') shouldShow = true;
         else if (latest.frequency === 'once') { if (!lastSeen) shouldShow = true; }
         else if (latest.frequency === 'daily') { if (!lastSeen || new Date(parseInt(lastSeen)).toDateString() !== new Date().toDateString()) shouldShow = true; }
         else if (latest.frequency === '3days') { if (!lastSeen || Date.now() - parseInt(lastSeen) > 3 * 86400000) shouldShow = true; }
-
         if (shouldShow) {
-            showNotification({
-                type: 'announcement', title: t.team_board || 'Announcement', message: latest.content,
-                sticky: latest.frequency === 'always', dedupeKey: latest.id, imageUrl: latest.imageUrl,
-            });
+            showNotification({ type: 'announcement', title: t.team_board || 'Announcement', message: latest.content, sticky: latest.frequency === 'always', dedupeKey: latest.id, imageUrl: latest.imageUrl });
             if (latest.frequency !== 'always') localStorage.setItem(seenKey, Date.now().toString());
         }
     }, [notices, showNotification, t.team_board]);
@@ -3942,15 +3913,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     // --- 下一次值班 ---
     const myNextShift = useMemo(() => {
         if (!schedule?.days) return null;
-        
         const now = new Date();
         const m = now.getMonth() + 1;
         const d = now.getDate();
-        const todayDateKeys = [
-            `${m}-${d}`,
-            `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
-        ];
-
+        const todayDateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
         const allShifts = schedule.days.flatMap((day: any) => {
             let date = new Date(day.date);
             if (isNaN(date.getTime()) || day.date.indexOf('-') > -1) {
@@ -3963,25 +3929,19 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     date = new Date(year, dm - 1, dd);
                 }
             }
-
             const myName = currentUser.name.trim().toLowerCase();
             const myShifts = (day.shifts || []).filter((s: any) => s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myName));
-            
             return myShifts.map((s: any) => {
                 const [sh, sm] = s.start.split(':').map(Number);
                 const [eh, em] = s.end.split(':').map(Number);
-                
                 const fullStart = new Date(date); fullStart.setHours(sh, sm, 0, 0);
                 const fullEnd = new Date(date); fullEnd.setHours(eh, em, 0, 0);
                 if (fullEnd < fullStart) fullEnd.setDate(fullEnd.getDate() + 1);
-
                 return { dateStr: day.date, dateObj: date, start: s.start, end: s.end, fullStart, fullEnd };
             });
         });
-
         allShifts.sort((a: any, b: any) => a.fullEnd.getTime() - b.fullEnd.getTime());
         const next = allShifts.find((shift: any) => shift.fullEnd > now);
-
         if (next) {
             const isToday = todayDateKeys.includes(next.dateStr) || next.dateObj.toDateString() === now.toDateString();
             const displayDate = isToday ? (t.today || "Today") : `${next.dateObj.getMonth() + 1}/${next.dateObj.getDate()}`;
@@ -3992,32 +3952,22 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     // --- 盘点提交逻辑 ---
     const handleInventorySubmit = (report: any) => {
-        const completeReport = {
-            ...report,
-            id: Date.now().toString(),
-            date: new Date().toISOString(),
-        };
+        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
         Cloud.saveInventoryReport(completeReport);
-        
         const logs: InventoryLog[] = [];
         const timestamp = new Date().toLocaleString();
         Object.keys(report.data).forEach(itemId => {
             const itemData = report.data[itemId];
             if (itemData.end || itemData.loss) {
-                logs.push({
-                    id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-                    timestamp, operator: report.submittedBy, itemId, itemName: itemId,
-                    newStock: itemData.end || '0', waste: itemData.loss || '0', actionType: 'report'
-                });
+                logs.push({ id: Date.now().toString() + Math.random().toString(36).substr(2, 9), timestamp, operator: report.submittedBy, itemId, itemName: itemId, newStock: itemData.end || '0', waste: itemData.loss || '0', actionType: 'report' });
             }
         });
         if (logs.length > 0) Cloud.saveInventoryLogs(logs);
-
         showNotification({ type: 'message', title: 'Inventory Saved', message: '盘点数据已成功保存。' });
         setView('home');
     };
 
-    // --- Swap & Schedule Confirm Actions ---
+    // --- Swap & Schedule Actions ---
     const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
         const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
         if(!req) return;
@@ -4039,19 +3989,14 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (!currentSwap || !targetEmployeeId) { alert("Please select a colleague."); return; }
         const targetUser = users.find((u:User) => u.id === targetEmployeeId);
         if (!targetUser) return;
-
-        const newRequest: Omit<SwapRequest, 'id'> = {
-            requesterId: currentUser.id, requesterName: currentUser.name, requesterDate: currentSwap.date, requesterShift: currentSwap.shift,
-            targetId: targetUser.id, targetName: targetUser.name, targetDate: null, targetShift: null,
-            status: 'pending', reason: reason || null, timestamp: Date.now(),
-        };
+        const newRequest: Omit<SwapRequest, 'id'> = { requesterId: currentUser.id, requesterName: currentUser.name, requesterDate: currentSwap.date, requesterShift: currentSwap.shift, targetId: targetUser.id, targetName: targetUser.name, targetDate: null, targetShift: null, status: 'pending', reason: reason || null, timestamp: Date.now() };
         await Cloud.saveSwapRequest(newRequest);
         showNotification({ type: 'message', title: 'Swap Request Sent', message: `Sent to ${targetUser.name}.` });
         setIsSwapModalOpen(false); setReason(''); setTargetEmployeeId('');
     };
 
     // ========================================================================
-    // SUB-VIEWS (Render Functions)
+    // SUB-VIEWS (安全渲染组件)
     // ========================================================================
     const ConfirmationBanner = () => {
         if (!currentCycle || !userConfirmation || userConfirmation.status !== 'pending') return null;
@@ -4060,16 +4005,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const LibraryView = ({ data, onOpenChecklist }: { data: any, onOpenChecklist: (key: string) => void }) => {
        const { sopList, t, lang } = data;
-       return (<div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.sop_library}</h2><div className="grid grid-cols-2 gap-3 mb-6"><button onClick={() => onOpenChecklist('opening')} className="p-4 bg-yellow-400/20 text-yellow-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Sun" size={24}/> Opening</button><button onClick={() => onOpenChecklist('mid')} className="p-4 bg-blue-400/20 text-blue-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Clock" size={24}/> Mid-Day</button><button onClick={() => onOpenChecklist('closing')} className="p-4 bg-purple-400/20 text-purple-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Moon" size={24}/> Closing</button></div><div className="space-y-3">{sopList.map((s: SopItem) => (<div key={s.id} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100"><div className="flex justify-between items-start mb-2"><h3 className="font-bold text-text">{s.title?.[lang] || s.title?.['zh']}</h3><span className="text-[10px] bg-secondary px-2 py-1 rounded text-text-light uppercase">{s.category}</span></div><p className="text-sm text-text-light whitespace-pre-line leading-relaxed">{s.content?.[lang] || s.content?.['zh']}</p></div>))}</div></div>);
+       return (<div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.sop_library}</h2><div className="grid grid-cols-2 gap-3 mb-6"><button onClick={() => onOpenChecklist('opening')} className="p-4 bg-yellow-400/20 text-yellow-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Sun" size={24}/> Opening</button><button onClick={() => onOpenChecklist('mid')} className="p-4 bg-blue-400/20 text-blue-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Clock" size={24}/> Mid-Day</button><button onClick={() => onOpenChecklist('closing')} className="p-4 bg-purple-400/20 text-purple-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Moon" size={24}/> Closing</button></div><div className="space-y-3">{(sopList || []).map((s: SopItem) => (<div key={s.id} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100"><div className="flex justify-between items-start mb-2"><h3 className="font-bold text-text">{s.title?.[lang] || s.title?.['zh']}</h3><span className="text-[10px] bg-secondary px-2 py-1 rounded text-text-light uppercase">{s.category}</span></div><p className="text-sm text-text-light whitespace-pre-line leading-relaxed">{s.content?.[lang] || s.content?.['zh']}</p></div>))}</div></div>);
     }
 
     interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: boolean; }
     const DrinkCard: React.FC<DrinkCardProps> = ({ drink, lang, t, autoExpand }) => {
         const [expanded, setExpanded] = useState(autoExpand || false);
-        
-        useEffect(() => {
-            if (autoExpand) setExpanded(true);
-        }, [autoExpand]);
+        useEffect(() => { if (autoExpand) setExpanded(true); }, [autoExpand]);
 
         return (
             <div id={`recipe-${drink.id}`} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer transition-all" onClick={() => setExpanded(!expanded)}>
@@ -4095,11 +4037,77 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                 <p className="text-sm text-yellow-900 whitespace-pre-line leading-relaxed">{drink.basePreparation?.[lang] || drink.basePreparation?.['zh']}</p>
                             </div>
                         )}
-                        <div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
-                        <div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
+                        <div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{(drink.steps?.cold || []).map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
+                        <div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{(drink.steps?.warm || []).map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
                         {drink.tutorialVideoUrl && (<a href={drink.tutorialVideoUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block w-full text-center bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-lg text-sm transition-all">观看教学视频</a>)}
                     </div>
                 )}
+            </div>
+        );
+    };
+
+    // 【修复点 3】：给 Training 里的 .map() 加上 || [] 防止白屏崩溃
+    const TrainingView = ({ data, onComplete }: { data: any, onComplete: (levelId: number) => void }) => {
+        const { trainingLevels, t, lang } = data;
+        const [activeLevel, setActiveLevel] = useState<TrainingLevel | null>(null);
+        
+        if (activeLevel) { 
+            return (
+                <div className="h-full flex flex-col bg-surface animate-fade-in-up text-text">
+                    <div className="p-4 border-b flex items-center gap-3">
+                        <button onClick={() => setActiveLevel(null)}><Icon name="ArrowLeft"/></button>
+                        <h2 className="font-bold text-lg">{activeLevel.title?.[lang] || activeLevel.title?.['zh']}</h2>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                        <div className="bg-primary-light p-4 rounded-xl border border-primary/20">
+                            <h3 className="font-bold text-primary mb-2">Overview</h3>
+                            <p className="text-sm text-primary/80">{activeLevel.desc?.[lang] || activeLevel.desc?.['zh']}</p>
+                        </div>
+                        {activeLevel.youtubeLink && (<div className="rounded-xl overflow-hidden shadow-lg border border-gray-200"><iframe className="w-full aspect-video" src={`https://www.youtube.com/embed/${getYouTubeId(activeLevel.youtubeLink)}`} title="Training Video" allowFullScreen></iframe></div>)}
+                        {activeLevel.imageUrls && activeLevel.imageUrls.length > 0 && (<div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 scroll-smooth no-scrollbar">{activeLevel.imageUrls.map((url: string, idx: number) => (<img key={idx} src={url} alt={`Training slide ${idx+1}`} className="h-48 w-auto rounded-xl shadow-md object-cover border border-gray-100 flex-shrink-0" />))}</div>)}
+                        {(activeLevel.content || []).map((c: any, i: number) => (
+                            <div key={i}>
+                                <h3 className="font-bold text-text mb-2">{i+1}. {c.title?.[lang] || c.title?.['zh']}</h3>
+                                <p className="text-sm text-text-light whitespace-pre-line leading-relaxed">{c.body?.[lang] || c.body?.['zh']}</p>
+                            </div>
+                        ))}
+                        <div className="pt-6">
+                            <h3 className="font-bold text-text mb-4">Quiz</h3>
+                            {(activeLevel.quiz || []).map((q: any, i: number) => (
+                                <div key={q.id} className="mb-4 bg-secondary p-4 rounded-xl">
+                                    <p className="font-bold text-sm mb-2">{i+1}. {q.question?.[lang] || q.question?.['zh']}</p>
+                                    <div className="space-y-2">
+                                        {(q.options || []).map((opt: string, idx: number) => (
+                                            <button key={idx} className="w-full text-left p-3 bg-surface border rounded-lg text-sm hover:bg-gray-100">{opt}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            ); 
+        }
+        
+        return (
+            <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
+                <h2 className="text-2xl font-black text-text mb-4">{t.training}</h2>
+                <div className="space-y-3">
+                    {(!trainingLevels || trainingLevels.length === 0) ? (
+                        <p className="text-center text-text-light py-10 text-sm">暂无培训内容 / No training modules found.</p>
+                    ) : (
+                        trainingLevels.map((l: TrainingLevel) => (
+                            <div key={l.id} onClick={() => setActiveLevel(l)} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:shadow-md transition-all">
+                                <div className="w-12 h-12 bg-primary-light text-primary rounded-full flex items-center justify-center font-bold text-lg">{l.id}</div>
+                                <div className="flex-1">
+                                    <h3 className="font-bold text-text">{l.title?.[lang] || l.title?.['zh']}</h3>
+                                    <p className="text-xs text-text-light">{l.subtitle?.[lang] || l.subtitle?.['zh']}</p>
+                                </div>
+                                <Icon name="ChevronRight" className="text-gray-300"/>
+                            </div>
+                        ))
+                    )}
+                </div>
             </div>
         );
     };
@@ -4177,7 +4185,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
         
         if (view === 'recipes') {
-             const filteredRecipes = recipes
+             const filteredRecipes = (recipes || [])
                 .filter((r: DrinkRecipe) => r.isPublished !== false)
                 .filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType)))
                 .filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
@@ -4228,15 +4236,14 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             ); 
         }
         
-        if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={false} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={users} />; }
-        
         if (view === 'checklist') {
             const checklist = CHECKLIST_TEMPLATES[currentShift];
-            return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
+            return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{(checklist.items || []).map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
         }
+        
         if (view === 'swapRequests') {
-            const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
-            const incomingRequests = swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
+            const myRequests = (swapRequests || []).filter((r: SwapRequest) => r.requesterId === currentUser.id);
+            const incomingRequests = (swapRequests || []).filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
                     <h2 className="text-2xl font-black mb-4">Shift Swap Center</h2>
@@ -4245,14 +4252,19 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             );
         }
+        if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} isManager={true} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />; }
+        if (view === 'contact') { return <ContactView t={t} lang={lang} />; }
+        if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
+        if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
+        if (view === 'availability') { return <AvailabilityModal isOpen={true} onClose={() => setView('home')} t={t} currentUser={currentUser} />; }
+        
         return null;
     };
 
     // --- 今日盘点结果卡片组件 ---
     const TodaysPrepReports = () => {
-        const innerToday = new Date();
         const todaysReports = (inventoryHistory || []).filter((r: any) => 
-            new Date(r.date).toDateString() === innerToday.toDateString()
+            new Date(r.date).toDateString() === today.toDateString()
         );
 
         return (
@@ -4281,7 +4293,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                 </div>
                                 <div className="space-y-1">
                                     {Object.entries(report.data || {}).map(([itemId, val]: any) => {
-                                        const itemDef = inventoryList.find((i: any) => i.id === itemId);
+                                        const itemDef = (inventoryList || []).find((i: any) => i.id === itemId);
                                         if (!itemDef) return null;
                                         return (
                                             <div key={itemId} className="flex justify-between text-xs items-center">
@@ -4302,7 +4314,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         );
     };
 
-    // --- HOME VIEW 核心区 ---
+    // --- HOME VIEW 核心修改区 ---
     const homeView = (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
@@ -4310,6 +4322,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 <div className="flex items-center gap-2"><button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light font-bold text-sm">{lang === 'zh' ? 'En' : '中'}</button><button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button><button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button></div>
             </div>
 
+            {/* --- 强力未盘点警告横幅 --- */}
             {needsToSubmitPrep && (
                 <div className="bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in flex items-center justify-between">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
@@ -4323,6 +4336,19 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             )}
 
+            {/* --- 常驻补料入口大按钮 --- */}
+            <button onClick={() => setView('inventory')} className="w-full bg-green-50 border border-green-200 text-green-700 p-4 rounded-2xl shadow-sm mb-4 flex items-center gap-4 transition-all active:scale-95 text-left hover:bg-green-100">
+                <div className="bg-green-200 text-green-700 p-3 rounded-2xl">
+                    <Icon name="Package" size={28}/>
+                </div>
+                <div className="flex-1">
+                    <h3 className="font-black text-lg">Daily Prep / 备料盘点</h3>
+                    <p className="text-xs font-bold opacity-80">Click here to submit inventory</p>
+                </div>
+                <Icon name="ChevronRight" size={24} className="text-green-400"/>
+            </button>
+
+            {/* --- 置顶新配方推荐 --- */}
             {featuredRecipes.length > 0 && (
                 <div className="mb-4 animate-fade-in">
                     <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1"><Icon name="Flame" size={14}/> 新品配方推荐 / New Recipes</h3>
@@ -4335,9 +4361,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                     setRecipeSearchQuery(''); 
                                     setRecipeTypeFilter(recipe.recipeType || 'product'); 
                                     setExpandedRecipeId(recipe.id); 
-                                    setTimeout(() => {
-                                        document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                    }, 200);
+                                    setTimeout(() => { document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 200);
                                 }} 
                                 className="min-w-[240px] bg-gradient-to-br from-red-500 to-orange-500 rounded-2xl p-4 shadow-md text-white shrink-0 relative overflow-hidden cursor-pointer active:scale-95 transition-transform"
                             >
@@ -4353,6 +4377,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             )}
 
+            {/* --- 最新群公告 --- */}
             {latestNotice && (
                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
@@ -4366,11 +4391,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             )}
 
+            {/* 下一次值班卡片 */}
             <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
                 <p className="text-xs text-text-light font-bold uppercase mb-2">{t.next_shift}</p>
                 {myNextShift ? (<p className="font-bold text-text text-lg">{myNextShift.date} <span className="text-primary">{myNextShift.shift}</span></p>) : <p className="text-sm text-text-light italic">{t.no_shift}</p>}
             </div>
             
+            {/* 今日盘点结果展示 */}
             <TodaysPrepReports />
 
             <div className="mt-4">
@@ -4408,9 +4435,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     );
 };
 
-// ============================================================================
-// 组件: 底部导航栏 (StaffBottomNav)
-// ============================================================================
 const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activeView: string, setActiveView: (v: StaffViewMode) => void, t: any, hasUnreadChat: boolean }) => {
     const navItems = [
         { key: 'home', icon: 'Grid', label: t.home },
