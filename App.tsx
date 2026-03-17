@@ -4401,7 +4401,7 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
         </div>
     );
 };
-=======================
+// =======================
 // MAIN APP COMPONENT - [修复版：强制云端同步]
 // ============================================================================
 const App = () => {
