@@ -3718,10 +3718,11 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [终极融合版：置顶 + 强制盘点 + Vercel 修复]
+// 组件 4: 员工端 (Staff App) - [修复变量丢失 Bug]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles, inventoryHistory, inventoryList } = data;
+    // 【关键修复 1】：在这里补充提取 setInventoryList
+    const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles, inventoryHistory, inventoryList, setInventoryList } = data;
     const { showNotification } = useNotification();
 
     const [view, setView] = useState<StaffViewMode>('home');
@@ -3750,8 +3751,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
-    // Schedule Cycle Info
+    // 【关键修复 2】：确保 today 在最外层定义
     const today = new Date();
+    
     const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
       const start = new Date(c.startDate);
       const end = new Date(c.endDate);
@@ -3775,22 +3777,19 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const todaySchedule = schedule?.days?.find((day: any) => todayDateKeys.includes(day.date));
     const myNameLower = currentUser.name.trim().toLowerCase();
     
-    // 检查我今天有没有排班
     const myShiftsToday = todaySchedule?.shifts?.filter((s: any) => 
         s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myNameLower)
     ) || [];
     const hasShiftToday = myShiftsToday.length > 0;
 
-    // 检查我今天是否已经提交过盘点报告
     const hasSubmittedToday = (inventoryHistory || []).some((r: any) =>
         r.submittedBy === currentUser.name &&
         new Date(r.date).toDateString() === today.toDateString()
     );
 
-    // 如果今天有排班，且还没提交过盘点，则判定为“需要盘点”
     const needsToSubmitPrep = hasShiftToday && !hasSubmittedToday;
 
-    // --- 强力盘点弹窗提醒 (距离下班不到 30 分钟时不断提醒) ---
+    // --- 强力盘点弹窗提醒 ---
     useEffect(() => {
         if (!needsToSubmitPrep) return;
 
@@ -3804,7 +3803,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 shiftEnd.setHours(endH, endM, 0, 0);
                 
                 const diffMins = (shiftEnd.getTime() - now.getTime()) / 60000;
-                // 距离下班不到 30 分钟，或者已经下班了，触发警告
                 if (diffMins <= 30) {
                     shouldAlert = true;
                 }
@@ -3812,14 +3810,14 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
             if (shouldAlert && view !== 'inventory') {
                 showNotification({
-                    type: 'clock_out_reminder', // 借用红色样式
+                    type: 'clock_out_reminder',
                     title: '🚨 强制盘点提醒 (MANDATORY)',
                     message: '你的班次即将结束或已结束，请务必前往 [Inventory] 填写今日的备料盘点！',
                     sticky: true,
                     dedupeKey: 'mandatory_prep_reminder'
                 });
             }
-        }, 60000); // 每分钟检查一次
+        }, 60000);
 
         return () => clearInterval(timer);
     }, [needsToSubmitPrep, myShiftsToday, view, showNotification]);
@@ -3854,6 +3852,41 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setView('recipes');
         showNotification({ type: 'message', title: 'Acknowledgment Recorded', message: 'Your confirmation has been sent.' });
     };
+
+    // --- 智能班次提醒 (无打卡版) ---
+    useEffect(() => {
+        if (!schedule?.days) return;
+        const timer = setInterval(() => {
+            const now = new Date();
+            const m = now.getMonth() + 1;
+            const d = now.getDate();
+            const dateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
+            
+            const todaySchedule = schedule.days.find((day: any) => dateKeys.includes(day.date));
+            if (!todaySchedule || !todaySchedule.shifts) return;
+
+            const myShifts = todaySchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
+
+            myShifts.forEach((shift: any) => {
+                const [startH, startM] = shift.start.split(':').map(Number);
+                const shiftStart = new Date(now);
+                shiftStart.setHours(startH, startM, 0, 0);
+                
+                const diffStart = (shiftStart.getTime() - now.getTime()) / 60000;
+
+                if (diffStart > 0 && diffStart <= 15) {
+                    const dedupeKey = `shift_start_${dateKeys[0]}_${shift.start}`;
+                    showNotification({ 
+                        type: 'announcement', 
+                        title: 'Upcoming Shift', 
+                        message: `你的班次 (${shift.start}) 即将开始，请做好准备！`, 
+                        dedupeKey 
+                    });
+                }
+            });
+        }, 60000); 
+        return () => clearInterval(timer);
+    }, [currentUser, schedule, showNotification]);
 
     // --- Swap & Schedule Reminders ---
     useEffect(() => {
@@ -3906,7 +3939,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     // --- 下一次值班 ---
     const myNextShift = useMemo(() => {
         if (!schedule?.days) return null;
-        
         const now = new Date();
         const m = now.getMonth() + 1;
         const d = now.getDate();
@@ -3934,11 +3966,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             return myShifts.map((s: any) => {
                 const [sh, sm] = s.start.split(':').map(Number);
                 const [eh, em] = s.end.split(':').map(Number);
-                
                 const fullStart = new Date(date); fullStart.setHours(sh, sm, 0, 0);
                 const fullEnd = new Date(date); fullEnd.setHours(eh, em, 0, 0);
                 if (fullEnd < fullStart) fullEnd.setDate(fullEnd.getDate() + 1);
-
                 return { dateStr: day.date, dateObj: date, start: s.start, end: s.end, fullStart, fullEnd };
             });
         });
@@ -4070,7 +4100,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const renderView = () => {
         if (view === 'team') {
-            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
             const startOfCurrentWeek = getStartOfWeek(new Date(), 0);
             const weeksData = [];
             for(let w=0; w<3; w++) {
@@ -4082,7 +4112,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                          dateObj: day, dateStr: `${day.getMonth() + 1}-${day.getDate()}`,
                          dayName: day.toLocaleDateString('en-US', { weekday: 'long' }),
                          displayDate: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                         isToday: day.toDateString() === today.toDateString()
+                         isToday: day.toDateString() === todayDate.toDateString()
                     });
                 }
                 weeksData.push({ id: w, label: w === 0 ? "Current Week" : `Week ${w + 1}`, range: `${weekDays[0].displayDate} - ${weekDays[6].displayDate}`, days: weekDays });
@@ -4218,8 +4248,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     // --- 今日盘点结果卡片组件 ---
     const TodaysPrepReports = () => {
+        // 【关键修复 3】：在这里也定义一个内部的 today，防止引用问题
+        const innerToday = new Date();
         const todaysReports = (inventoryHistory || []).filter((r: any) => 
-            new Date(r.date).toDateString() === today.toDateString()
+            new Date(r.date).toDateString() === innerToday.toDateString()
         );
 
         return (
@@ -4377,27 +4409,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={users} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
             <ActionReminderModal isOpen={isScheduleReminderOpen} title="排班确认提醒" message="你未来两周有排班安排，请尽快确认。" confirmText="去排班页面" cancelText="稍后" onConfirm={() => { setView('team'); setIsScheduleReminderOpen(false); }} onCancel={() => setIsScheduleReminderOpen(false)} />
             <ActionReminderModal isOpen={isSwapReminderOpen} title="换班申请提醒" message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`} confirmText="去处理" cancelText="稍后" onConfirm={() => { setView('swapRequests'); setIsSwapReminderOpen(false); }} onCancel={() => setIsSwapReminderOpen(false)} />
-        </div>
-    );
-};
-
-const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activeView: string, setActiveView: (v: StaffViewMode) => void, t: any, hasUnreadChat: boolean }) => {
-    const navItems = [
-        { key: 'home', icon: 'Grid', label: t.home },
-        { key: 'training', icon: 'Award', label: t.training },
-        { key: 'recipes', icon: 'Coffee', label: t.recipes },
-        { key: 'inventory', icon: 'Package', label: t.stock }, 
-        { key: 'chat', icon: 'MessageSquare', label: t.chat },
-    ];
-    return (
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-surface/80 backdrop-blur-lg border-t border-gray-100 flex justify-around items-center max-w-md mx-auto">
-            {navItems.map(item => (
-                <button key={item.key} onClick={() => setActiveView(item.key as StaffViewMode)} className={`flex flex-col items-center gap-1 w-16 transition-all relative ${activeView === item.key ? 'text-primary' : 'text-text-light hover:text-primary'}`}>
-                    <Icon name={item.icon as any} size={22} />
-                    <span className="text-[10px] font-bold">{item.label}</span>
-                    {item.key === 'chat' && hasUnreadChat && <div className="absolute top-0 right-3.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-surface"></div>}
-                </button>
-            ))}
         </div>
     );
 };
