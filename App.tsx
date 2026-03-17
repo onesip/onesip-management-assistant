@@ -1758,14 +1758,10 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     // Staff 输入状态
     const [inputData, setInputData] = useState<Record<string, { end: string, loss: string }>>({});
     
-    // 【新增】冰箱温度检查状态
+    // 冰箱温度检查状态
     const [fridgeChecked, setFridgeChecked] = useState(false);
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-
-    // ... (Owner 的 CSV/编辑/添加逻辑保持不变，为了节省篇幅省略重复函数，请保留之前的 CSV/Add 逻辑) ...
-    // ... 如果你直接复制，请确保把之前的 handleDownloadTemplate, handleFileUpload, handleAddItem, handleTargetChange 等 Owner 逻辑都带上 ...
-    // (为了方便你直接粘贴，我还是把 Owner 逻辑完整放进去吧)
 
     const handleTargetChange = (id: string, group: string, shift: string, val: string) => {
         setLocalList(prev => prev.map(item => {
@@ -1895,33 +1891,28 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         setEditTargets(false);
     };
 
-    // --- 【修改】Staff 提交逻辑 (含强制校验) ---
+    // --- Staff 提交逻辑 ---
     const handleStaffSubmit = () => {
         // 1. 强制填空校验
-        // 筛选出当前必须显示的物品
         const visibleItems = inventoryList.filter((item: any) => !item.hidden);
         
-        // 查找是否有漏填的项 (只检查目标 > 0 或者非晚班隐藏项)
         const incompleteItem = visibleItems.find((item: any) => {
-            // @ts-ignore
             const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
-            // 如果目标是0且是晚班，界面上是不显示的，所以不需要填
             if (target === 0 && viewShift === 'evening') return false;
 
             const val = inputData[item.id]?.end;
-            // 检查是否为空字符串或未定义
             return val === undefined || val === '' || val === null;
         });
 
         if (incompleteItem) {
             alert(`⚠️ Missing Input!\nPlease fill in the "Completed" count for: ${getLoc(incompleteItem.name)}`);
-            return; // 阻止提交
+            return;
         }
 
-        // 2. 冰箱温度检查 (仅在 Clock Out / 强制模式下生效)
-        if (isForced && !fridgeChecked) {
+        // 2. 冰箱温度检查 (现在是全员强制必填项，不再依赖 isForced)
+        if (!fridgeChecked) {
             alert("⚠️ Safety Check Required!\nPlease check the fridge temperature (< 6°C) and tick the box.");
-            return; // 阻止提交
+            return; 
         }
 
         // 3. 提交
@@ -1932,7 +1923,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             shift: viewShift, 
             dayGroup: dayGroup, 
             date: new Date().toISOString(),
-            // 【新增】写入后台确认字段
             fridgeChecked: fridgeChecked 
         });
     };
@@ -2025,23 +2015,18 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                     <h2 className="text-xl font-black flex items-center gap-2">
                         {viewShift === 'morning' ? <span className="text-orange-500">☀️ Morning Prep</span> : <span className="text-indigo-500">🌙 Evening Prep</span>}
                     </h2>
-                    {isForced && <button onClick={onCancel} className="text-xs text-gray-400 underline">Cancel</button>}
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
                     <span>Target Day: <strong className="uppercase text-gray-800">{dayGroup.replace('_', '-')}</strong></span>
-                    {!isForced && (
-                        <div className="flex gap-2">
-                            <button onClick={()=>setViewShift('morning')} className={`px-2 py-1 rounded ${viewShift==='morning'?'bg-white shadow text-orange-500':'text-gray-400'}`}>AM</button>
-                            <button onClick={()=>setViewShift('evening')} className={`px-2 py-1 rounded ${viewShift==='evening'?'bg-white shadow text-indigo-500':'text-gray-400'}`}>PM</button>
-                        </div>
-                    )}
+                    <div className="flex gap-2">
+                        <button onClick={()=>setViewShift('morning')} className={`px-2 py-1 rounded ${viewShift==='morning'?'bg-white shadow text-orange-500':'text-gray-400'}`}>AM</button>
+                        <button onClick={()=>setViewShift('evening')} className={`px-2 py-1 rounded ${viewShift==='evening'?'bg-white shadow text-indigo-500':'text-gray-400'}`}>PM</button>
+                    </div>
                 </div>
             </div>
 
             <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                {/* 过滤掉隐藏的物品 */}
                 {inventoryList.filter((item: any) => !item.hidden).map((item: any) => {
-                    // @ts-ignore
                     const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
                     if (target === 0 && viewShift === 'evening') return null;
 
@@ -2080,24 +2065,22 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                 })}
             </div>
             
-            <div className="p-4 bg-white border-t sticky bottom-0 z-20 space-y-3">
-                {/* 【新增】强制检查项 (仅下班时显示) */}
-                {isForced && (
-                    <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex items-center gap-3 cursor-pointer" onClick={() => setFridgeChecked(!fridgeChecked)}>
-                        <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${fridgeChecked ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white border-blue-300'}`}>
-                            {fridgeChecked && <Icon name="Check" size={16} />}
-                        </div>
-                        <div className="flex-1">
-                            <p className="font-bold text-blue-900 text-sm">Check Fridge Temp &lt; 6°C</p>
-                            <p className="text-xs text-blue-600">Checking temperature is mandatory.</p>
-                        </div>
-                        <Icon name="Snowflake" className="text-blue-300" />
+            <div className="p-4 bg-white border-t sticky bottom-0 z-20 space-y-3 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+                {/* 强制显示的冰箱温度检查 */}
+                <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex items-center gap-3 cursor-pointer" onClick={() => setFridgeChecked(!fridgeChecked)}>
+                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${fridgeChecked ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white border-blue-300'}`}>
+                        {fridgeChecked && <Icon name="Check" size={16} />}
                     </div>
-                )}
+                    <div className="flex-1">
+                        <p className="font-bold text-blue-900 text-sm">Check Fridge Temp &lt; 6°C</p>
+                        <p className="text-xs text-blue-600">Checking temperature is mandatory.</p>
+                    </div>
+                    <Icon name="Snowflake" className="text-blue-300" />
+                </div>
 
                 <button onClick={handleStaffSubmit} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark">
                     <Icon name="Save" size={20} /> 
-                    {isForced ? "Confirm & Clock Out" : "Save Report"}
+                    Submit Prep Report
                 </button>
             </div>
         </div>
