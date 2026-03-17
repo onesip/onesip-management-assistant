@@ -4401,8 +4401,9 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
         </div>
     );
 };
-// =======================
-// MAIN APP COMPONENT - [修复版：强制云端同步]
+
+// ============================================================================
+// MAIN APP COMPONENT 
 // ============================================================================
 const App = () => {
     const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('onesip_lang') as Lang) || 'zh');
@@ -4429,10 +4430,8 @@ const App = () => {
     const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
     const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
     
-    // ✅ 这里的 smartInventoryReports 是真正的云端数据
+    // 云端数据
     const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
-
-    // ❌ 【已删除】旧的本地 smartReports 状态，防止数据不同步
 
     const t = TRANSLATIONS[lang];
 
@@ -4444,13 +4443,7 @@ const App = () => {
         confirmations, scheduleCycles, setScheduleCycles, 
         smartInventory, setSmartInventory, 
         smartInventoryReports, setSmartInventoryReports,
-        
-        // 【关键修复】让 'smartReports' 直接指向云端数据 'smartInventoryReports'
-        // 这样 OwnerDashboard 读到的就是云端同步下来的数据，而不是本地缓存
         smartReports: smartInventoryReports, 
-        
-        // 这是一个空的 setter，因为云端数据是通过 subscription 自动更新的，
-        // 不需要手动 set，但为了兼容代码不报错，我们留着它
         setSmartReports: setSmartInventoryReports 
     };
 
@@ -4474,7 +4467,6 @@ const App = () => {
                 if (data?.training) setTrainingLevels(data.training);
                 if (data?.recipes) setRecipes(data.recipes);
             }),
-            // ✅ 订阅云端 Smart Reports，一有更新，smartInventoryReports 就会变
             Cloud.subscribeToSmartInventoryReports(setSmartInventoryReports)
         ];
 
