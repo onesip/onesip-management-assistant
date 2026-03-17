@@ -3716,13 +3716,16 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
     );
 };
 
-
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [修复变量丢失 Bug]
+// 组件 4: 员工端 (Staff App) - [修复变量丢失和所有报错]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    // 【关键修复 1】：在这里补充提取 setInventoryList
-    const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles, inventoryHistory, inventoryList, setInventoryList } = data;
+    // 【修复1】：完整解构所有需要的变量，包括 setInventoryList, directMessages 等
+    const { 
+        lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, 
+        directMessages, setDirectMessages, users, recipes, scheduleCycles, setScheduleCycles, 
+        inventoryHistory, inventoryList, setInventoryList, sopList, trainingLevels 
+    } = data;
     const { showNotification } = useNotification();
 
     const [view, setView] = useState<StaffViewMode>('home');
@@ -3751,7 +3754,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
-    // 【关键修复 2】：确保 today 在最外层定义
+    // 【修复2】：在此处明确定义 today 变量
     const today = new Date();
     
     const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
@@ -3789,7 +3792,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const needsToSubmitPrep = hasShiftToday && !hasSubmittedToday;
 
-    // --- 强力盘点弹窗提醒 ---
+    // --- 强力盘点弹窗提醒 (距离下班不到 30 分钟时不断提醒) ---
     useEffect(() => {
         if (!needsToSubmitPrep) return;
 
@@ -3939,6 +3942,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     // --- 下一次值班 ---
     const myNextShift = useMemo(() => {
         if (!schedule?.days) return null;
+        
         const now = new Date();
         const m = now.getMonth() + 1;
         const d = now.getDate();
@@ -3966,9 +3970,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             return myShifts.map((s: any) => {
                 const [sh, sm] = s.start.split(':').map(Number);
                 const [eh, em] = s.end.split(':').map(Number);
+                
                 const fullStart = new Date(date); fullStart.setHours(sh, sm, 0, 0);
                 const fullEnd = new Date(date); fullEnd.setHours(eh, em, 0, 0);
                 if (fullEnd < fullStart) fullEnd.setDate(fullEnd.getDate() + 1);
+
                 return { dateStr: day.date, dateObj: date, start: s.start, end: s.end, fullStart, fullEnd };
             });
         });
@@ -4045,7 +4051,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
 
     // ========================================================================
-    // 4. SUB-VIEWS (Render Functions)
+    // SUB-VIEWS (Render Functions)
     // ========================================================================
     const ConfirmationBanner = () => {
         if (!currentCycle || !userConfirmation || userConfirmation.status !== 'pending') return null;
@@ -4196,13 +4202,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 pt-0 pb-24">
                         {filteredRecipes.map((r: DrinkRecipe) => (
-                            <DrinkCard 
-                                key={r.id} 
-                                drink={r} 
-                                lang={lang} 
-                                t={t} 
-                                autoExpand={expandedRecipeId === r.id}
-                            />
+                            <DrinkCard key={r.id} drink={r} lang={lang} t={t} autoExpand={expandedRecipeId === r.id} />
                         ))}
                         {filteredRecipes.length === 0 && <p className="text-center text-text-light py-10 text-sm">没有找到相关配方 / No recipes found.</p>}
                     </div>
@@ -4228,6 +4228,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             ); 
         }
         
+        if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={false} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={users} />; }
+        
         if (view === 'checklist') {
             const checklist = CHECKLIST_TEMPLATES[currentShift];
             return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
@@ -4248,7 +4250,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     // --- 今日盘点结果卡片组件 ---
     const TodaysPrepReports = () => {
-        // 【关键修复 3】：在这里也定义一个内部的 today，防止引用问题
         const innerToday = new Date();
         const todaysReports = (inventoryHistory || []).filter((r: any) => 
             new Date(r.date).toDateString() === innerToday.toDateString()
@@ -4301,7 +4302,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         );
     };
 
-    // --- HOME VIEW 核心修改区 ---
+    // --- HOME VIEW 核心区 ---
     const homeView = (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
@@ -4309,7 +4310,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 <div className="flex items-center gap-2"><button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light font-bold text-sm">{lang === 'zh' ? 'En' : '中'}</button><button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button><button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button></div>
             </div>
 
-            {/* --- 强力未盘点警告横幅 --- */}
             {needsToSubmitPrep && (
                 <div className="bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in flex items-center justify-between">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
@@ -4323,7 +4323,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             )}
 
-            {/* --- 置顶新配方推荐 --- */}
             {featuredRecipes.length > 0 && (
                 <div className="mb-4 animate-fade-in">
                     <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1"><Icon name="Flame" size={14}/> 新品配方推荐 / New Recipes</h3>
@@ -4336,7 +4335,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                     setRecipeSearchQuery(''); 
                                     setRecipeTypeFilter(recipe.recipeType || 'product'); 
                                     setExpandedRecipeId(recipe.id); 
-                                    
                                     setTimeout(() => {
                                         document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                                     }, 200);
@@ -4355,7 +4353,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             )}
 
-            {/* --- 最新群公告 --- */}
             {latestNotice && (
                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
@@ -4369,13 +4366,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             )}
 
-            {/* 下一次值班卡片 */}
             <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
                 <p className="text-xs text-text-light font-bold uppercase mb-2">{t.next_shift}</p>
                 {myNextShift ? (<p className="font-bold text-text text-lg">{myNextShift.date} <span className="text-primary">{myNextShift.shift}</span></p>) : <p className="text-sm text-text-light italic">{t.no_shift}</p>}
             </div>
             
-            {/* --- 替换：今日盘点结果展示 --- */}
             <TodaysPrepReports />
 
             <div className="mt-4">
@@ -4414,7 +4409,31 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 };
 
 // ============================================================================
-// MAIN APP COMPONENT 
+// 组件: 底部导航栏 (StaffBottomNav)
+// ============================================================================
+const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activeView: string, setActiveView: (v: StaffViewMode) => void, t: any, hasUnreadChat: boolean }) => {
+    const navItems = [
+        { key: 'home', icon: 'Grid', label: t.home },
+        { key: 'training', icon: 'Award', label: t.training },
+        { key: 'recipes', icon: 'Coffee', label: t.recipes },
+        { key: 'inventory', icon: 'Package', label: t.stock }, 
+        { key: 'chat', icon: 'MessageSquare', label: t.chat },
+    ];
+    return (
+        <div className="absolute bottom-0 left-0 right-0 h-20 bg-surface/80 backdrop-blur-lg border-t border-gray-100 flex justify-around items-center max-w-md mx-auto">
+            {navItems.map(item => (
+                <button key={item.key} onClick={() => setActiveView(item.key as StaffViewMode)} className={`flex flex-col items-center gap-1 w-16 transition-all relative ${activeView === item.key ? 'text-primary' : 'text-text-light hover:text-primary'}`}>
+                    <Icon name={item.icon as any} size={22} />
+                    <span className="text-[10px] font-bold">{item.label}</span>
+                    {item.key === 'chat' && hasUnreadChat && <div className="absolute top-0 right-3.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-surface"></div>}
+                </button>
+            ))}
+        </div>
+    );
+};
+
+// ============================================================================
+// MAIN APP COMPONENT
 // ============================================================================
 const App = () => {
     const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('onesip_lang') as Lang) || 'zh');
@@ -4560,3 +4579,4 @@ const App = () => {
 };
 
 export default App;
+
