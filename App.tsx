@@ -3718,7 +3718,7 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [强制盘点提醒 + 首页展示盘点结果]
+// 组件 4: 员工端 (Staff App) - [终极融合版：置顶 + 强制盘点 + Vercel 修复]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles, inventoryHistory, inventoryList } = data;
@@ -3729,7 +3729,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
-    const [deviationData, setDeviationData] = useState<any | null>(null);
     
     // Recipe States
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
@@ -3765,7 +3764,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const latestNotice = activeNotices.length > 0 ? activeNotices[activeNotices.length - 1] : null;
     const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
 
-    // --- 【新增核心逻辑】检查今天是否需要盘点 ---
+    // --- 【强制盘点逻辑】检查今天是否需要盘点 ---
     const m = today.getMonth() + 1;
     const d = today.getDate();
     const todayDateKeys = [
@@ -3907,7 +3906,15 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     // --- 下一次值班 ---
     const myNextShift = useMemo(() => {
         if (!schedule?.days) return null;
+        
         const now = new Date();
+        const m = now.getMonth() + 1;
+        const d = now.getDate();
+        const todayDateKeys = [
+            `${m}-${d}`,
+            `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
+        ];
+
         const allShifts = schedule.days.flatMap((day: any) => {
             let date = new Date(day.date);
             if (isNaN(date.getTime()) || day.date.indexOf('-') > -1) {
@@ -3920,15 +3927,18 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     date = new Date(year, dm - 1, dd);
                 }
             }
+
             const myName = currentUser.name.trim().toLowerCase();
             const myShifts = (day.shifts || []).filter((s: any) => s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myName));
             
             return myShifts.map((s: any) => {
                 const [sh, sm] = s.start.split(':').map(Number);
                 const [eh, em] = s.end.split(':').map(Number);
+                
                 const fullStart = new Date(date); fullStart.setHours(sh, sm, 0, 0);
                 const fullEnd = new Date(date); fullEnd.setHours(eh, em, 0, 0);
                 if (fullEnd < fullStart) fullEnd.setDate(fullEnd.getDate() + 1);
+
                 return { dateStr: day.date, dateObj: date, start: s.start, end: s.end, fullStart, fullEnd };
             });
         });
@@ -3952,6 +3962,21 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             date: new Date().toISOString(),
         };
         Cloud.saveInventoryReport(completeReport);
+        
+        const logs: InventoryLog[] = [];
+        const timestamp = new Date().toLocaleString();
+        Object.keys(report.data).forEach(itemId => {
+            const itemData = report.data[itemId];
+            if (itemData.end || itemData.loss) {
+                logs.push({
+                    id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                    timestamp, operator: report.submittedBy, itemId, itemName: itemId,
+                    newStock: itemData.end || '0', waste: itemData.loss || '0', actionType: 'report'
+                });
+            }
+        });
+        if (logs.length > 0) Cloud.saveInventoryLogs(logs);
+
         showNotification({ type: 'message', title: 'Inventory Saved', message: '盘点数据已成功保存。' });
         setView('home');
     };
@@ -4114,7 +4139,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             );
         }
-        if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} isManager={true} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />; }
+        
         if (view === 'recipes') {
              const filteredRecipes = recipes
                 .filter((r: DrinkRecipe) => r.isPublished !== false)
@@ -4141,7 +4166,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 pt-0 pb-24">
                         {filteredRecipes.map((r: DrinkRecipe) => (
-                            <DrinkCard key={r.id} drink={r} lang={lang} t={t} autoExpand={expandedRecipeId === r.id} />
+                            <DrinkCard 
+                                key={r.id} 
+                                drink={r} 
+                                lang={lang} 
+                                t={t} 
+                                autoExpand={expandedRecipeId === r.id}
+                            />
                         ))}
                         {filteredRecipes.length === 0 && <p className="text-center text-text-light py-10 text-sm">没有找到相关配方 / No recipes found.</p>}
                     </div>
@@ -4150,7 +4181,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
         
         if (view === 'inventory') { 
-            // 默认判断：如果下午4点前打开就是 morning，否则是 evening
             const defaultShift = new Date().getHours() < 16 ? 'morning' : 'evening';
             return (
                 <InventoryView 
@@ -4172,7 +4202,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const checklist = CHECKLIST_TEMPLATES[currentShift];
             return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
         }
-        if (view === 'availability') { return <AvailabilityModal isOpen={true} onClose={() => setView('home')} t={t} currentUser={currentUser} />; }
         if (view === 'swapRequests') {
             const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
             const incomingRequests = swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
@@ -4187,7 +4216,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return null;
     };
 
-    // --- 【新增：今日盘点结果卡片组件】 ---
+    // --- 今日盘点结果卡片组件 ---
     const TodaysPrepReports = () => {
         const todaysReports = (inventoryHistory || []).filter((r: any) => 
             new Date(r.date).toDateString() === today.toDateString()
@@ -4240,7 +4269,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         );
     };
 
-    // --- HOME VIEW ---
+    // --- HOME VIEW 核心修改区 ---
     const homeView = (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
