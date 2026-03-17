@@ -3718,10 +3718,10 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [修复首页点击配方自动展开不隐藏其他配方]
+// 组件 4: 员工端 (Staff App) - [强制盘点提醒 + 首页展示盘点结果]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles } = data;
+    const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles, inventoryHistory, inventoryList } = data;
     const { showNotification } = useNotification();
 
     const [view, setView] = useState<StaffViewMode>('home');
@@ -3729,15 +3729,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
+    const [deviationData, setDeviationData] = useState<any | null>(null);
     
     // Recipe States
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
     const [recipeTypeFilter, setRecipeTypeFilter] = useState<'product' | 'premix'>('product');
     const [newRecipesToAck, setNewRecipesToAck] = useState<DrinkRecipe[]>([]);
-    
-    // 【新增】用于记录需要自动展开的配方 ID
     const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
-    
     const recipeReminderCheckDone = useRef(false);
 
     // Swap & Schedule States
@@ -3766,6 +3764,66 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const activeNotices = (notices || []).filter((n: Notice) => n.status !== 'cancelled');
     const latestNotice = activeNotices.length > 0 ? activeNotices[activeNotices.length - 1] : null;
     const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
+
+    // --- 【新增核心逻辑】检查今天是否需要盘点 ---
+    const m = today.getMonth() + 1;
+    const d = today.getDate();
+    const todayDateKeys = [
+        `${m}-${d}`,
+        `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
+    ];
+    
+    const todaySchedule = schedule?.days?.find((day: any) => todayDateKeys.includes(day.date));
+    const myNameLower = currentUser.name.trim().toLowerCase();
+    
+    // 检查我今天有没有排班
+    const myShiftsToday = todaySchedule?.shifts?.filter((s: any) => 
+        s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myNameLower)
+    ) || [];
+    const hasShiftToday = myShiftsToday.length > 0;
+
+    // 检查我今天是否已经提交过盘点报告
+    const hasSubmittedToday = (inventoryHistory || []).some((r: any) =>
+        r.submittedBy === currentUser.name &&
+        new Date(r.date).toDateString() === today.toDateString()
+    );
+
+    // 如果今天有排班，且还没提交过盘点，则判定为“需要盘点”
+    const needsToSubmitPrep = hasShiftToday && !hasSubmittedToday;
+
+    // --- 强力盘点弹窗提醒 (距离下班不到 30 分钟时不断提醒) ---
+    useEffect(() => {
+        if (!needsToSubmitPrep) return;
+
+        const timer = setInterval(() => {
+            const now = new Date();
+            let shouldAlert = false;
+
+            myShiftsToday.forEach((shift: any) => {
+                const [endH, endM] = shift.end.split(':').map(Number);
+                const shiftEnd = new Date();
+                shiftEnd.setHours(endH, endM, 0, 0);
+                
+                const diffMins = (shiftEnd.getTime() - now.getTime()) / 60000;
+                // 距离下班不到 30 分钟，或者已经下班了，触发警告
+                if (diffMins <= 30) {
+                    shouldAlert = true;
+                }
+            });
+
+            if (shouldAlert && view !== 'inventory') {
+                showNotification({
+                    type: 'clock_out_reminder', // 借用红色样式
+                    title: '🚨 强制盘点提醒 (MANDATORY)',
+                    message: '你的班次即将结束或已结束，请务必前往 [Inventory] 填写今日的备料盘点！',
+                    sticky: true,
+                    dedupeKey: 'mandatory_prep_reminder'
+                });
+            }
+        }, 60000); // 每分钟检查一次
+
+        return () => clearInterval(timer);
+    }, [needsToSubmitPrep, myShiftsToday, view, showNotification]);
 
     // --- Recipe Acknowledgment ---
     useEffect(() => {
@@ -3797,41 +3855,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         setView('recipes');
         showNotification({ type: 'message', title: 'Acknowledgment Recorded', message: 'Your confirmation has been sent.' });
     };
-
-    // --- 智能班次提醒 (无打卡版) ---
-    useEffect(() => {
-        if (!schedule?.days) return;
-        const timer = setInterval(() => {
-            const now = new Date();
-            const m = now.getMonth() + 1;
-            const d = now.getDate();
-            const dateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
-            
-            const todaySchedule = schedule.days.find((day: any) => dateKeys.includes(day.date));
-            if (!todaySchedule || !todaySchedule.shifts) return;
-
-            const myShifts = todaySchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
-
-            myShifts.forEach((shift: any) => {
-                const [startH, startM] = shift.start.split(':').map(Number);
-                const shiftStart = new Date(now);
-                shiftStart.setHours(startH, startM, 0, 0);
-                
-                const diffStart = (shiftStart.getTime() - now.getTime()) / 60000;
-
-                if (diffStart > 0 && diffStart <= 15) {
-                    const dedupeKey = `shift_start_${dateKeys[0]}_${shift.start}`;
-                    showNotification({ 
-                        type: 'announcement', 
-                        title: 'Upcoming Shift', 
-                        message: `你的班次 (${shift.start}) 即将开始，请做好准备！`, 
-                        dedupeKey 
-                    });
-                }
-            });
-        }, 60000); 
-        return () => clearInterval(timer);
-    }, [currentUser, schedule, showNotification]);
 
     // --- Swap & Schedule Reminders ---
     useEffect(() => {
@@ -3884,15 +3907,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     // --- 下一次值班 ---
     const myNextShift = useMemo(() => {
         if (!schedule?.days) return null;
-        
         const now = new Date();
-        const m = now.getMonth() + 1;
-        const d = now.getDate();
-        const todayDateKeys = [
-            `${m}-${d}`,
-            `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`
-        ];
-
         const allShifts = schedule.days.flatMap((day: any) => {
             let date = new Date(day.date);
             if (isNaN(date.getTime()) || day.date.indexOf('-') > -1) {
@@ -3905,18 +3920,15 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     date = new Date(year, dm - 1, dd);
                 }
             }
-
             const myName = currentUser.name.trim().toLowerCase();
             const myShifts = (day.shifts || []).filter((s: any) => s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myName));
             
             return myShifts.map((s: any) => {
                 const [sh, sm] = s.start.split(':').map(Number);
                 const [eh, em] = s.end.split(':').map(Number);
-                
                 const fullStart = new Date(date); fullStart.setHours(sh, sm, 0, 0);
                 const fullEnd = new Date(date); fullEnd.setHours(eh, em, 0, 0);
                 if (fullEnd < fullStart) fullEnd.setDate(fullEnd.getDate() + 1);
-
                 return { dateStr: day.date, dateObj: date, start: s.start, end: s.end, fullStart, fullEnd };
             });
         });
@@ -3931,6 +3943,18 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
         return null;
     }, [schedule, currentUser, t]);
+
+    // --- 盘点提交逻辑 ---
+    const handleInventorySubmit = (report: any) => {
+        const completeReport = {
+            ...report,
+            id: Date.now().toString(),
+            date: new Date().toISOString(),
+        };
+        Cloud.saveInventoryReport(completeReport);
+        showNotification({ type: 'message', title: 'Inventory Saved', message: '盘点数据已成功保存。' });
+        setView('home');
+    };
 
     // --- Swap & Schedule Confirm Actions ---
     const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
@@ -3978,20 +4002,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
        return (<div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.sop_library}</h2><div className="grid grid-cols-2 gap-3 mb-6"><button onClick={() => onOpenChecklist('opening')} className="p-4 bg-yellow-400/20 text-yellow-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Sun" size={24}/> Opening</button><button onClick={() => onOpenChecklist('mid')} className="p-4 bg-blue-400/20 text-blue-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Clock" size={24}/> Mid-Day</button><button onClick={() => onOpenChecklist('closing')} className="p-4 bg-purple-400/20 text-purple-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Moon" size={24}/> Closing</button></div><div className="space-y-3">{sopList.map((s: SopItem) => (<div key={s.id} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100"><div className="flex justify-between items-start mb-2"><h3 className="font-bold text-text">{s.title?.[lang] || s.title?.['zh']}</h3><span className="text-[10px] bg-secondary px-2 py-1 rounded text-text-light uppercase">{s.category}</span></div><p className="text-sm text-text-light whitespace-pre-line leading-relaxed">{s.content?.[lang] || s.content?.['zh']}</p></div>))}</div></div>);
     }
 
-    const ContactView = ({ t, lang }: { t: any, lang: Lang }) => {
-        const handleCopy = (text: string) => { if (!text) return; navigator.clipboard.writeText(text); alert(`${t.copied}: ${text}`); };
-        return (<div className="h-full overflow-y-auto p-4 pb-24 bg-secondary animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.contact_title}</h2><div className="space-y-3">{CONTACTS_DATA.map(c => (<div key={c.id} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between"><div><h3 className="font-bold text-text">{c.name}</h3><p className="text-xs text-text-light">{c.role?.[lang]}</p>{c.phone && <p onClick={() => handleCopy(c.phone!)} className="text-xs text-primary mt-1 cursor-pointer hover:underline">{c.phone}</p>}</div>{c.phone ? (<a href={`tel:${c.phone}`} className="bg-green-100 text-green-600 p-3 rounded-full hover:bg-green-200 transition-all"><Icon name="Phone" size={20} /></a>) : (<span className="text-gray-300 text-xs italic">No Phone</span>)}</div>))}</div></div>);
-    };
-
-    // --- 【修改点 1】: 增加 autoExpand 属性处理自动展开 ---
     interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: boolean; }
     const DrinkCard: React.FC<DrinkCardProps> = ({ drink, lang, t, autoExpand }) => {
         const [expanded, setExpanded] = useState(autoExpand || false);
         
         useEffect(() => {
-            if (autoExpand) {
-                setExpanded(true);
-            }
+            if (autoExpand) setExpanded(true);
         }, [autoExpand]);
 
         return (
@@ -4025,13 +4041,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 )}
             </div>
         );
-    };
-
-    const TrainingView = ({ data, onComplete }: { data: any, onComplete: (levelId: number) => void }) => {
-        const { trainingLevels, t, lang } = data;
-        const [activeLevel, setActiveLevel] = useState<TrainingLevel | null>(null);
-        if (activeLevel) { return (<div className="h-full flex flex-col bg-surface animate-fade-in-up text-text"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setActiveLevel(null)}><Icon name="ArrowLeft"/></button><h2 className="font-bold text-lg">{activeLevel.title?.[lang] || activeLevel.title?.['zh']}</h2></div><div className="flex-1 overflow-y-auto p-4 space-y-6"><div className="bg-primary-light p-4 rounded-xl border border-primary/20"><h3 className="font-bold text-primary mb-2">Overview</h3><p className="text-sm text-primary/80">{activeLevel.desc?.[lang] || activeLevel.desc?.['zh']}</p></div>{activeLevel.youtubeLink && (<div className="rounded-xl overflow-hidden shadow-lg border border-gray-200"><iframe className="w-full aspect-video" src={`https://www.youtube.com/embed/${getYouTubeId(activeLevel.youtubeLink)}`} title="Training Video" allowFullScreen></iframe></div>)}{activeLevel.imageUrls && activeLevel.imageUrls.length > 0 && (<div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 scroll-smooth no-scrollbar">{activeLevel.imageUrls.map((url: string, idx: number) => (<img key={idx} src={url} alt={`Training slide ${idx+1}`} className="h-48 w-auto rounded-xl shadow-md object-cover border border-gray-100 flex-shrink-0" />))}</div>)}{activeLevel.content.map((c: any, i: number) => (<div key={i}><h3 className="font-bold text-text mb-2">{i+1}. {c.title?.[lang] || c.title?.['zh']}</h3><p className="text-sm text-text-light whitespace-pre-line leading-relaxed">{c.body?.[lang] || c.body?.['zh']}</p></div>))}<div className="pt-6"><h3 className="font-bold text-text mb-4">Quiz</h3>{activeLevel.quiz.map((q: any, i: number) => (<div key={q.id} className="mb-4 bg-secondary p-4 rounded-xl"><p className="font-bold text-sm mb-2">{i+1}. {q.question?.[lang] || q.question?.['zh']}</p><div className="space-y-2">{q.options?.map((opt: string, idx: number) => (<button key={idx} className="w-full text-left p-3 bg-surface border rounded-lg text-sm hover:bg-gray-100">{opt}</button>))}</div></div>))}</div></div></div>); }
-        return (<div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.training}</h2><div className="space-y-3">{trainingLevels.map((l: TrainingLevel) => (<div key={l.id} onClick={() => setActiveLevel(l)} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:shadow-md transition-all"><div className="w-12 h-12 bg-primary-light text-primary rounded-full flex items-center justify-center font-bold text-lg">{l.id}</div><div className="flex-1"><h3 className="font-bold text-text">{l.title?.[lang] || l.title?.['zh']}</h3><p className="text-xs text-text-light">{l.subtitle?.[lang] || l.subtitle?.['zh']}</p></div><Icon name="ChevronRight" className="text-gray-300"/></div>))}</div></div>);
     };
 
     const renderView = () => {
@@ -4106,9 +4115,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             );
         }
         if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} isManager={true} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />; }
-        if (view === 'contact') { return <ContactView t={t} lang={lang} />; }
-        
-        // --- 【修改点 2】: 配方库视图，传递 autoExpand 属性 ---
         if (view === 'recipes') {
              const filteredRecipes = recipes
                 .filter((r: DrinkRecipe) => r.isPublished !== false)
@@ -4135,13 +4141,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 pt-0 pb-24">
                         {filteredRecipes.map((r: DrinkRecipe) => (
-                            <DrinkCard 
-                                key={r.id} 
-                                drink={r} 
-                                lang={lang} 
-                                t={t} 
-                                autoExpand={expandedRecipeId === r.id} // 如果是首页点进来的，自动展开
-                            />
+                            <DrinkCard key={r.id} drink={r} lang={lang} t={t} autoExpand={expandedRecipeId === r.id} />
                         ))}
                         {filteredRecipes.length === 0 && <p className="text-center text-text-light py-10 text-sm">没有找到相关配方 / No recipes found.</p>}
                     </div>
@@ -4149,8 +4149,29 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             );
         }
         
-        if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
-        if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
+        if (view === 'inventory') { 
+            // 默认判断：如果下午4点前打开就是 morning，否则是 evening
+            const defaultShift = new Date().getHours() < 16 ? 'morning' : 'evening';
+            return (
+                <InventoryView 
+                    lang={lang} 
+                    t={t} 
+                    inventoryList={inventoryList} 
+                    setInventoryList={setInventoryList} 
+                    onSubmit={handleInventorySubmit} 
+                    currentUser={currentUser} 
+                    isForced={false} 
+                    onCancel={() => setView('home')} 
+                    forcedShift={defaultShift} 
+                    isOwner={false} 
+                />
+            ); 
+        }
+        
+        if (view === 'checklist') {
+            const checklist = CHECKLIST_TEMPLATES[currentShift];
+            return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
+        }
         if (view === 'availability') { return <AvailabilityModal isOpen={true} onClose={() => setView('home')} t={t} currentUser={currentUser} />; }
         if (view === 'swapRequests') {
             const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
@@ -4166,13 +4187,80 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return null;
     };
 
-    // --- 【修改点 3】: HOME VIEW 核心修改区，处理卡片点击 ---
+    // --- 【新增：今日盘点结果卡片组件】 ---
+    const TodaysPrepReports = () => {
+        const todaysReports = (inventoryHistory || []).filter((r: any) => 
+            new Date(r.date).toDateString() === today.toDateString()
+        );
+
+        return (
+            <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
+                <h3 className="text-xs font-bold text-text-light uppercase mb-3 flex items-center gap-1">
+                    <Icon name="Package" size={14}/> 今日盘点结果 / Today's Prep
+                </h3>
+                
+                {todaysReports.length === 0 ? (
+                    <p className="text-sm text-text-light italic">今天还没有人提交盘点报告 (No reports today).</p>
+                ) : (
+                    <div className="space-y-3">
+                        {todaysReports.slice().reverse().map((report: any) => (
+                            <div key={report.id} className="bg-secondary p-3 rounded-xl border border-gray-200">
+                                <div className="flex justify-between items-center mb-2 border-b border-gray-200 pb-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-primary text-sm">{report.submittedBy}</span>
+                                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded uppercase">{report.shift}</span>
+                                        {report.fridgeChecked && (
+                                            <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Fridge Temp < 6°C Confirmed">
+                                                <Icon name="Snowflake" size={10} /> OK
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span className="text-xs text-text-light">{new Date(report.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                </div>
+                                <div className="space-y-1">
+                                    {Object.entries(report.data || {}).map(([itemId, val]: any) => {
+                                        const itemDef = inventoryList.find((i: any) => i.id === itemId);
+                                        if (!itemDef) return null;
+                                        return (
+                                            <div key={itemId} className="flex justify-between text-xs items-center">
+                                                <span className="text-text-light w-2/3 truncate" title={itemDef.name.zh}>{itemDef.name.zh} <span className="opacity-50">({itemDef.name.en})</span></span>
+                                                <div className="font-mono w-1/3 text-right">
+                                                    <span className="font-bold text-text">{val.end} {itemDef.unit}</span>
+                                                    {val.loss > 0 && <span className="text-red-400 ml-1">(-{val.loss})</span>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    // --- HOME VIEW ---
     const homeView = (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
                 <div><h1 className="text-2xl font-black">{t.hello} {currentUser.name}</h1><p className="text-text-light text-sm">{t.ready}</p></div>
                 <div className="flex items-center gap-2"><button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light font-bold text-sm">{lang === 'zh' ? 'En' : '中'}</button><button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button><button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button></div>
             </div>
+
+            {/* --- 强力未盘点警告横幅 --- */}
+            {needsToSubmitPrep && (
+                <div className="bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in flex items-center justify-between">
+                    <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
+                    <div>
+                        <h3 className="text-sm font-bold text-red-600 flex items-center gap-1"><Icon name="AlertCircle" size={16}/> 盘点未完成</h3>
+                        <p className="text-xs text-red-500 mt-1">下班前请务必填写今日备料盘点</p>
+                    </div>
+                    <button onClick={() => setView('inventory')} className="bg-red-500 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-red-600 active:scale-95">
+                        去盘点
+                    </button>
+                </div>
+            )}
 
             {/* --- 置顶新配方推荐 --- */}
             {featuredRecipes.length > 0 && (
@@ -4183,13 +4271,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             <div 
                                 key={recipe.id} 
                                 onClick={() => { 
-                                    // 核心修改：不使用搜索过滤，而是使用 autoExpand
                                     setView('recipes'); 
-                                    setRecipeSearchQuery(''); // 清除之前的搜索
-                                    setRecipeTypeFilter(recipe.recipeType || 'product'); // 切到正确的 Tab
-                                    setExpandedRecipeId(recipe.id); // 记录需要展开的 ID
+                                    setRecipeSearchQuery(''); 
+                                    setRecipeTypeFilter(recipe.recipeType || 'product'); 
+                                    setExpandedRecipeId(recipe.id); 
                                     
-                                    // 延迟滚动，等 DOM 渲染出来
                                     setTimeout(() => {
                                         document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                                     }, 200);
@@ -4228,6 +4314,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 {myNextShift ? (<p className="font-bold text-text text-lg">{myNextShift.date} <span className="text-primary">{myNextShift.shift}</span></p>) : <p className="text-sm text-text-light italic">{t.no_shift}</p>}
             </div>
             
+            {/* --- 替换：今日盘点结果展示 --- */}
+            <TodaysPrepReports />
+
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
                 <div className="grid grid-cols-2 gap-3">
@@ -4240,13 +4329,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         </div>
     );
     
-    // --- 【修改点 4】: 给 NavBar 传递包裹过的 setActiveView 函数 ---
     const handleNavSwitch = (v: StaffViewMode) => {
         setView(v);
-        // 如果离开配方页面，清除展开记录，防止下次点进配方库时自动展开上次的内容
         if (v !== 'recipes') {
             setExpandedRecipeId(null);
-            setRecipeSearchQuery(''); // 顺便清空搜索
+            setRecipeSearchQuery(''); 
         }
     };
 
@@ -4270,6 +4357,7 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
         { key: 'home', icon: 'Grid', label: t.home },
         { key: 'training', icon: 'Award', label: t.training },
         { key: 'recipes', icon: 'Coffee', label: t.recipes },
+        { key: 'inventory', icon: 'Package', label: t.stock }, 
         { key: 'chat', icon: 'MessageSquare', label: t.chat },
     ];
     return (
@@ -4284,8 +4372,7 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activ
         </div>
     );
 };
-
-// ============================================================================
+=======================
 // MAIN APP COMPONENT - [修复版：强制云端同步]
 // ============================================================================
 const App = () => {
