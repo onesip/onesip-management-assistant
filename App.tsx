@@ -1736,7 +1736,7 @@ const StaffManagementView = ({ users }: { users: any[] }) => {
 };
 
 // ============================================================================
-// 组件 1: Prep Inventory (前台补料 & 后台管理 - 强制校验版)
+// 组件 1: Prep Inventory (前台补料 & 后台管理 - 强制校验版 - 仅保留 PM)
 // ============================================================================
 const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
     const todayIndex = new Date().getDay(); 
@@ -1745,9 +1745,8 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     if (todayIndex === 6) dayGroup = 'sat';
     if (todayIndex === 0) dayGroup = 'sun';
 
-    const [viewShift, setViewShift] = useState<'morning' | 'evening'>(
-        forcedShift === 'closing' ? 'evening' : 'morning'
-    );
+    // 【修改】强制固定为 evening (PM)
+    const [viewShift, setViewShift] = useState<'morning' | 'evening'>('evening');
 
     const [editTargets, setEditTargets] = useState(false);
     const [localList, setLocalList] = useState<any[]>(JSON.parse(JSON.stringify(inventoryList || [])));
@@ -1898,7 +1897,8 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         
         const incompleteItem = visibleItems.find((item: any) => {
             const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
-            if (target === 0 && viewShift === 'evening') return false;
+            // 只要目标是0，说明今天 PM 没任务，不需要检查它
+            if (target === 0) return false;
 
             const val = inputData[item.id]?.end;
             return val === undefined || val === '' || val === null;
@@ -1909,13 +1909,13 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             return;
         }
 
-        // 2. 冰箱温度检查 (现在是全员强制必填项，不再依赖 isForced)
+        // 2. 冰箱温度检查
         if (!fridgeChecked) {
             alert("⚠️ Safety Check Required!\nPlease check the fridge temperature (< 6°C) and tick the box.");
             return; 
         }
 
-        // 3. 提交
+        // 3. 提交 (固定发送 PM 数据)
         onSubmit({ 
             submittedBy: currentUser?.name, 
             userId: currentUser?.id, 
@@ -2013,22 +2013,22 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm">
                  <div className="flex justify-between items-center mb-2">
                     <h2 className="text-xl font-black flex items-center gap-2">
-                        {viewShift === 'morning' ? <span className="text-orange-500">☀️ Morning Prep</span> : <span className="text-indigo-500">🌙 Evening Prep</span>}
+                        {/* 【修改】标题固定为 PM */}
+                        <span className="text-indigo-500">🌙 Evening Prep (PM)</span>
                     </h2>
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
                     <span>Target Day: <strong className="uppercase text-gray-800">{dayGroup.replace('_', '-')}</strong></span>
-                    <div className="flex gap-2">
-                        <button onClick={()=>setViewShift('morning')} className={`px-2 py-1 rounded ${viewShift==='morning'?'bg-white shadow text-orange-500':'text-gray-400'}`}>AM</button>
-                        <button onClick={()=>setViewShift('evening')} className={`px-2 py-1 rounded ${viewShift==='evening'?'bg-white shadow text-indigo-500':'text-gray-400'}`}>PM</button>
-                    </div>
+                    {/* 【修改】去掉了 AM / PM 切换按钮 */}
                 </div>
             </div>
 
             <div className="p-4 space-y-3 overflow-y-auto flex-1">
                 {inventoryList.filter((item: any) => !item.hidden).map((item: any) => {
-                    const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
-                    if (target === 0 && viewShift === 'evening') return null;
+                    // 只读取 evening 的目标
+                    const target = item.dailyTargets?.[dayGroup]?.['evening'] || 0;
+                    // 【修改】如果 target 是 0，就不显示该项，不用填
+                    if (target === 0) return null;
 
                     return (
                         <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm flex flex-col gap-3">
@@ -2080,7 +2080,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
 
                 <button onClick={handleStaffSubmit} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark">
                     <Icon name="Save" size={20} /> 
-                    Submit Prep Report
+                    Submit PM Report
                 </button>
             </div>
         </div>
@@ -4201,8 +4201,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             );
         }
         
-        if (view === 'inventory') { 
-            const defaultShift = new Date().getHours() < 16 ? 'morning' : 'evening';
+      if (view === 'inventory') { 
             return (
                 <InventoryView 
                     lang={lang} 
@@ -4213,7 +4212,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     currentUser={currentUser} 
                     isForced={false} 
                     onCancel={() => setView('home')} 
-                    forcedShift={defaultShift} 
+                    // 【修改】不管什么时候打开，都传 evening，彻底禁用 morning
+                    forcedShift="evening" 
                     isOwner={false} 
                 />
             ); 
