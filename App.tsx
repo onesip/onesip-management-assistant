@@ -1736,7 +1736,7 @@ const StaffManagementView = ({ users }: { users: any[] }) => {
 };
 
 // ============================================================================
-// 组件 1: Prep Inventory (前台补料 & 后台管理 - 强制校验版 - 仅保留 PM)
+// 组件 1: Prep Inventory (前台补料 & 后台管理 - 极简补加量版)
 // ============================================================================
 const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
     const todayIndex = new Date().getDay(); 
@@ -1745,7 +1745,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     if (todayIndex === 6) dayGroup = 'sat';
     if (todayIndex === 0) dayGroup = 'sun';
 
-    // 【修改】强制固定为 evening (PM)
+    // 强制固定为 evening (PM)
     const [viewShift, setViewShift] = useState<'morning' | 'evening'>('evening');
 
     const [editTargets, setEditTargets] = useState(false);
@@ -1754,13 +1754,39 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     const [newItemData, setNewItemData] = useState({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Staff 输入状态
-    const [inputData, setInputData] = useState<Record<string, { end: string, loss: string }>>({});
+    // 【修改】Staff 输入状态，新增 isChecked 用于打勾逻辑
+    const [inputData, setInputData] = useState<Record<string, { end: string, isChecked?: boolean }>>({});
     
     // 冰箱温度检查状态
     const [fridgeChecked, setFridgeChecked] = useState(false);
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+
+    // --- 【新增】打勾与手动输入联动逻辑 ---
+    const handleCheck = (id: string, target: number) => {
+        setInputData(prev => {
+            const currentlyChecked = prev[id]?.isChecked;
+            return {
+                ...prev,
+                [id]: {
+                    ...prev[id],
+                    isChecked: !currentlyChecked, // 切换状态
+                    end: !currentlyChecked ? String(target) : '' // 勾上就自动填 target，取消勾选就清空
+                }
+            };
+        });
+    };
+
+    const handleAmountChange = (id: string, target: number, val: string) => {
+        setInputData(prev => ({
+            ...prev,
+            [id]: {
+                ...prev[id],
+                end: val,
+                isChecked: parseFloat(val) === target // 如果手动填的数字刚好等于 target，自动打上勾
+            }
+        }));
+    };
 
     const handleTargetChange = (id: string, group: string, shift: string, val: string) => {
         setLocalList(prev => prev.map(item => {
@@ -1892,12 +1918,10 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
 
     // --- Staff 提交逻辑 ---
     const handleStaffSubmit = () => {
-        // 1. 强制填空校验
         const visibleItems = inventoryList.filter((item: any) => !item.hidden);
         
         const incompleteItem = visibleItems.find((item: any) => {
             const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
-            // 只要目标是0，说明今天 PM 没任务，不需要检查它
             if (target === 0) return false;
 
             const val = inputData[item.id]?.end;
@@ -1905,17 +1929,17 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         });
 
         if (incompleteItem) {
-            alert(`⚠️ Missing Input!\nPlease fill in the "Completed" count for: ${getLoc(incompleteItem.name)}`);
+            alert(`⚠️ Missing Input!\nPlease verify or enter the added amount for: ${getLoc(incompleteItem.name)}`);
             return;
         }
 
-        // 2. 冰箱温度检查
+        // 冰箱温度检查
         if (!fridgeChecked) {
             alert("⚠️ Safety Check Required!\nPlease check the fridge temperature (< 6°C) and tick the box.");
             return; 
         }
 
-        // 3. 提交 (固定发送 PM 数据)
+        // 提交 (固定发送 PM 数据)
         onSubmit({ 
             submittedBy: currentUser?.name, 
             userId: currentUser?.id, 
@@ -2013,50 +2037,46 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm">
                  <div className="flex justify-between items-center mb-2">
                     <h2 className="text-xl font-black flex items-center gap-2">
-                        {/* 【修改】标题固定为 PM */}
                         <span className="text-indigo-500">🌙 Evening Prep (PM)</span>
                     </h2>
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
                     <span>Target Day: <strong className="uppercase text-gray-800">{dayGroup.replace('_', '-')}</strong></span>
-                    {/* 【修改】去掉了 AM / PM 切换按钮 */}
                 </div>
             </div>
 
             <div className="p-4 space-y-3 overflow-y-auto flex-1">
                 {inventoryList.filter((item: any) => !item.hidden).map((item: any) => {
-                    // 只读取 evening 的目标
                     const target = item.dailyTargets?.[dayGroup]?.['evening'] || 0;
-                    // 【修改】如果 target 是 0，就不显示该项，不用填
                     if (target === 0) return null;
 
                     return (
                         <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm flex flex-col gap-3">
                             <div className="flex justify-between items-center border-b pb-2 border-gray-100">
                                 <div className="font-bold text-lg text-gray-800">{getLoc(item.name)}</div>
-                                <div className="text-xs font-bold text-primary bg-green-50 px-3 py-1 rounded-full border border-green-100">
+                                <div className="text-xs font-bold text-primary bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
                                     Target: <span className="text-lg">{target}</span> {item.unit}
                                 </div>
                             </div>
-                            <div className="flex gap-3 items-center">
-                                <div className="flex-1 flex flex-col">
-                                    <label className="text-[10px] font-bold text-gray-400 mb-1 uppercase">Completed <span className="text-red-500">*</span></label>
-                                    <input 
-                                        type="number" 
-                                        className="w-full p-3 rounded-lg border-2 border-gray-100 text-center text-lg font-bold bg-gray-50 focus:bg-white focus:border-primary transition-colors outline-none" 
-                                        placeholder="Required"
+                            
+                            {/* 【修改】全新的极简打勾输入交互 */}
+                            <div className="flex gap-3 items-center bg-gray-50 p-2 rounded-xl border border-gray-100">
+                                <button
+                                    onClick={() => handleCheck(item.id, target)}
+                                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg border-2 transition-all ${inputData[item.id]?.isChecked ? 'bg-green-500 border-green-500 text-white shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                                >
+                                    <Icon name="CheckCircle2" size={20} />
+                                    <span className="font-bold text-sm">补足了 {target}</span>
+                                </button>
+
+                                <div className="w-[120px] flex flex-col border-l border-gray-200 pl-3">
+                                    <label className="text-[9px] font-bold text-gray-400 mb-1 uppercase text-center">实际补量 (Actual)</label>
+                                    <input
+                                        type="number"
+                                        className="w-full p-2 rounded-lg border border-gray-300 text-center text-lg font-bold focus:bg-white focus:border-primary transition-colors outline-none"
+                                        placeholder={String(target)}
                                         value={inputData[item.id]?.end ?? ''}
-                                        onChange={(e) => setInputData(prev => ({...prev, [item.id]: {...prev[item.id], end: e.target.value}}))}
-                                    />
-                                </div>
-                                <div className="flex-1 flex flex-col border-l pl-3 border-gray-100">
-                                    <label className="text-[10px] font-bold text-red-400 mb-1 uppercase">Loss / Waste</label>
-                                    <input 
-                                        type="number" 
-                                        className="w-full p-3 rounded-lg border-2 border-red-50 text-center text-lg font-bold bg-red-50/50 text-red-500 focus:bg-white focus:border-red-400 transition-colors outline-none" 
-                                        placeholder="0"
-                                        value={inputData[item.id]?.loss ?? ''}
-                                        onChange={(e) => setInputData(prev => ({...prev, [item.id]: {...prev[item.id], loss: e.target.value}}))}
+                                        onChange={(e) => handleAmountChange(item.id, target, e.target.value)}
                                     />
                                 </div>
                             </div>
@@ -2066,7 +2086,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             </div>
             
             <div className="p-4 bg-white border-t sticky bottom-0 z-20 space-y-3 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-                {/* 强制显示的冰箱温度检查 */}
                 <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex items-center gap-3 cursor-pointer" onClick={() => setFridgeChecked(!fridgeChecked)}>
                     <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${fridgeChecked ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white border-blue-300'}`}>
                         {fridgeChecked && <Icon name="Check" size={16} />}
@@ -2391,10 +2410,9 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
 };
 
 // ============================================================================
-// 组件 5: 店长总控台 (Owner Dashboard) - [修复版：CSV 包含 Count/Add/Total]
+// 组件 5: 店长总控台 (Owner Dashboard)
 // ============================================================================
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    // 这里的 smartReports 是云端实时同步下来的数据
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, setSmartReports } = data;
     const { showNotification } = useNotification();
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
@@ -2402,21 +2420,17 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
     
     const [ownerSubView, setOwnerSubView] = useState<'logs' | 'presets' | 'history' | 'staff' | 'smart' | 'smart_history'>('presets');
     
-    // --- Prep History States ---
     const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
     const [reportToDelete, setReportToDelete] = useState<any | null>(null);
-
-    // --- Smart History States ---
     const [expandedSmartId, setExpandedSmartId] = useState<string | null>(null);
     const [smartReportToDelete, setSmartReportToDelete] = useState<any | null>(null);
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     
-    // --- 周五提醒逻辑 ---
     useEffect(() => {
         const checkFridayReminder = () => {
             const now = new Date();
-            const day = now.getDay(); // 5 = Friday
+            const day = now.getDay(); 
             if (day === 5) {
                 const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
                 d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
@@ -2438,7 +2452,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         setTimeout(checkFridayReminder, 2000);
     }, [smartReports]);
 
-    // --- 提交 Smart Weekly Report (上传到云端) ---
     const handleSaveSmartReport = async (report: SmartInventoryReport) => {
         try {
             await Cloud.saveSmartInventoryReport(report);
@@ -2450,11 +2463,9 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         }
     };
 
-    // --- 删除 Smart Report (标记删除) ---
     const handleDeleteSmartReport = async () => {
         if (!smartReportToDelete) return;
         try {
-            // 标记为已删除并覆盖上传
             const updatedReport = { ...smartReportToDelete, status: 'deleted' };
             await Cloud.saveSmartInventoryReport(updatedReport);
             setSmartReportToDelete(null);
@@ -2464,60 +2475,38 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         }
     };
 
-    // --- CSV 导出 (Smart Warehouse) [升级版：包含 Count/Add/Total] ---
     const handleExportSmartCsv = () => {
-        // 1. 检查数据源
         if (!smartReports || !Array.isArray(smartReports) || smartReports.length === 0) {
             alert("No reports found to export. (Data list is empty)");
             return;
         }
-
         try {
-            // 2. 准备表头 (新增 Count 和 Add 列)
             let csvContent = "\uFEFF"; 
             csvContent += "Week,Date Range,Submitted By,Item Name,Category,Supplier,Count (Rem),Add (New),Total Stock,Safety Stock,Status\n";
-
             let rowCount = 0;
-
-            // 3. 安全遍历
             smartReports.forEach((report: any) => {
-                // 跳过无效或已删除的
                 if (!report || report.status === 'deleted') return;
-
                 const items = report.items;
                 if (items && Array.isArray(items)) {
                     items.forEach((item: any) => {
                         if (!item) return;
-
-                        // 4. 安全提取字段 (处理 null/undefined)
                         const week = report.weekStr || '-';
                         const range = report.dateRange || '-';
                         const by = report.submittedBy || '-';
                         const name = (item.name || 'Unknown').replace(/"/g, '""'); 
                         const cat = item.category || '-';
                         const sup = item.supplier || '-';
-                        
-                        // 【新增】提取详细数据
                         const count = item.count ?? 0;
                         const add = item.added ?? 0;
-                        const total = item.currentStock ?? 0; // Total = Count + Add
-                        
+                        const total = item.currentStock ?? 0; 
                         const safety = item.safetyStock ?? 0;
                         const status = item.status || '-';
-
-                        // 5. 拼接行
                         csvContent += `"${week}","${range}","${by}","${name}","${cat}","${sup}",${count},${add},${total},${safety},"${status}"\n`;
                         rowCount++;
                     });
                 }
             });
-
-            if (rowCount === 0) {
-                alert("Found reports, but they contain no items.");
-                return;
-            }
-
-            // 6. 触发下载
+            if (rowCount === 0) { alert("Found reports, but they contain no items."); return; }
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
@@ -2527,22 +2516,17 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-
-        } catch (e) {
-            console.error("Export Error:", e);
-            alert("Export failed! Error: " + (e as Error).message);
-        }
+        } catch (e) { console.error("Export Error:", e); alert("Export failed! Error: " + (e as Error).message); }
     };
 
-    // --- CSV 导出 (Prep History) [强力修复版] ---
+    // --- 【修改】导出 CSV：只包含 Added 列 ---
     const handleExportPrepCsv = () => { 
          if (!inventoryHistory || inventoryHistory.length === 0) {
              alert("No prep history found to export.");
              return;
          }
-
          try {
-             let csvContent = "\uFEFFDate,Shift,Staff,Item,Count,Loss\n";
+             let csvContent = "\uFEFFDate,Shift,Staff,Item,Added\n";
              
              inventoryHistory.forEach((r: any) => {
                 if (r && r.data) {
@@ -2550,10 +2534,9 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                          const itemDef = inventoryList.find((i:any) => i.id === id);
                          const name = itemDef ? (itemDef.name.en || itemDef.name.zh) : id;
                          const cleanName = (name || 'Unknown').replace(/"/g, '""');
-                         const end = val.end ?? 0;
-                         const loss = val.loss ?? 0;
+                         const end = val.end ?? 0; // 这就是加进去的量
                          
-                         csvContent += `"${r.date}","${r.shift}","${r.submittedBy}","${cleanName}",${end},${loss}\n`;
+                         csvContent += `"${r.date}","${r.shift}","${r.submittedBy}","${cleanName}",${end}\n`;
                     });
                 }
              });
@@ -2574,7 +2557,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
 
     const handleUpdateLogs = (allLogs: any[]) => Cloud.updateLogs(allLogs);
     
-    // Prep 删除
     const handleDeleteReport = async () => { 
         if (!reportToDelete) return;
         const newHistory = inventoryHistory.filter((r:any) => r.id !== reportToDelete.id);
@@ -2583,12 +2565,8 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         showNotification({ type: 'message', title: 'Deleted', message: 'Report removed.'});
     };
 
-    // 占位
-    const handleDeleteItemFromReport = async (reportId: string, itemId: string) => { }; 
-
     if (view === 'manager') return <ManagerDashboard data={data} onExit={() => setView('main')} />;
     
-    // --- Smart History View 组件 ---
     const SmartHistoryView = () => (
         <div className="p-4 space-y-3">
             <div className="flex justify-between items-center">
@@ -2600,9 +2578,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
             {(!smartReports || smartReports.length === 0) && <p className="text-dark-text-light text-center py-10">No weekly reports found in cloud.</p>}
             
             {smartReports && [...smartReports].reverse().map((report: any) => {
-                // 过滤掉已删除的
                 if (report.status === 'deleted') return null;
-
                 return (
                     <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group">
                         <div className="flex justify-between items-center">
@@ -2619,12 +2595,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                             </div>
                             
                             <div className="flex items-center gap-3">
-                                {/* 删除按钮 */}
-                                <button 
-                                    onClick={() => setSmartReportToDelete(report)}
-                                    className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 opacity-80 hover:opacity-100 transition-all"
-                                    title="Delete Report"
-                                >
+                                <button onClick={() => setSmartReportToDelete(report)} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 opacity-80 hover:opacity-100 transition-all" title="Delete Report">
                                     <Icon name="Trash" size={16} />
                                 </button>
                                 <div onClick={() => setExpandedSmartId(expandedSmartId === report.id ? null : report.id)} className="cursor-pointer p-1">
@@ -2657,7 +2628,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         </div>
     );
 
-    // --- Prep History View ---
+    // --- 【修改】Prep History View ---
     const InventoryHistoryView = () => (
         <div className="p-4 space-y-3">
              <div className="flex justify-between items-center">
@@ -2692,13 +2663,13 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                             {Object.entries(report.data || {}).map(([itemId, val]: any) => {
                                 const itemDef = inventoryList.find((i: any) => i.id === itemId);
                                 return (
-                                    <div key={itemId} className="flex justify-between items-center group hover:bg-white/5 p-1 rounded transition-colors">
+                                    <div key={itemId} className="flex justify-between items-center group hover:bg-white/5 p-1.5 rounded transition-colors border-b border-white/5 last:border-0">
                                         <span className="text-dark-text-light font-medium">
                                             {itemDef ? getLoc(itemDef.name) : itemId}
                                         </span>
                                         <div className="flex items-center gap-3">
-                                            <span className="font-mono text-white font-bold">{val.end}</span>
-                                            {val.loss && <span className="text-[10px] text-red-400 font-bold">(-{val.loss})</span>}
+                                            {/* 只显示 Added 数量，移除 Loss */}
+                                            <span className="font-mono text-green-400 font-bold">+{val.end}</span>
                                         </div>
                                     </div>
                                 );
@@ -2712,7 +2683,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
 
     return (
         <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
-            {/* Header */}
             <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
                 <div><h1 className="text-xl font-black tracking-tight text-white">{t.owner_dashboard || 'Owner Dashboard'}</h1><p className="text-xs text-dark-text-light">User: {ownerUser.name}</p></div>
                 <div className="flex gap-2">
@@ -2721,7 +2691,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 </div>
             </div>
             
-            {/* Navigation Tabs */}
             <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
                 <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Manage Prep</button>
                 <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep History</button>
@@ -2737,24 +2706,15 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Logs</button>
             </div>
 
-            {/* Content Area */}
             <div className="flex-1 overflow-y-auto">
-                {ownerSubView === 'presets' && (
-                    <InventoryView 
-                        lang={lang} t={t} inventoryList={inventoryList} setInventoryList={setInventoryList} isOwner={true} onSubmit={() => {}} currentUser={ownerUser} 
-                    />
-                )}
+                {ownerSubView === 'presets' && <InventoryView lang={lang} t={t} inventoryList={inventoryList} setInventoryList={setInventoryList} isOwner={true} onSubmit={() => {}} currentUser={ownerUser} />}
                 {ownerSubView === 'history' && <InventoryHistoryView />}
-                
-                {/* 传入 onSaveReport 回调 */}
                 {ownerSubView === 'smart' && <SmartInventoryView data={data} onSaveReport={handleSaveSmartReport} />}
                 {ownerSubView === 'smart_history' && <SmartHistoryView />}
-                
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={handleUpdateLogs} />}
             </div>
             
-            {/* Prep 删除确认弹窗 */}
             {reportToDelete && (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
                     <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl">
@@ -2768,7 +2728,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 </div>
             )}
 
-            {/* Smart 删除确认弹窗 (新增) */}
             {smartReportToDelete && (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
                     <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl">
@@ -2784,7 +2743,6 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         </div>
     );
 };
-
 // ============================================================================
 
 const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (user: User) => void, onClose: () => void }) => {
@@ -4244,10 +4202,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return null;
     };
 
-    // --- 今日盘点结果卡片组件 ---
+// --- 今日盘点结果卡片组件 (极简展示) ---
     const TodaysPrepReports = () => {
+        const innerToday = new Date();
         const todaysReports = (inventoryHistory || []).filter((r: any) => 
-            new Date(r.date).toDateString() === today.toDateString()
+            new Date(r.date).toDateString() === innerToday.toDateString()
         );
 
         return (
@@ -4276,14 +4235,14 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                 </div>
                                 <div className="space-y-1">
                                     {Object.entries(report.data || {}).map(([itemId, val]: any) => {
-                                        const itemDef = (inventoryList || []).find((i: any) => i.id === itemId);
+                                        const itemDef = inventoryList.find((i: any) => i.id === itemId);
                                         if (!itemDef) return null;
                                         return (
-                                            <div key={itemId} className="flex justify-between text-xs items-center">
-                                                <span className="text-text-light w-2/3 truncate" title={itemDef.name.zh}>{itemDef.name.zh} <span className="opacity-50">({itemDef.name.en})</span></span>
+                                            <div key={itemId} className="flex justify-between text-xs items-center bg-white p-2 rounded border border-gray-100">
+                                                <span className="text-gray-700 font-bold w-2/3 truncate" title={itemDef.name.zh}>{itemDef.name.zh} <span className="opacity-50 font-normal">({itemDef.name.en})</span></span>
                                                 <div className="font-mono w-1/3 text-right">
-                                                    <span className="font-bold text-text">{val.end} {itemDef.unit}</span>
-                                                    {val.loss > 0 && <span className="text-red-400 ml-1">(-{val.loss})</span>}
+                                                    {/* 【修改】直接显示绿色加号 */}
+                                                    <span className="font-bold text-green-600 bg-green-50 px-2 py-1 rounded">+{val.end} {itemDef.unit}</span>
                                                 </div>
                                             </div>
                                         );
