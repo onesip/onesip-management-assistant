@@ -1736,7 +1736,7 @@ const StaffManagementView = ({ users }: { users: any[] }) => {
 };
 
 // ============================================================================
-// 组件 1: Prep Inventory (前台补料 & 后台管理 - 极简补加量版)
+// 组件 1: Prep Inventory (前台补料 & 后台管理 - 极简补加量双语版)
 // ============================================================================
 const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
     const todayIndex = new Date().getDay(); 
@@ -1754,7 +1754,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     const [newItemData, setNewItemData] = useState({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // 【修改】Staff 输入状态，新增 isChecked 用于打勾逻辑
+    // Staff 输入状态
     const [inputData, setInputData] = useState<Record<string, { end: string, isChecked?: boolean }>>({});
     
     // 冰箱温度检查状态
@@ -1762,7 +1762,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
-    // --- 【新增】打勾与手动输入联动逻辑 ---
     const handleCheck = (id: string, target: number) => {
         setInputData(prev => {
             const currentlyChecked = prev[id]?.isChecked;
@@ -1770,8 +1769,8 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                 ...prev,
                 [id]: {
                     ...prev[id],
-                    isChecked: !currentlyChecked, // 切换状态
-                    end: !currentlyChecked ? String(target) : '' // 勾上就自动填 target，取消勾选就清空
+                    isChecked: !currentlyChecked, 
+                    end: !currentlyChecked ? String(target) : '' 
                 }
             };
         });
@@ -1783,7 +1782,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             [id]: {
                 ...prev[id],
                 end: val,
-                isChecked: parseFloat(val) === target // 如果手动填的数字刚好等于 target，自动打上勾
+                isChecked: parseFloat(val) === target 
             }
         }));
     };
@@ -1929,17 +1928,21 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         });
 
         if (incompleteItem) {
-            alert(`⚠️ Missing Input!\nPlease verify or enter the added amount for: ${getLoc(incompleteItem.name)}`);
+            alert(lang === 'zh' 
+                ? `⚠️ 信息缺失！\n请确认或填写以下物品的补加量: ${getLoc(incompleteItem.name)}`
+                : `⚠️ Missing Input!\nPlease verify or enter the added amount for: ${getLoc(incompleteItem.name)}`
+            );
             return;
         }
 
-        // 冰箱温度检查
         if (!fridgeChecked) {
-            alert("⚠️ Safety Check Required!\nPlease check the fridge temperature (< 6°C) and tick the box.");
+            alert(lang === 'zh'
+                ? "⚠️ 必须进行安全检查！\n请检查冰箱温度 (< 6°C) 并勾选确认框。"
+                : "⚠️ Safety Check Required!\nPlease check the fridge temperature (< 6°C) and tick the box."
+            );
             return; 
         }
 
-        // 提交 (固定发送 PM 数据)
         onSubmit({ 
             submittedBy: currentUser?.name, 
             userId: currentUser?.id, 
@@ -2037,11 +2040,11 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm">
                  <div className="flex justify-between items-center mb-2">
                     <h2 className="text-xl font-black flex items-center gap-2">
-                        <span className="text-indigo-500">🌙 Evening Prep (PM)</span>
+                        <span className="text-indigo-500">{lang === 'zh' ? '🌙 晚班盘点 (PM)' : '🌙 Evening Prep (PM)'}</span>
                     </h2>
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
-                    <span>Target Day: <strong className="uppercase text-gray-800">{dayGroup.replace('_', '-')}</strong></span>
+                    <span>{lang === 'zh' ? '目标周期:' : 'Target Day:'} <strong className="uppercase text-gray-800">{dayGroup.replace('_', '-')}</strong></span>
                 </div>
             </div>
 
@@ -2055,22 +2058,25 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                             <div className="flex justify-between items-center border-b pb-2 border-gray-100">
                                 <div className="font-bold text-lg text-gray-800">{getLoc(item.name)}</div>
                                 <div className="text-xs font-bold text-primary bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
-                                    Target: <span className="text-lg">{target}</span> {item.unit}
+                                    {lang === 'zh' ? '目标:' : 'Target:'} <span className="text-lg">{target}</span> {item.unit}
                                 </div>
                             </div>
                             
-                            {/* 【修改】全新的极简打勾输入交互 */}
                             <div className="flex gap-3 items-center bg-gray-50 p-2 rounded-xl border border-gray-100">
                                 <button
                                     onClick={() => handleCheck(item.id, target)}
                                     className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg border-2 transition-all ${inputData[item.id]?.isChecked ? 'bg-green-500 border-green-500 text-white shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
                                 >
                                     <Icon name="CheckCircle2" size={20} />
-                                    <span className="font-bold text-sm">补足了 {target}</span>
+                                    <span className="font-bold text-sm">
+                                        {lang === 'zh' ? `补足了 ${target}` : `Filled ${target}`}
+                                    </span>
                                 </button>
 
                                 <div className="w-[120px] flex flex-col border-l border-gray-200 pl-3">
-                                    <label className="text-[9px] font-bold text-gray-400 mb-1 uppercase text-center">实际补量 (Actual)</label>
+                                    <label className="text-[9px] font-bold text-gray-400 mb-1 uppercase text-center">
+                                        {lang === 'zh' ? '实际补加量' : 'Actual Added'}
+                                    </label>
                                     <input
                                         type="number"
                                         className="w-full p-2 rounded-lg border border-gray-300 text-center text-lg font-bold focus:bg-white focus:border-primary transition-colors outline-none"
@@ -2091,15 +2097,19 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                         {fridgeChecked && <Icon name="Check" size={16} />}
                     </div>
                     <div className="flex-1">
-                        <p className="font-bold text-blue-900 text-sm">Check Fridge Temp &lt; 6°C</p>
-                        <p className="text-xs text-blue-600">Checking temperature is mandatory.</p>
+                        <p className="font-bold text-blue-900 text-sm">
+                            {lang === 'zh' ? '检查冰箱温度 < 6°C' : 'Check Fridge Temp < 6°C'}
+                        </p>
+                        <p className="text-xs text-blue-600">
+                            {lang === 'zh' ? '该安全检查为必填项。' : 'Checking temperature is mandatory.'}
+                        </p>
                     </div>
                     <Icon name="Snowflake" className="text-blue-300" />
                 </div>
 
                 <button onClick={handleStaffSubmit} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark">
                     <Icon name="Save" size={20} /> 
-                    Submit PM Report
+                    {lang === 'zh' ? '提交盘点报告' : 'Submit PM Report'}
                 </button>
             </div>
         </div>
@@ -4202,7 +4212,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return null;
     };
 
-// --- 今日盘点结果卡片组件 (极简展示) ---
+// --- 今日盘点结果卡片组件 (双语支持) ---
     const TodaysPrepReports = () => {
         const innerToday = new Date();
         const todaysReports = (inventoryHistory || []).filter((r: any) => 
@@ -4212,11 +4222,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return (
             <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
                 <h3 className="text-xs font-bold text-text-light uppercase mb-3 flex items-center gap-1">
-                    <Icon name="Package" size={14}/> 今日盘点结果 / Today's Prep
+                    <Icon name="Package" size={14}/> {lang === 'zh' ? '今日盘点结果' : "Today's Prep Results"}
                 </h3>
                 
                 {todaysReports.length === 0 ? (
-                    <p className="text-sm text-text-light italic">今天还没有人提交盘点报告 (No reports today).</p>
+                    <p className="text-sm text-text-light italic">
+                        {lang === 'zh' ? '今天还没有人提交盘点报告。' : 'No reports submitted today.'}
+                    </p>
                 ) : (
                     <div className="space-y-3">
                         {todaysReports.slice().reverse().map((report: any) => (
@@ -4239,9 +4251,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                         if (!itemDef) return null;
                                         return (
                                             <div key={itemId} className="flex justify-between text-xs items-center bg-white p-2 rounded border border-gray-100">
-                                                <span className="text-gray-700 font-bold w-2/3 truncate" title={itemDef.name.zh}>{itemDef.name.zh} <span className="opacity-50 font-normal">({itemDef.name.en})</span></span>
+                                                <span className="text-gray-700 font-bold w-2/3 truncate" title={itemDef.name.zh}>{itemDef.name[lang] || itemDef.name.zh} <span className="opacity-50 font-normal">({itemDef.name.en})</span></span>
                                                 <div className="font-mono w-1/3 text-right">
-                                                    {/* 【修改】直接显示绿色加号 */}
                                                     <span className="font-bold text-green-600 bg-green-50 px-2 py-1 rounded">+{val.end} {itemDef.unit}</span>
                                                 </div>
                                             </div>
@@ -4256,7 +4267,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         );
     };
 
-    // --- HOME VIEW 核心修改区 ---
+    // --- HOME VIEW 核心区 (双语支持) ---
     const homeView = (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
@@ -4264,36 +4275,30 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 <div className="flex items-center gap-2"><button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light font-bold text-sm">{lang === 'zh' ? 'En' : '中'}</button><button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button><button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button></div>
             </div>
 
-            {/* --- 强力未盘点警告横幅 --- */}
             {needsToSubmitPrep && (
                 <div className="bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in flex items-center justify-between">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
                     <div>
-                        <h3 className="text-sm font-bold text-red-600 flex items-center gap-1"><Icon name="AlertCircle" size={16}/> 盘点未完成</h3>
-                        <p className="text-xs text-red-500 mt-1">下班前请务必填写今日备料盘点</p>
+                        <h3 className="text-sm font-bold text-red-600 flex items-center gap-1">
+                            <Icon name="AlertCircle" size={16}/> 
+                            {lang === 'zh' ? '盘点未完成' : 'Prep Incomplete'}
+                        </h3>
+                        <p className="text-xs text-red-500 mt-1">
+                            {lang === 'zh' ? '下班前请务必填写今日备料盘点' : 'Please submit today\'s prep before leaving.'}
+                        </p>
                     </div>
                     <button onClick={() => setView('inventory')} className="bg-red-500 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-red-600 active:scale-95">
-                        去盘点
+                        {lang === 'zh' ? '去盘点' : 'Go to Prep'}
                     </button>
                 </div>
             )}
 
-            {/* --- 常驻补料入口大按钮 --- */}
-            <button onClick={() => setView('inventory')} className="w-full bg-green-50 border border-green-200 text-green-700 p-4 rounded-2xl shadow-sm mb-4 flex items-center gap-4 transition-all active:scale-95 text-left hover:bg-green-100">
-                <div className="bg-green-200 text-green-700 p-3 rounded-2xl">
-                    <Icon name="Package" size={28}/>
-                </div>
-                <div className="flex-1">
-                    <h3 className="font-black text-lg">Daily Prep / 备料盘点</h3>
-                    <p className="text-xs font-bold opacity-80">Click here to submit inventory</p>
-                </div>
-                <Icon name="ChevronRight" size={24} className="text-green-400"/>
-            </button>
-
-            {/* --- 置顶新配方推荐 --- */}
             {featuredRecipes.length > 0 && (
                 <div className="mb-4 animate-fade-in">
-                    <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1"><Icon name="Flame" size={14}/> 新品配方推荐 / New Recipes</h3>
+                    <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1">
+                        <Icon name="Flame" size={14}/> 
+                        {lang === 'zh' ? '新品配方推荐' : 'Featured New Recipes'}
+                    </h3>
                     <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                         {featuredRecipes.map((recipe: DrinkRecipe) => (
                             <div 
@@ -4303,7 +4308,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                     setRecipeSearchQuery(''); 
                                     setRecipeTypeFilter(recipe.recipeType || 'product'); 
                                     setExpandedRecipeId(recipe.id); 
-                                    setTimeout(() => { document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 200);
+                                    setTimeout(() => {
+                                        document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                    }, 200);
                                 }} 
                                 className="min-w-[240px] bg-gradient-to-br from-red-500 to-orange-500 rounded-2xl p-4 shadow-md text-white shrink-0 relative overflow-hidden cursor-pointer active:scale-95 transition-transform"
                             >
@@ -4311,7 +4318,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                 <h4 className="font-black text-lg mb-1 relative z-10">{recipe.name[lang] || recipe.name.zh}</h4>
                                 <p className="text-xs opacity-90 relative z-10">{recipe.cat}</p>
                                 <button className="mt-4 bg-white text-red-500 px-4 py-1.5 rounded-full text-xs font-bold relative z-10 shadow-sm hover:bg-gray-50 flex items-center gap-1">
-                                    <Icon name="PlayCircle" size={14} /> 查看做法
+                                    <Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '查看做法' : 'View Recipe'}
                                 </button>
                             </div>
                         ))}
@@ -4319,13 +4326,14 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             )}
 
-            {/* --- 最新群公告 --- */}
             {latestNotice && (
                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
                     <div className="flex items-center gap-2 mb-2">
                         <Icon name="Megaphone" size={16} className="text-blue-500"/>
-                        <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wider">团队公告 / Announcement</h3>
+                        <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                            {lang === 'zh' ? '团队公告' : 'Team Announcement'}
+                        </h3>
                     </div>
                     <p className="text-sm text-gray-800 font-medium whitespace-pre-line">{latestNotice.content}</p>
                     {latestNotice.imageUrl && <img src={latestNotice.imageUrl} alt="notice" className="mt-3 rounded-xl w-full max-h-40 object-cover border border-blue-100/50 shadow-sm" />}
@@ -4333,13 +4341,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             )}
 
-            {/* 下一次值班卡片 */}
             <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
                 <p className="text-xs text-text-light font-bold uppercase mb-2">{t.next_shift}</p>
                 {myNextShift ? (<p className="font-bold text-text text-lg">{myNextShift.date} <span className="text-primary">{myNextShift.shift}</span></p>) : <p className="text-sm text-text-light italic">{t.no_shift}</p>}
             </div>
             
-            {/* 今日盘点结果展示 */}
             <TodaysPrepReports />
 
             <div className="mt-4">
@@ -4353,6 +4359,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             </div>
         </div>
     );
+
     
     const handleNavSwitch = (v: StaffViewMode) => {
         setView(v);
