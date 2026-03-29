@@ -36,9 +36,11 @@ const normalizeDateKey = (dateStr: string) => {
     return dateStr;
 };
 
+// 修复版：增加对 YouTube Shorts 链接的支持
 function getYouTubeId(url: string | undefined) {
     if (!url) return null;
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    // 这里在正则中加入了 shorts\/ 来匹配短视频链接
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?]*).*/;
     const match = url.match(regExp);
     return (match && match[2].length === 11) ? match[2] : null;
 }
@@ -1292,7 +1294,7 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
 // --- DASHBOARDS ---
 
 // ============================================================================
-// 组件: 内容编辑器 (Editor Dashboard) - 修改置顶文案
+// 组件: 内容编辑器 (Editor Dashboard) - 支持视频直链文案
 // ============================================================================
 const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t } = data;
@@ -1497,7 +1499,12 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                  <div className="border-t border-white/10 pt-4 mt-2">
                     <h4 className="text-xs font-bold text-green-400 mb-2 uppercase">Display Assets (Optional)</h4>
                     <div><label className="text-[10px] uppercase font-bold text-dark-text-light">Cover Image URL</label><input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://..." value={editingItem.coverImageUrl || ''} onChange={e => setEditingItem({...editingItem, coverImageUrl: e.target.value})} /></div>
-                    <div className="mt-2"><label className="text-[10px] uppercase font-bold text-dark-text-light">Tutorial Video URL (YouTube)</label><input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://youtu.be/..." value={editingItem.tutorialVideoUrl || ''} onChange={e => setEditingItem({...editingItem, tutorialVideoUrl: e.target.value})} /></div>
+                    
+                    {/* 【修改点】：文案更新为 MP4 / YouTube */}
+                    <div className="mt-2">
+                        <label className="text-[10px] uppercase font-bold text-dark-text-light">Tutorial Video URL (MP4 / YouTube)</label>
+                        <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://... (.mp4 link or YouTube)" value={editingItem.tutorialVideoUrl || ''} onChange={e => setEditingItem({...editingItem, tutorialVideoUrl: e.target.value})} />
+                    </div>
                 </div>
                 <div className="border-t border-white/10 pt-4 mt-2 space-y-3">
                      <label className="flex items-center gap-3 cursor-pointer">
@@ -1511,7 +1518,6 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                             <option value="premix">Premix (基底/半成品)</option>
                         </select>
                     </div>
-                    {/* 【核心修改：文案明确指代置顶功能】 */}
                     <label className="flex items-center gap-3 cursor-pointer bg-dark-bg p-3 rounded-lg border border-red-500/30">
                         <input type="checkbox" checked={!!editingItem.isNew} onChange={e => setEditingItem({...editingItem, isNew: e.target.checked})} className="w-5 h-5 rounded bg-dark-bg border-white/20 text-red-400 focus:ring-red-400" />
                         <span className="font-bold text-red-400">标记为新配方并在员工端首页置顶 (Pin to Home)</span>
@@ -3959,10 +3965,33 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
        return (<div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.sop_library}</h2><div className="grid grid-cols-2 gap-3 mb-6"><button onClick={() => onOpenChecklist('opening')} className="p-4 bg-yellow-400/20 text-yellow-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Sun" size={24}/> Opening</button><button onClick={() => onOpenChecklist('mid')} className="p-4 bg-blue-400/20 text-blue-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Clock" size={24}/> Mid-Day</button><button onClick={() => onOpenChecklist('closing')} className="p-4 bg-purple-400/20 text-purple-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Moon" size={24}/> Closing</button></div><div className="space-y-3">{(sopList || []).map((s: SopItem) => (<div key={s.id} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100"><div className="flex justify-between items-start mb-2"><h3 className="font-bold text-text">{s.title?.[lang] || s.title?.['zh']}</h3><span className="text-[10px] bg-secondary px-2 py-1 rounded text-text-light uppercase">{s.category}</span></div><p className="text-sm text-text-light whitespace-pre-line leading-relaxed">{s.content?.[lang] || s.content?.['zh']}</p></div>))}</div></div>);
     }
 
-    interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: boolean; }
+interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: boolean; }
     const DrinkCard: React.FC<DrinkCardProps> = ({ drink, lang, t, autoExpand }) => {
         const [expanded, setExpanded] = useState(autoExpand || false);
-        useEffect(() => { if (autoExpand) setExpanded(true); }, [autoExpand]);
+        
+        useEffect(() => {
+            if (autoExpand) setExpanded(true);
+        }, [autoExpand]);
+
+        // 【新增】智能视频渲染函数 (支持 YouTube 和 直链 MP4)
+        const renderVideo = (url: string) => {
+            if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                const yId = getYouTubeId(url);
+                return yId ? (
+                    <iframe className="w-full aspect-video rounded-lg mt-2 shadow-md" src={`https://www.youtube.com/embed/${yId}`} title="Video" allowFullScreen></iframe>
+                ) : null;
+            }
+            // 默认渲染为图床的直链视频
+            return (
+                <video 
+                    src={url} 
+                    controls 
+                    playsInline 
+                    preload="metadata" 
+                    className="w-full aspect-video rounded-lg mt-2 shadow-md bg-black object-contain" 
+                />
+            );
+        };
 
         return (
             <div id={`recipe-${drink.id}`} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer transition-all" onClick={() => setExpanded(!expanded)}>
@@ -3977,7 +4006,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     <Icon name={expanded ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" />
                 </div>
                 {expanded && (
-                    <div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in">
+                    // onClick={e => e.stopPropagation()} 非常重要，防止点击视频播放时卡片折叠
+                    <div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in" onClick={e => e.stopPropagation()}>
                         <p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p>
                         <p><strong>Sugar:</strong> {drink.sugar}</p>
                         <p><strong>Ice:</strong> {drink.ice}</p>
@@ -3988,9 +4018,18 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                 <p className="text-sm text-yellow-900 whitespace-pre-line leading-relaxed">{drink.basePreparation?.[lang] || drink.basePreparation?.['zh']}</p>
                             </div>
                         )}
-                        <div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{(drink.steps?.cold || []).map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
-                        <div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{(drink.steps?.warm || []).map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
-                        {drink.tutorialVideoUrl && (<a href={drink.tutorialVideoUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block w-full text-center bg-primary hover:bg-primary-dark text-white font-bold py-2 px-4 rounded-lg text-sm transition-all">观看教学视频</a>)}
+                        <div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
+                        <div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
+                        
+                        {/* 【修改】渲染内嵌视频 */}
+                        {drink.tutorialVideoUrl && (
+                            <div className="mt-3 bg-gray-50 p-2 rounded-lg border border-gray-100">
+                                <p className="font-bold text-gray-700 mb-1 text-xs uppercase flex items-center gap-1">
+                                    <Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '教学视频' : 'Tutorial Video'}
+                                </p>
+                                {renderVideo(drink.tutorialVideoUrl)}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
