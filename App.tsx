@@ -1742,9 +1742,9 @@ const StaffManagementView = ({ users }: { users: any[] }) => {
 };
 
 // ============================================================================
-// 组件 1: Prep Inventory (前台补料 & 后台管理 - 早班补货 + 自动暂存版)
+// 组件 1: Prep Inventory (前台补料 & 后台管理 - 支持多门店隔离)
 // ============================================================================
-const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
+const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
     const todayObj = new Date();
     const todayIndex = todayObj.getDay(); 
     let dayGroup: 'mon_thu' | 'fri' | 'sat' | 'sun' = 'mon_thu';
@@ -1752,7 +1752,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     if (todayIndex === 6) dayGroup = 'sat';
     if (todayIndex === 0) dayGroup = 'sun';
 
-    // 只有周五和周六需要早班
     const isAmNeeded = (todayIndex === 5 || todayIndex === 6);
     const initialShift = (isAmNeeded && todayObj.getHours() < 16) ? 'morning' : 'evening';
 
@@ -1767,11 +1766,10 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     const [inputData, setInputData] = useState<Record<string, { end: string, isChecked?: boolean }>>({});
     const [fridgeChecked, setFridgeChecked] = useState(false);
 
-    // --- 【新增】本地草稿/自动暂存逻辑 ---
     const draftKey = `onesip_prep_draft_${currentUser?.id}_${dayGroup}_${viewShift}`;
 
     useEffect(() => {
-        if (isOwner) return; // 店长后台模式不需要暂存
+        if (isOwner) return;
         const saved = localStorage.getItem(draftKey);
         if (saved) {
             try {
@@ -1783,47 +1781,30 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             setInputData({});
             setFridgeChecked(false);
         }
-    }, [draftKey, isOwner, viewShift]); // 切换早晚班时，加载不同的草稿
+    }, [draftKey, isOwner, viewShift]);
 
     useEffect(() => {
         if (isOwner) return;
         localStorage.setItem(draftKey, JSON.stringify({ inputData, fridgeChecked }));
     }, [inputData, fridgeChecked, draftKey, isOwner]);
-    // ------------------------------------
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
     const handleCheck = (id: string, target: number) => {
         setInputData(prev => {
             const currentlyChecked = prev[id]?.isChecked;
-            return {
-                ...prev,
-                [id]: {
-                    ...prev[id],
-                    isChecked: !currentlyChecked, 
-                    end: !currentlyChecked ? String(target) : '' 
-                }
-            };
+            return { ...prev, [id]: { ...prev[id], isChecked: !currentlyChecked, end: !currentlyChecked ? String(target) : '' } };
         });
     };
 
     const handleAmountChange = (id: string, target: number, val: string) => {
-        setInputData(prev => ({
-            ...prev,
-            [id]: {
-                ...prev[id],
-                end: val,
-                isChecked: parseFloat(val) === target 
-            }
-        }));
+        setInputData(prev => ({ ...prev, [id]: { ...prev[id], end: val, isChecked: parseFloat(val) === target } }));
     };
 
     const handleTargetChange = (id: string, group: string, shift: string, val: string) => {
         setLocalList(prev => prev.map(item => {
             if (item.id === id) {
-                const newTargets = item.dailyTargets ? JSON.parse(JSON.stringify(item.dailyTargets)) : {
-                    mon_thu: {morning:0, evening:0}, fri: {morning:0, evening:0}, sat: {morning:0, evening:0}, sun: {morning:0, evening:0}
-                };
+                const newTargets = item.dailyTargets ? JSON.parse(JSON.stringify(item.dailyTargets)) : { mon_thu: {morning:0, evening:0}, fri: {morning:0, evening:0}, sat: {morning:0, evening:0}, sun: {morning:0, evening:0} };
                 newTargets[group][shift] = parseFloat(val);
                 return { ...item, dailyTargets: newTargets };
             }
@@ -1840,150 +1821,71 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         const rows = localList.map((item: any) => {
             const t = item.dailyTargets || {};
             const safe = (val: any) => val || 0;
-            return [
-                item.name.zh, item.name.en, item.unit, item.category,
-                safe(t.mon_thu?.morning), safe(t.mon_thu?.evening),
-                safe(t.fri?.morning), safe(t.fri?.evening),
-                safe(t.sat?.morning), safe(t.sat?.evening),
-                safe(t.sun?.morning), safe(t.sun?.evening)
-            ].join(',');
+            return [ item.name.zh, item.name.en, item.unit, item.category, safe(t.mon_thu?.morning), safe(t.mon_thu?.evening), safe(t.fri?.morning), safe(t.fri?.evening), safe(t.sat?.morning), safe(t.sat?.evening), safe(t.sun?.morning), safe(t.sun?.evening) ].join(',');
         }).join('\n');
         const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
         const blob = new Blob([bom, headers + rows], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        link.href = url;
-        link.setAttribute("download", "prep_targets_template.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.setAttribute("download", "prep_targets_template.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
     const handleFileUpload = async (e: any) => {
         const file = e.target.files[0];
         if (!file) return;
-        const readFile = (f: File, encoding: string): Promise<string> => {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (evt) => resolve(evt.target?.result as string);
-                reader.onerror = (err) => reject(err);
-                reader.readAsText(f, encoding);
-            });
-        };
+        const readFile = (f: File, encoding: string): Promise<string> => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = (evt) => resolve(evt.target?.result as string); reader.onerror = reject; reader.readAsText(f, encoding); });
         try {
             let csvText = await readFile(file, 'UTF-8');
-            if (csvText.includes('\uFFFD') || (!csvText.includes("Name(ZH)") && !csvText.includes("Category"))) {
-                csvText = await readFile(file, 'GBK');
-            }
+            if (csvText.includes('\uFFFD') || (!csvText.includes("Name(ZH)") && !csvText.includes("Category"))) csvText = await readFile(file, 'GBK');
             if (!csvText) { alert("File is empty!"); return; }
             const lines = csvText.split(/\r?\n/);
             const newItems = [...localList];
-            let updatedCount = 0;
-            let createdCount = 0;
+            let updatedCount = 0; let createdCount = 0;
             lines.slice(1).forEach((line) => {
                 if (!line.trim()) return;
-                let cols = line.split(',');
-                if (cols.length < 2) cols = line.split(';'); 
-                cols = cols.map(c => c.trim().replace(/^"|"$/g, ''));
+                let cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
                 if (cols.length < 4) return;
                 const [zh, en, unit, cat, mt_am, mt_pm, f_am, f_pm, s_am, s_pm, su_am, su_pm] = cols;
                 if (!zh || zh.includes('Name(ZH)')) return; 
                 let itemIndex = newItems.findIndex(i => i.name.zh === zh);
-                const targets = {
-                    mon_thu: { morning: parseFloat(mt_am)||0, evening: parseFloat(mt_pm)||0 },
-                    fri: { morning: parseFloat(f_am)||0, evening: parseFloat(f_pm)||0 },
-                    sat: { morning: parseFloat(s_am)||0, evening: parseFloat(s_pm)||0 },
-                    sun: { morning: parseFloat(su_am)||0, evening: parseFloat(su_pm)||0 }
-                };
-                if (itemIndex >= 0) {
-                    newItems[itemIndex] = { ...newItems[itemIndex], dailyTargets: targets, unit: unit || newItems[itemIndex].unit, category: cat || newItems[itemIndex].category };
-                    updatedCount++;
-                } else {
-                    newItems.push({
-                        id: `p_imp_${Date.now()}_${Math.floor(Math.random()*1000)}`,
-                        name: { zh: zh, en: en || zh },
-                        unit: unit || 'L',
-                        category: cat || 'other',
-                        defaultVal: '0',
-                        hidden: false,
-                        dailyTargets: targets
-                    });
-                    createdCount++;
-                }
+                const targets = { mon_thu: { morning: parseFloat(mt_am)||0, evening: parseFloat(mt_pm)||0 }, fri: { morning: parseFloat(f_am)||0, evening: parseFloat(f_pm)||0 }, sat: { morning: parseFloat(s_am)||0, evening: parseFloat(s_pm)||0 }, sun: { morning: parseFloat(su_am)||0, evening: parseFloat(su_pm)||0 } };
+                if (itemIndex >= 0) { newItems[itemIndex] = { ...newItems[itemIndex], dailyTargets: targets, unit: unit || newItems[itemIndex].unit, category: cat || newItems[itemIndex].category }; updatedCount++; } 
+                else { newItems.push({ id: `p_imp_${Date.now()}_${Math.floor(Math.random()*1000)}`, name: { zh: zh, en: en || zh }, unit: unit || 'L', category: cat || 'other', defaultVal: '0', hidden: false, dailyTargets: targets }); createdCount++; }
             });
             setLocalList(newItems);
-            Cloud.saveInventoryList(newItems);
-            setInventoryList(newItems);
+            // 调用分店隔离保存函数
+            if (onUpdateInventoryList) onUpdateInventoryList(newItems);
             alert(`✅ Import Success!\nUpdated: ${updatedCount}\nCreated: ${createdCount}`);
-        } catch (err) { console.error(err); alert("Error reading file."); } 
-        finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
+        } catch (err) { console.error(err); alert("Error reading file."); } finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
     };
 
     const handleAddItem = () => {
         if (!newItemData.nameZH || !newItemData.nameEN) return alert("Please enter names.");
-        const newItem: any = {
-            id: `p_new_${Date.now()}`,
-            name: { zh: newItemData.nameZH, en: newItemData.nameEN },
-            unit: newItemData.unit,
-            category: newItemData.category,
-            defaultVal: '0',
-            hidden: false,
-            dailyTargets: { mon_thu: { morning: 0, evening: 0 }, fri: { morning: 0, evening: 0 }, sat: { morning: 0, evening: 0 }, sun: { morning: 0, evening: 0 } }
-        };
+        const newItem: any = { id: `p_new_${Date.now()}`, name: { zh: newItemData.nameZH, en: newItemData.nameEN }, unit: newItemData.unit, category: newItemData.category, defaultVal: '0', hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 0 }, fri: { morning: 0, evening: 0 }, sat: { morning: 0, evening: 0 }, sun: { morning: 0, evening: 0 } } };
         const newList = [...localList, newItem];
         setLocalList(newList);
-        Cloud.saveInventoryList(newList);
-        setInventoryList(newList);
-        setIsAddingItem(false);
-        setNewItemData({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
+        if (onUpdateInventoryList) onUpdateInventoryList(newList);
+        setIsAddingItem(false); setNewItemData({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
         alert("Item Added!");
     };
 
     const saveTargets = () => {
-        Cloud.saveInventoryList(localList);
-        setInventoryList(localList);
+        if (onUpdateInventoryList) onUpdateInventoryList(localList);
         alert("✅ Changes saved successfully!");
         setEditTargets(false);
     };
 
     const handleStaffSubmit = () => {
         const visibleItems = inventoryList.filter((item: any) => !item.hidden);
-        
         const incompleteItem = visibleItems.find((item: any) => {
             const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
             if (target === 0) return false;
-
             const val = inputData[item.id]?.end;
             return val === undefined || val === '' || val === null;
         });
 
-        if (incompleteItem) {
-            alert(lang === 'zh' 
-                ? `⚠️ 信息缺失！\n请确认或填写以下物品的补加量: ${getLoc(incompleteItem.name)}`
-                : `⚠️ Missing Input!\nPlease verify or enter the added amount for: ${getLoc(incompleteItem.name)}`
-            );
-            return;
-        }
+        if (incompleteItem) return alert(lang === 'zh' ? `⚠️ 信息缺失！\n请确认或填写以下物品的补加量: ${getLoc(incompleteItem.name)}` : `⚠️ Missing Input!\nPlease verify or enter the added amount for: ${getLoc(incompleteItem.name)}`);
+        if (!fridgeChecked) return alert(lang === 'zh' ? "⚠️ 必须进行安全检查！\n请检查冰箱温度 (< 6°C) 并勾选确认框。" : "⚠️ Safety Check Required!\nPlease check the fridge temperature (< 6°C) and tick the box.");
 
-        if (!fridgeChecked) {
-            alert(lang === 'zh'
-                ? "⚠️ 必须进行安全检查！\n请检查冰箱温度 (< 6°C) 并勾选确认框。"
-                : "⚠️ Safety Check Required!\nPlease check the fridge temperature (< 6°C) and tick the box."
-            );
-            return; 
-        }
-
-        onSubmit({ 
-            submittedBy: currentUser?.name, 
-            userId: currentUser?.id, 
-            data: inputData, 
-            shift: viewShift, 
-            dayGroup: dayGroup, 
-            date: new Date().toISOString(),
-            fridgeChecked: fridgeChecked 
-        });
-
-        // 提交成功后清空草稿
+        onSubmit({ submittedBy: currentUser?.name, userId: currentUser?.id, data: inputData, shift: viewShift, dayGroup: dayGroup, date: new Date().toISOString(), fridgeChecked: fridgeChecked });
         localStorage.removeItem(draftKey);
         setInputData({});
         setFridgeChecked(false);
@@ -1994,18 +1896,10 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
                 <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".csv" className="hidden" />
                 <div className="p-4 bg-dark-surface border-b border-white/10 sticky top-0 z-10 shadow-md flex justify-between items-center">
-                    <div>
-                        <h2 className="text-xl font-black text-white flex items-center gap-2">
-                            <Icon name="Coffee" className="text-orange-400"/> Manage Prep Targets
-                        </h2>
-                        <p className="text-xs text-dark-text-light">Set goals & visibility</p>
-                    </div>
+                    <div><h2 className="text-xl font-black text-white flex items-center gap-2"><Icon name="Coffee" className="text-orange-400"/> Manage Prep Targets</h2></div>
                     <div className="flex gap-2">
                         {editTargets ? (
-                            <>
-                                <button onClick={() => setEditTargets(false)} className="bg-white/10 text-white px-3 py-2 rounded-lg text-xs font-bold">Cancel</button>
-                                <button onClick={saveTargets} className="bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-bold">Save All</button>
-                            </>
+                            <><button onClick={() => setEditTargets(false)} className="bg-white/10 text-white px-3 py-2 rounded-lg text-xs font-bold">Cancel</button><button onClick={saveTargets} className="bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-bold">Save All</button></>
                         ) : (
                             <div className="flex gap-2">
                                 <button onClick={handleDownloadTemplate} className="bg-white/5 hover:bg-white/10 text-dark-text-light px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1"><Icon name="Download" size={14} /> Template</button>
@@ -2022,11 +1916,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                         <div key={item.id} className={`bg-dark-surface p-4 rounded-xl border transition-all ${item.hidden ? 'border-red-500/30 opacity-60' : 'border-white/10'}`}>
                             <div className="flex justify-between items-center mb-2 border-b border-white/5 pb-2">
                                 <div className="flex items-center gap-2">
-                                    {editTargets && (
-                                        <button onClick={() => toggleHidden(item.id)} className={`p-1.5 rounded-lg transition-colors ${item.hidden ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
-                                            <Icon name={item.hidden ? "EyeOff" : "Eye"} size={16} />
-                                        </button>
-                                    )}
+                                    {editTargets && <button onClick={() => toggleHidden(item.id)} className={`p-1.5 rounded-lg transition-colors ${item.hidden ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}><Icon name={item.hidden ? "EyeOff" : "Eye"} size={16} /></button>}
                                     <div><h3 className={`font-bold text-lg ${item.hidden ? 'text-gray-500 line-through' : 'text-white'}`}>{item.name.zh} <span className="text-dark-text-light text-xs font-normal">({item.name.en})</span></h3></div>
                                 </div>
                                 <span className="text-xs font-mono bg-white/10 px-2 py-1 rounded text-orange-300">{item.unit}</span>
@@ -2037,17 +1927,27 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                                     <div className={`text-[10px] uppercase font-bold text-right pr-2 ${shift==='morning'?'text-yellow-400':'text-indigo-400'}`}>{shift}</div>
                                     {['mon_thu', 'fri', 'sat', 'sun'].map(group => {
                                         const val = item.dailyTargets?.[group]?.[shift] || 0;
-                                        return editTargets ? (
-                                            <input key={group} type="number" className="w-full bg-dark-bg border border-white/20 rounded p-2 text-center text-white text-sm font-bold focus:border-blue-500 outline-none" value={val} onChange={e => handleTargetChange(item.id, group, shift, e.target.value)} />
-                                        ) : (
-                                            <div key={group} className="bg-white/5 rounded p-2 text-white text-sm font-mono text-center border border-white/5">{val}</div>
-                                        );
+                                        return editTargets ? <input key={group} type="number" className="w-full bg-dark-bg border border-white/20 rounded p-2 text-center text-white text-sm font-bold focus:border-blue-500 outline-none" value={val} onChange={e => handleTargetChange(item.id, group, shift, e.target.value)} /> : <div key={group} className="bg-white/5 rounded p-2 text-white text-sm font-mono text-center border border-white/5">{val}</div>;
                                     })}
                                 </div>
                             ))}
                         </div>
                     ))}
                 </div>
+                {isAddingItem && (
+                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
+                        <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl space-y-4">
+                            <h3 className="text-lg font-bold text-white">Add New Prep Item</h3>
+                            <div><label className="text-xs text-gray-400">Name (ZH)</label><input className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.nameZH} onChange={e => setNewItemData({...newItemData, nameZH: e.target.value})} /></div>
+                            <div><label className="text-xs text-gray-400">Name (EN)</label><input className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.nameEN} onChange={e => setNewItemData({...newItemData, nameEN: e.target.value})} /></div>
+                            <div className="flex gap-2">
+                                <div className="flex-1"><label className="text-xs text-gray-400">Unit</label><select className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.unit} onChange={e => setNewItemData({...newItemData, unit: e.target.value})}><option value="L">L</option><option value="ml">ml</option><option value="g">g</option><option value="kg">kg</option><option value="pcs">pcs</option><option value="box">box</option></select></div>
+                                <div className="flex-1"><label className="text-xs text-gray-400">Category</label><select className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.category} onChange={e => setNewItemData({...newItemData, category: e.target.value})}><option value="premix">Premix</option><option value="dairy">Dairy</option><option value="topping">Topping</option><option value="fruit">Fruit</option><option value="other">Other</option></select></div>
+                            </div>
+                            <div className="flex gap-2 mt-4"><button onClick={() => setIsAddingItem(false)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button><button onClick={handleAddItem} className="flex-1 py-3 rounded-xl bg-purple-600 text-white font-bold">Add Item</button></div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
@@ -2057,10 +1957,7 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm">
                  <div className="flex justify-between items-center mb-2">
                     <h2 className="text-xl font-black flex items-center gap-2">
-                        {viewShift === 'morning' 
-                            ? <span className="text-orange-500">{lang === 'zh' ? '☀️ 早班补货 (AM)' : '☀️ Morning Refill (AM)'}</span>
-                            : <span className="text-indigo-500">{lang === 'zh' ? '🌙 晚班盘点 (PM)' : '🌙 Evening Prep (PM)'}</span>
-                        }
+                        {viewShift === 'morning' ? <span className="text-orange-500">{lang === 'zh' ? '☀️ 早班补货 (AM)' : '☀️ Morning Refill (AM)'}</span> : <span className="text-indigo-500">{lang === 'zh' ? '🌙 晚班盘点 (PM)' : '🌙 Evening Prep (PM)'}</span>}
                     </h2>
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
@@ -2078,38 +1975,17 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                 {inventoryList.filter((item: any) => !item.hidden).map((item: any) => {
                     const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
                     if (target === 0) return null;
-
                     return (
                         <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm flex flex-col gap-3">
                             <div className="flex justify-between items-center border-b pb-2 border-gray-100">
                                 <div className="font-bold text-lg text-gray-800">{getLoc(item.name)}</div>
-                                <div className={`text-xs font-bold px-3 py-1 rounded-full border ${viewShift === 'morning' ? 'text-orange-600 bg-orange-50 border-orange-100' : 'text-primary bg-indigo-50 border-indigo-100'}`}>
-                                    {lang === 'zh' ? '目标:' : 'Target:'} <span className="text-lg">{target}</span> {item.unit}
-                                </div>
+                                <div className={`text-xs font-bold px-3 py-1 rounded-full border ${viewShift === 'morning' ? 'text-orange-600 bg-orange-50 border-orange-100' : 'text-primary bg-indigo-50 border-indigo-100'}`}>{lang === 'zh' ? '目标:' : 'Target:'} <span className="text-lg">{target}</span> {item.unit}</div>
                             </div>
-                            
                             <div className="flex gap-3 items-center bg-gray-50 p-2 rounded-xl border border-gray-100">
-                                <button
-                                    onClick={() => handleCheck(item.id, target)}
-                                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg border-2 transition-all ${inputData[item.id]?.isChecked ? 'bg-green-500 border-green-500 text-white shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-                                >
-                                    <Icon name="CheckCircle2" size={20} />
-                                    <span className="font-bold text-sm">
-                                        {lang === 'zh' ? `补足了 ${target}` : `Filled ${target}`}
-                                    </span>
-                                </button>
-
+                                <button onClick={() => handleCheck(item.id, target)} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg border-2 transition-all ${inputData[item.id]?.isChecked ? 'bg-green-500 border-green-500 text-white shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}><Icon name="CheckCircle2" size={20} /><span className="font-bold text-sm">{lang === 'zh' ? `补足了 ${target}` : `Filled ${target}`}</span></button>
                                 <div className="w-[120px] flex flex-col border-l border-gray-200 pl-3">
-                                    <label className="text-[9px] font-bold text-gray-400 mb-1 uppercase text-center">
-                                        {lang === 'zh' ? '实际补加量' : 'Actual Added'}
-                                    </label>
-                                    <input
-                                        type="number"
-                                        className="w-full p-2 rounded-lg border border-gray-300 text-center text-lg font-bold focus:bg-white focus:border-primary transition-colors outline-none"
-                                        placeholder={String(target)}
-                                        value={inputData[item.id]?.end ?? ''}
-                                        onChange={(e) => handleAmountChange(item.id, target, e.target.value)}
-                                    />
+                                    <label className="text-[9px] font-bold text-gray-400 mb-1 uppercase text-center">{lang === 'zh' ? '实际补加量' : 'Actual Added'}</label>
+                                    <input type="number" className="w-full p-2 rounded-lg border border-gray-300 text-center text-lg font-bold focus:bg-white focus:border-primary transition-colors outline-none" placeholder={String(target)} value={inputData[item.id]?.end ?? ''} onChange={(e) => handleAmountChange(item.id, target, e.target.value)} />
                                 </div>
                             </div>
                         </div>
@@ -2119,26 +1995,12 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             
             <div className="p-4 bg-white border-t sticky bottom-0 z-20 space-y-3 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
                 <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex items-center gap-3 cursor-pointer" onClick={() => setFridgeChecked(!fridgeChecked)}>
-                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${fridgeChecked ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white border-blue-300'}`}>
-                        {fridgeChecked && <Icon name="Check" size={16} />}
-                    </div>
-                    <div className="flex-1">
-                        <p className="font-bold text-blue-900 text-sm">
-                            {lang === 'zh' ? '检查冰箱温度 < 6°C' : 'Check Fridge Temp < 6°C'}
-                        </p>
-                        <p className="text-xs text-blue-600">
-                            {lang === 'zh' ? '该安全检查为必填项。' : 'Checking temperature is mandatory.'}
-                        </p>
-                    </div>
+                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${fridgeChecked ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white border-blue-300'}`}>{fridgeChecked && <Icon name="Check" size={16} />}</div>
+                    <div className="flex-1"><p className="font-bold text-blue-900 text-sm">{lang === 'zh' ? '检查冰箱温度 < 6°C' : 'Check Fridge Temp < 6°C'}</p><p className="text-xs text-blue-600">{lang === 'zh' ? '该安全检查为必填项。' : 'Checking temperature is mandatory.'}</p></div>
                     <Icon name="Snowflake" className="text-blue-300" />
                 </div>
-
                 <button onClick={handleStaffSubmit} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark">
-                    <Icon name="Save" size={20} /> 
-                    {lang === 'zh' 
-                        ? (viewShift === 'morning' ? '提交早班补货记录' : '提交晚班盘点报告') 
-                        : (viewShift === 'morning' ? 'Submit AM Refill' : 'Submit PM Report')
-                    }
+                    <Icon name="Save" size={20} /> {lang === 'zh' ? (viewShift === 'morning' ? '提交早班补货记录' : '提交晚班盘点报告') : (viewShift === 'morning' ? 'Submit AM Refill' : 'Submit PM Report')}
                 </button>
             </div>
         </div>
@@ -2449,641 +2311,54 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
 };
 
 // ============================================================================
-// 组件 5: 店长总控台 (Owner Dashboard) - 完整支持分店管理 (Branch Mgmt)
+// 组件 5: 经理后台 (Manager Dashboard) - [全功能保留 + 分店隔离防崩版]
 // ============================================================================
-const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, setSmartReports } = data;
+const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStoreId: string, onExit: () => void }) => {
     const { showNotification } = useNotification();
-    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
-    const [view, setView] = useState<'main' | 'manager'>('main');
+    const safeUsers = Array.isArray(data.users) ? data.users : [];
+    const managerUser = safeUsers.find((u:User) => u && u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
+    const { schedule, setSchedule, logs, setLogs, t, swapRequests, users, scheduleCycles, setScheduleCycles } = data;
     
-    // 【新增 'stores' 状态】
-    const [ownerSubView, setOwnerSubView] = useState<'logs' | 'presets' | 'history' | 'staff' | 'smart' | 'smart_history' | 'stores'>('presets');
-    
-    const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
-    const [reportToDelete, setReportToDelete] = useState<any | null>(null);
-    const [expandedSmartId, setExpandedSmartId] = useState<string | null>(null);
-    const [smartReportToDelete, setSmartReportToDelete] = useState<any | null>(null);
-
-    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-    
-    useEffect(() => {
-        const checkFridayReminder = () => {
-            const now = new Date();
-            const day = now.getDay(); 
-            if (day === 5) {
-                const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-                d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-                const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-                const weekNum = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-                const currentWeekStr = `${now.getFullYear()}-W${weekNum}`;
-
-                const hasSubmitted = (smartReports || []).some((r: any) => r.weekStr === currentWeekStr);
-                
-                if (!hasSubmitted) {
-                    showNotification({ 
-                        type: 'announcement', 
-                        title: "⚠️ Weekly Task Reminder", 
-                        message: "It's Friday! You haven't submitted the Smart Warehouse report for this week yet." 
-                    });
-                }
-            }
-        };
-        setTimeout(checkFridayReminder, 2000);
-    }, [smartReports]);
-
-    const handleSaveSmartReport = async (report: SmartInventoryReport) => {
-        try {
-            await Cloud.saveSmartInventoryReport(report);
-            showNotification({ type: 'success', title: "Submitted", message: "Weekly report uploaded to cloud!" });
-            setOwnerSubView('smart_history'); 
-        } catch (error) {
-            console.error("Upload failed", error);
-            alert("Error uploading report. Please check internet connection.");
-        }
-    };
-
-    const handleDeleteSmartReport = async () => {
-        if (!smartReportToDelete) return;
-        try {
-            const updatedReport = { ...smartReportToDelete, status: 'deleted' };
-            await Cloud.saveSmartInventoryReport(updatedReport);
-            setSmartReportToDelete(null);
-            showNotification({ type: 'success', title: "Deleted", message: "Report marked as deleted." });
-        } catch (e) {
-            alert("Delete failed.");
-        }
-    };
-
-    const handleExportSmartCsv = () => {
-        if (!smartReports || !Array.isArray(smartReports) || smartReports.length === 0) {
-            alert("No reports found to export. (Data list is empty)");
-            return;
-        }
-        try {
-            let csvContent = "\uFEFF"; 
-            csvContent += "Week,Date Range,Submitted By,Item Name,Category,Supplier,Count (Rem),Add (New),Total Stock,Safety Stock,Status\n";
-            let rowCount = 0;
-            smartReports.forEach((report: any) => {
-                if (!report || report.status === 'deleted') return;
-                const items = report.items;
-                if (items && Array.isArray(items)) {
-                    items.forEach((item: any) => {
-                        if (!item) return;
-                        const week = report.weekStr || '-';
-                        const range = report.dateRange || '-';
-                        const by = report.submittedBy || '-';
-                        const name = (item.name || 'Unknown').replace(/"/g, '""'); 
-                        const cat = item.category || '-';
-                        const sup = item.supplier || '-';
-                        const count = item.count ?? 0;
-                        const add = item.added ?? 0;
-                        const total = item.currentStock ?? 0; 
-                        const safety = item.safetyStock ?? 0;
-                        const status = item.status || '-';
-                        csvContent += `"${week}","${range}","${by}","${name}","${cat}","${sup}",${count},${add},${total},${safety},"${status}"\n`;
-                        rowCount++;
-                    });
-                }
-            });
-            if (rowCount === 0) { alert("Found reports, but they contain no items."); return; }
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement("a");
-            const url = URL.createObjectURL(blob);
-            const dateStr = new Date().toISOString().split('T')[0];
-            link.href = url;
-            link.setAttribute("download", `smart_warehouse_history_${dateStr}.csv`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        } catch (e) { console.error("Export Error:", e); alert("Export failed! Error: " + (e as Error).message); }
-    };
-
-    const handleExportPrepCsv = () => { 
-         if (!inventoryHistory || inventoryHistory.length === 0) {
-             alert("No prep history found to export.");
-             return;
-         }
-         try {
-             let csvContent = "\uFEFFDate,Type,Staff,Item,Added,Waste/Loss,Reason\n";
-             
-             inventoryHistory.forEach((r: any) => {
-                if (r && r.data) {
-                    Object.entries(r.data).forEach(([id, val]: any) => {
-                         const itemDef = inventoryList.find((i:any) => i.id === id);
-                         const name = itemDef ? (itemDef.name.en || itemDef.name.zh) : id;
-                         const cleanName = (name || 'Unknown').replace(/"/g, '""');
-                         const isWaste = r.shift === 'waste';
-                         const added = !isWaste ? (val.end ?? 0) : 0;
-                         const loss = isWaste ? (val.loss ?? 0) : 0;
-                         const reason = val.reason || '';
-                         
-                         csvContent += `"${r.date}","${r.shift}","${r.submittedBy}","${cleanName}",${added},${loss},"${reason}"\n`;
-                    });
-                }
-             });
-
-             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-             const url = URL.createObjectURL(blob);
-             const link = document.createElement("a");
-             link.href = url;
-             link.download = `prep_history_${new Date().toISOString().split('T')[0]}.csv`;
-             document.body.appendChild(link);
-             link.click();
-             document.body.removeChild(link);
-         } catch (e) {
-             console.error("Prep Export Error:", e);
-             alert("Prep export failed: " + (e as Error).message);
-         }
-    };
-
-    const handleUpdateLogs = (allLogs: any[]) => Cloud.updateLogs(allLogs);
-    
-    const handleDeleteReport = async () => { 
-        if (!reportToDelete) return;
-        const newHistory = inventoryHistory.filter((r:any) => r.id !== reportToDelete.id);
-        await Cloud.updateInventoryHistory(newHistory);
-        setReportToDelete(null);
-        showNotification({ type: 'message', title: 'Deleted', message: 'Report removed.'});
-    };
-
-    if (view === 'manager') return <ManagerDashboard data={data} onExit={() => setView('main')} />;
-    
-    const SmartHistoryView = () => (
-        <div className="p-4 space-y-3">
-            <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold text-dark-text">Warehouse Weekly Reports</h3>
-                <button onClick={handleExportSmartCsv} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-purple-700 transition-all">
-                    <Icon name="List" size={16} /> Export CSV
-                </button>
-            </div>
-            {(!smartReports || smartReports.length === 0) && <p className="text-dark-text-light text-center py-10">No weekly reports found in cloud.</p>}
-            
-            {smartReports && [...smartReports].reverse().map((report: any) => {
-                if (report.status === 'deleted') return null;
-                return (
-                    <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group">
-                        <div className="flex justify-between items-center">
-                            <div onClick={() => setExpandedSmartId(expandedSmartId === report.id ? null : report.id)} className="flex-1 cursor-pointer">
-                                <p className="text-sm font-bold text-white flex items-center gap-2">
-                                    {report.weekStr} 
-                                    <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light font-normal">
-                                        {(report.items || []).length} items
-                                    </span>
-                                </p>
-                                <p className="text-xs text-dark-text-light mt-0.5">
-                                    {report.dateRange} • by {report.submittedBy}
-                                </p>
-                            </div>
-                            
-                            <div className="flex items-center gap-3">
-                                <button onClick={() => setSmartReportToDelete(report)} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 opacity-80 hover:opacity-100 transition-all" title="Delete Report">
-                                    <Icon name="Trash" size={16} />
-                                </button>
-                                <div onClick={() => setExpandedSmartId(expandedSmartId === report.id ? null : report.id)} className="cursor-pointer p-1">
-                                    <Icon name={expandedSmartId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
-                                </div>
-                            </div>
-                        </div>
-                        
-                        {expandedSmartId === report.id && (
-                            <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 max-h-60 overflow-y-auto animate-fade-in">
-                                <div className="grid grid-cols-4 font-bold text-dark-text-light mb-1">
-                                    <span className="col-span-2">Item</span>
-                                    <span className="text-center">Stock</span>
-                                    <span className="text-center">Status</span>
-                                </div>
-                                {(report.items || []).map((item: any, idx: number) => (
-                                    <div key={idx} className="grid grid-cols-4 items-center py-1 border-b border-white/5 last:border-0 hover:bg-white/5">
-                                        <span className="col-span-2 text-white truncate">{item.name}</span>
-                                        <span className={`text-center font-mono ${item.currentStock === 0 ? 'text-gray-500' : 'text-purple-300 font-bold'}`}>
-                                            {item.currentStock}
-                                        </span>
-                                        <span className={`text-center font-bold ${item.status==='LOW'?'text-red-400':'text-green-400'}`}>{item.status}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
-    );
-
-    const InventoryHistoryView = () => (
-        <div className="p-4 space-y-3">
-             <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold text-dark-text">Prep History</h3>
-                <button onClick={handleExportPrepCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-green-700 transition-all">
-                    <Icon name="List" size={16} /> Export CSV
-                </button>
-            </div>
-            {inventoryHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found.</p>}
-            {inventoryHistory.slice().reverse().map((report: any) => {
-                const isWaste = report.shift === 'waste';
-                return (
-                    <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group-report">
-                        <div onClick={() => setExpandedReportId(expandedReportId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
-                            <div>
-                                <div className="flex items-center gap-2">
-                                    <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'}</p>
-                                    <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${isWaste ? 'bg-red-500/20 text-red-400' : 'bg-white/10 text-purple-300'}`}>
-                                        {isWaste ? 'WASTE/LOSS' : report.shift}
-                                    </span>
-                                    {report.fridgeChecked && (
-                                        <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-0.5" title="Fridge Temp < 6°C Confirmed">
-                                            <Icon name="Snowflake" size={10} /> OK
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="text-xs text-dark-text-light mt-1">by {report.submittedBy}</p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <button onClick={(e) => { e.stopPropagation(); setReportToDelete(report); }} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20"><Icon name="Trash" size={16} /></button>
-                                <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
-                            </div>
-                        </div>
-                        {expandedReportId === report.id && (
-                            <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 animate-fade-in">
-                                {Object.entries(report.data || {}).map(([itemId, val]: any) => {
-                                    const itemDef = inventoryList.find((i: any) => i.id === itemId);
-                                    return (
-                                        <div key={itemId} className="flex justify-between items-center group hover:bg-white/5 p-1.5 rounded transition-colors border-b border-white/5 last:border-0">
-                                            <span className="text-dark-text-light font-medium">
-                                                {itemDef ? getLoc(itemDef.name) : itemId}
-                                            </span>
-                                            <div className="flex items-center gap-3">
-                                                {isWaste ? (
-                                                    <div className="text-right">
-                                                        <span className="font-mono text-red-400 font-bold">-{val.loss}</span>
-                                                        {val.reason && <p className="text-[10px] text-gray-500 mt-0.5">({val.reason})</p>}
-                                                    </div>
-                                                ) : (
-                                                    <span className="font-mono text-green-400 font-bold">+{val.end}</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
-    );
-
-    return (
-        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
-            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
-                <div><h1 className="text-xl font-black tracking-tight text-white">{t.owner_dashboard || 'Owner Dashboard'}</h1><p className="text-xs text-dark-text-light">User: {ownerUser.name}</p></div>
-                <div className="flex gap-2">
-                    <button onClick={() => setView('manager')} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all text-xs font-bold px-3">Manager</button>
-                    <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
-                </div>
-            </div>
-            
-            <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
-                {/* --- 增加分店管理 (Branch Mgmt) 密码锁按钮 --- */}
-                <button onClick={() => {
-                    if (ownerSubView === 'stores') return; 
-                    const pin = window.prompt("Enter Admin PIN (0117) for Branch Management:");
-                    if(pin === '0117') { setOwnerSubView('stores'); } else if (pin !== null) { alert("Access Denied"); }
-                }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'stores' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                    Branch Mgmt
-                </button>
-
-                <div className="w-px bg-white/10 mx-1"></div>
-
-                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Manage Prep</button>
-                <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep History</button>
-                
-                <div className="w-px bg-white/10 mx-1"></div>
-
-                <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-purple-600 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Smart Warehouse</button>
-                <button onClick={() => setOwnerSubView('smart_history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart_history' ? 'bg-purple-900/50 text-purple-200 border border-purple-500/30' : 'text-dark-text-light hover:bg-white/10'}`}>Smart History</button>
-                
-                <div className="w-px bg-white/10 mx-1"></div>
-
-                <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Staff</button>
-                <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Logs</button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-                {/* --- 新增：渲染分店管理视图 --- */}
-                {ownerSubView === 'stores' && <StoreManagementView data={data} />}
-
-                {ownerSubView === 'presets' && <InventoryView lang={lang} t={t} inventoryList={inventoryList} setInventoryList={setInventoryList} isOwner={true} onSubmit={() => {}} currentUser={ownerUser} />}
-                {ownerSubView === 'history' && <InventoryHistoryView />}
-                {ownerSubView === 'smart' && <SmartInventoryView data={data} onSaveReport={handleSaveSmartReport} />}
-                {ownerSubView === 'smart_history' && <SmartHistoryView />}
-                {ownerSubView === 'staff' && <StaffManagementView users={users} />}
-                {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={handleUpdateLogs} />}
-            </div>
-            
-            {reportToDelete && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
-                    <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl">
-                        <h3 className="text-lg font-bold text-white mb-2">Delete Report?</h3>
-                        <p className="text-sm text-dark-text-light mb-6">Confirm deletion?</p>
-                        <div className="flex gap-3">
-                            <button onClick={() => setReportToDelete(null)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
-                            <button onClick={handleDeleteReport} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold">Delete</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {smartReportToDelete && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
-                    <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl">
-                        <h3 className="text-lg font-bold text-white mb-2 text-red-400">Delete Warehouse Report?</h3>
-                        <p className="text-sm text-dark-text-light mb-6">This will mark the report as deleted.</p>
-                        <div className="flex gap-3">
-                            <button onClick={() => setSmartReportToDelete(null)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
-                            <button onClick={handleDeleteSmartReport} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold">Confirm Delete</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-// ============================================================================
-
-const StaffEditModal = ({ user, onSave, onClose }: { user: User | 'new', onSave: (user: User) => void, onClose: () => void }) => {
-    const isNew = user === 'new';
-    const [formData, setFormData] = useState<Partial<User>>(() => isNew ? { id: `u_${Date.now()}`, name: '', role: 'staff', phone: '', password: '', active: true } : user);
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-
-    const handleChange = (field: keyof User, value: string) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
-    };
-
-    const handleSave = () => {
-        if (!formData.name) return alert('Name is required.');
-        if (password !== confirmPassword) return alert('Passwords do not match.');
-        
-        const finalData = { ...formData };
-        if (password) {
-            finalData.password = password;
-        }
-
-        onSave(finalData as User);
-    };
-
-    const roles: UserRole[] = ['staff', 'manager', 'editor', 'maintenance', 'boss'];
-
-    return (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-            <div className="bg-dark-surface rounded-2xl p-6 w-full max-w-md shadow-2xl animate-pop-in border border-white/10 text-dark-text">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-lg font-black">{isNew ? 'Add New Staff' : `Edit ${formData.name}`}</h3>
-                    <button onClick={onClose} className="p-1 rounded-full hover:bg-white/10"><Icon name="X" /></button>
-                </div>
-                
-                <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Name</label><input type="text" value={formData.name} onChange={e => handleChange('name', e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
-                        <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Role</label><select value={formData.role} onChange={e => handleChange('role', e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded capitalize"><option disabled>Select Role</option>{roles.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
-                    </div>
-                    <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Phone Number</label><input type="text" value={formData.phone} onChange={e => handleChange('phone', e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
-                    
-                    <div className="border-t border-white/10 pt-4 mt-4">
-                         <p className="text-xs text-dark-text-light mb-2">{isNew ? 'Set Login Password:' : 'Reset Login Password (optional):'}</p>
-                         <div className="grid grid-cols-2 gap-4">
-                            <div><label className="text-xs font-bold text-dark-text-light mb-1 block">New Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
-                            <div><label className="text-xs font-bold text-dark-text-light mb-1 block">Confirm Password</label><input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2 bg-dark-bg border border-white/10 rounded" /></div>
-                         </div>
-                    </div>
-                </div>
-
-                <div className="flex gap-3 mt-8">
-                    <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-white/10 font-bold hover:bg-white/20">Cancel</button>
-                    <button onClick={handleSave} className="flex-1 py-3 rounded-xl bg-dark-accent text-dark-bg font-bold shadow-lg hover:opacity-90">Save</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-
-const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
-    const [weekStart, setWeekStart] = useState(getStartOfWeek(new Date(), 1));
-    const [availabilities, setAvailabilities] = useState<StaffAvailability[]>([]);
-    const [loading, setLoading] = useState(true);
-
-    const weekStartISO = formatDateISO(weekStart);
-    // Explicitly use 14 days (2 weeks) here to prevent the table from becoming too wide
-    // if the global schedule range is larger.
-    const days = Array.from({ length: 14 }).map((_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
-
-    useEffect(() => {
-        setLoading(true);
-        const unsub = Cloud.subscribeToAvailabilitiesForWeek(weekStartISO, (data: any[]) => {
-            setAvailabilities(data);
-            setLoading(false);
-        });
-        return () => unsub();
-    }, [weekStartISO]);
-
-    const availabilityMap = new Map(availabilities.map(a => [a.userId, a.slots]));
-
-    const changeWeek = (offset: number) => {
-        setWeekStart(prev => {
-            const newDate = new Date(prev);
-            newDate.setDate(newDate.getDate() + offset * 7);
-            return newDate;
-        });
-    };
-
-    return (
-        <div className="space-y-4">
-            <div className="bg-dark-surface p-3 rounded-xl border border-white/10 flex justify-between items-center">
-                <h3 className="font-bold text-dark-text">Staff Availability</h3>
-                <div className="flex items-center gap-2">
-                    <button onClick={() => changeWeek(-1)} className="p-2 bg-white/10 rounded-lg"><Icon name="ChevronLeft" size={16} /></button>
-                    <span className="text-sm font-bold text-center w-28">{weekStartISO}</span>
-                    <button onClick={() => changeWeek(1)} className="p-2 bg-white/10 rounded-lg"><Icon name="ChevronRight" size={16} /></button>
-                </div>
-            </div>
-            {loading ? <div className="text-center p-8 text-dark-text-light">Loading...</div> : (
-            <div className="overflow-x-auto bg-dark-surface p-2 rounded-xl border border-white/10">
-                <table className="w-full text-xs text-center">
-                    <thead>
-                        <tr className="text-dark-text-light">
-                            <th className="p-2 text-left sticky left-0 bg-dark-surface">Staff</th>
-                            {days.map(d => <th key={d.toISOString()} className="p-2 font-normal">{d.toLocaleDateString('en-US', { weekday: 'short' })}<br/>{`${d.getMonth()+1}-${d.getDate()}`}</th>)}
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/10">
-                        {users.filter(u=>u.active!==false).map(user => {
-                            if (!user) return null;
-                            const userSlots = availabilityMap.get(user.id);
-                            return (
-                                <tr key={user.id}>
-                                    <td className="p-2 font-bold text-left sticky left-0 bg-dark-surface">{user.name}</td>
-                                    {days.map(d => {
-                                        const dateISO = formatDateISO(d);
-                                        const slot = userSlots?.[dateISO];
-                                        return (
-                                            <td key={dateISO} className="p-2">
-                                                <div className="flex flex-col gap-1 items-center">
-                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] w-10 ${slot?.morning ? 'bg-green-500/20 text-green-300' : 'bg-white/5 text-dark-text-light opacity-50'}`}>AM</span>
-                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] w-10 ${slot?.evening ? 'bg-blue-500/20 text-blue-300' : 'bg-white/5 text-dark-text-light opacity-50'}`}>PM</span>
-                                                </div>
-                                            </td>
-                                        );
-                                    })}
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            </div>
-            )}
-        </div>
-    );
-};
-
-// ============================================================================
-// 组件 5: 经理后台 (Manager Dashboard) - [彻底修复 today 与空对象报错]
-// ============================================================================
-// ============================================================================
-// 组件: 经理后台 (Manager Dashboard)
-// ============================================================================
-const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { showNotification } = useNotification();
-    const safeUsers = Array.isArray(data.users) ? data.users.filter(Boolean) : [];
-    const managerUser = safeUsers.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
-    const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users, scheduleCycles, setScheduleCycles } = data;
-    
-    // 【核心修复】：补回丢失的 today 定义
     const today = new Date();
-
-    const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability' | 'confirmations'>('requests');
+    const [view, setView] = useState<'schedule' | 'logs' | 'financial' | 'requests' | 'confirmations'>('schedule');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' | 'all' } | null>(null);
-    const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem('onesip_budget_max')) || 5000);
-    const [exportMonth, setExportMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+    const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem(`onesip_budget_max_${adminStoreId}`)) || 5000);
     const [financialMonth, setFinancialMonth] = useState(new Date().toISOString().slice(0, 7)); 
+    const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
 
     const [isAddingManualLog, setIsAddingManualLog] = useState(false);
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
-    const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+
+    // [数据隔离]: 仅加载当前门店的排班、打卡和换班记录
+    const scopedSchedule = { days: (schedule?.days || []).filter((d:any) => d.storeId === adminStoreId || !d.storeId) };
+    const scopedLogs = (logs || []).filter((l:any) => l.storeId === adminStoreId || !l.storeId);
+    const scopedSwapRequests = (swapRequests || []).filter((r:any) => r.storeId === adminStoreId || !r.storeId);
 
     const [wages, setWages] = useState<Record<string, { type: 'hourly'|'fixed', value: number }>>(() => {
-        const saved = localStorage.getItem('onesip_wages_v3');
+        const saved = localStorage.getItem(`onesip_wages_v3_${adminStoreId}`);
         if (saved) return JSON.parse(saved);
-        
-        const PRESETS: Record<string, { type: 'hourly'|'fixed', value: number }> = {
-            "X. Li no.6": { type: 'hourly', value: 13.01 },
-            "Xinrui no.8": { type: 'hourly', value: 9.42 },
-            "Linda No.10": { type: 'hourly', value: 17.35 },
-            "Najat no.11": { type: 'hourly', value: 13.30 },
-            "Fatima 015": { type: 'hourly', value: 23.48 },
-            "Jie": { type: 'hourly', value: 23.48 },
-            "Haohui": { type: 'hourly', value: 0 },
-            "Lambert": { type: 'fixed', value: 795.03 }, 
-            "Yang": { type: 'fixed', value: 1165.58 }, 
-            "RURU": { type: 'fixed', value: 1165.58 },
-        };
-
         const def: any = {};
-        safeUsers.forEach((m: User) => {
-            if (!m) return;
-            let setting = { type: 'hourly', value: 12 };
-            if (PRESETS[m.name]) {
-                setting = PRESETS[m.name];
-            } else {
-                const foundKey = Object.keys(PRESETS).find(k => m.name.includes(k) || k.includes(m.name));
-                if (foundKey) setting = PRESETS[foundKey];
-            }
-            def[m.name] = { type: setting.type as 'hourly'|'fixed', value: setting.value };
-        });
+        safeUsers.forEach((m: User) => { if (m) def[m.name] = { type: 'hourly', value: 12 }; });
         return def;
     });
 
-    const saveWages = (newWages: any) => {
-        setWages(newWages);
-        localStorage.setItem('onesip_wages_v3', JSON.stringify(newWages));
-    };
-
-    const normalizeName = (name: string) => {
-        if (!name) return "Unknown";
-        const clean = name.trim();
-        const mapping: Record<string, string> = {
-            "Maidou": "X. Li no.6", "X. Li": "X. Li no.6", "X.Li": "X. Li no.6",
-            "Xinrui": "Xinrui no.8", "Linda": "Linda No.10",
-            "Najat": "Najat no.11", "Najata": "Najat no.11",
-            "Fatima": "Fatima 015",
-        };
-        if (mapping[clean]) return mapping[clean];
-        if (clean.includes("Maidou") || clean.includes("X. Li")) return "X. Li no.6";
-        if (clean.includes("Xinrui")) return "Xinrui no.8";
-        if (clean.includes("Linda")) return "Linda No.10";
-        if (clean.includes("Najat")) return "Najat no.11";
-        if (clean.includes("Fatima")) return "Fatima 015";
-        return clean; 
-    };
-
+    const saveWages = (newWages: any) => { setWages(newWages); localStorage.setItem(`onesip_wages_v3_${adminStoreId}`, JSON.stringify(newWages)); };
     const validStaffNames = new Set(safeUsers.filter((u:User)=>u).map((u: User) => u.name));
+    const normalizeName = (name: string) => name ? name.trim() : "Unknown";
 
-    // --- 自动排班修正 ---
-    useEffect(() => {
-        const initSchedule = async () => { await Cloud.ensureScheduleCoverage(); };
-        initSchedule();
+    const startOfCurrentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
 
-        if (schedule?.days?.length > 0) {
-            let needsUpdate = false;
-            const newDays = schedule.days.map((day: ScheduleDay) => {
-                let dayUpdated = false;
-                const newShifts = (day.shifts || []).map((shift: any) => {
-                    if (!shift) return shift;
-                    const newStaff = (shift.staff || []).map((name: string) => {
-                        const fixed = normalizeName(name);
-                        if (fixed !== name) { dayUpdated = true; needsUpdate = true; }
-                        return fixed;
-                    });
-                    return { ...shift, staff: newStaff };
-                });
-                const cleanLegacy = (list: string[] = []) => list.map(n => {
-                    const fixed = normalizeName(n);
-                    if (fixed !== n) { dayUpdated = true; needsUpdate = true; }
-                    return fixed;
-                });
-                if (dayUpdated) {
-                    return { ...day, shifts: newShifts, morning: cleanLegacy(day.morning), evening: cleanLegacy(day.evening), night: cleanLegacy(day.night) };
-                }
-                return day;
-            });
-            if (needsUpdate) {
-                const newSchedule = { ...schedule, days: newDays };
-                setSchedule(newSchedule);
-                Cloud.saveSchedule(newSchedule);
-            }
-        }
-    }, [schedule, setSchedule]);
-
-    const now = new Date();
-    const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
-
-    const displayedDays = (schedule?.days || []).filter((day: ScheduleDay) => {
+    const displayedDays = (scopedSchedule.days).filter((day: any) => {
         if(!day || !day.date) return false;
         const [m, d] = day.date.split('-').map(Number);
-        const dayDate = new Date(now.getFullYear(), m - 1, d);
-        if (now.getMonth() === 11 && m === 1) dayDate.setFullYear(now.getFullYear() + 1);
-        if (now.getMonth() === 0 && m === 12) dayDate.setFullYear(now.getFullYear() - 1);
+        const dayDate = new Date(today.getFullYear(), m - 1, d);
+        if (today.getMonth() === 11 && m === 1) dayDate.setFullYear(today.getFullYear() + 1);
+        if (today.getMonth() === 0 && m === 12) dayDate.setFullYear(today.getFullYear() - 1);
         return dayDate >= startOfCurrentMonth && dayDate <= endOfNextMonth;
-    }).sort((a: ScheduleDay, b: ScheduleDay) => {
-        const getDateObj = (dateStr: string) => {
-             const [m, d] = dateStr.split('-').map(Number);
-             const date = new Date(now.getFullYear(), m - 1, d);
-             if (now.getMonth() === 11 && m === 1) date.setFullYear(now.getFullYear() + 1);
-             return date;
-        };
+    }).sort((a: any, b: any) => {
+        const getDateObj = (dateStr: string) => { const [m, d] = dateStr.split('-').map(Number); const date = new Date(today.getFullYear(), m - 1, d); if (today.getMonth() === 11 && m === 1) date.setFullYear(today.getFullYear() + 1); return date; };
         return getDateObj(a.date).getTime() - getDateObj(b.date).getTime();
     });
 
@@ -3093,11 +2368,13 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const handleUpdateLogs = async (updatedLogs: LogEntry[]) => {
         try { await Cloud.updateLogs(updatedLogs); } catch (e) { console.error(e); alert("Error saving logs."); }
     };
+    
     const handleInvalidateConfirm = (logToUpdate: LogEntry) => {
         const updatedLogs = logs.map((l: LogEntry) => l.id === logToUpdate.id ? logToUpdate : l);
         handleUpdateLogs(updatedLogs);
         setLogToInvalidate(null);
     };
+
     const handleOpenAdjustModal = (logToAdjust: LogEntry) => {
         if (logToAdjust.type !== 'clock-in' && logToAdjust.type !== 'clock-out') return;
         const userLogs = logs.filter((l: LogEntry) => l.userId === logToAdjust.userId && !l.isDeleted).sort((a: LogEntry, b: LogEntry) => new Date(a.time).getTime() - new Date(b.time).getTime());
@@ -3113,6 +2390,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             else alert('No matching clock-in found.');
         }
     };
+
     const handleSaveAdjustedHours = (updatedInLog: LogEntry, updatedOutLog: LogEntry) => {
         const updatedLogs = logs.map((l: LogEntry) => {
             if (l.id === updatedInLog.id) return updatedInLog;
@@ -3122,25 +2400,67 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         handleUpdateLogs(updatedLogs);
         setLogPairToAdjust(null);
     };
-    const handleSaveManualLog = (inLog: LogEntry, outLog: LogEntry) => {
-        Cloud.saveLog(inLog); Cloud.saveLog(outLog);
-        setIsAddingManualLog(false); alert('Manual record added.');
-    };
-    const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem('onesip_budget_max', b.toString()); };
 
-    const getShiftCost = (staff: string[], start: string, end: string) => {
-        if (!staff || staff.length === 0 || !start || !end) return 0;
-        const s = parseInt(start.split(':')[0]) + (parseInt(start.split(':')[1]||'0')/60);
-        const e = parseInt(end.split(':')[0]) + (parseInt(end.split(':')[1]||'0')/60);
-        const duration = Math.max(0, e - s);
-        return staff.reduce((acc, rawName) => {
-            const name = normalizeName(rawName);
-            if (!validStaffNames.has(name)) return acc;
-            return acc + (duration * (wages[name]?.value || 12));
-        }, 0);
+    const handleSaveSchedule = (updatedShifts: any[]) => { 
+        if (!editingShift) return; 
+        const { dayIdx } = editingShift; 
+        const targetDay = displayedDays[dayIdx];
+        
+        const otherStoreDays = (schedule.days || []).filter((d:any) => !(d.date === targetDay.date && (d.storeId === adminStoreId || !d.storeId)));
+        const updatedDay = { ...targetDay, shifts: updatedShifts, storeId: adminStoreId, morning: [], evening: [], night: [] };
+        const newSched = { ...schedule, days: [...otherStoreDays, updatedDay] };
+        
+        setSchedule(newSched); 
+        Cloud.saveSchedule(newSched); 
+        setEditingShift(null); 
     };
 
-    const calculateFinancials = (selectedMonth: string) => {
+    const handlePublishSchedule = async () => {
+        if (!window.confirm(`Publish schedule? Staff will be notified.`)) return;
+        const startDate = displayedDays[0]?.date; const endDate = displayedDays[displayedDays.length - 1]?.date;
+        if(!startDate) return;
+        const year = new Date().getFullYear();
+        const startISO = `${year}-${startDate.split('-').map((p:string)=>p.padStart(2,'0')).join('-')}`;
+        const endISO = `${year}-${endDate.split('-').map((p:string)=>p.padStart(2,'0')).join('-')}`;
+        const cycleId = `${startISO}_${endISO}_${adminStoreId}`;
+        const confirmations: any = {};
+        activeStaff.forEach((u: User) => { confirmations[u.id] = { status: 'pending', viewed: false }; });
+        const newCycle = { cycleId, storeId: adminStoreId, startDate: startISO, endDate: endISO, publishedAt: new Date().toISOString(), status: 'published', confirmations, snapshot: {} };
+        const updatedCycles = (scheduleCycles || []).filter((c: ScheduleCycle) => c && c.cycleId !== cycleId);
+        updatedCycles.push(newCycle);
+        await Cloud.updateScheduleCycles(updatedCycles);
+        if (setScheduleCycles) setScheduleCycles(updatedCycles);
+        showNotification({ type: 'message', title: 'Published!', message: `Schedule published for this branch.`});
+    };
+
+    const handleApplySwap = async (reqId: string) => {
+        const req = scopedSwapRequests.find((r: SwapRequest) => r.id === reqId);
+        if (!req) return;
+        const newSchedule = JSON.parse(JSON.stringify(schedule));
+        
+        const dayIndex = newSchedule.days.findIndex((d: ScheduleDay) => {
+            const dKey = d.date.split('-').map(n => parseInt(n, 10)).join('-');
+            const rKey = req.requesterDate.split('-').map(n => parseInt(n, 10)).join('-');
+            return dKey === rKey && (d as any).storeId === adminStoreId;
+        });
+        
+        if (dayIndex === -1) return;
+        const day = newSchedule.days[dayIndex];
+        const targetShift = (day.shifts || []).find((s: any) => s && s.start && s.start.startsWith(req.requesterShift.split('-')[0].trim())); 
+        if (targetShift) {
+             targetShift.staff = targetShift.staff.map((n:string) => n === req.requesterName ? req.targetName : n);
+        } else if (day[req.requesterShift]) { 
+             day[req.requesterShift] = day[req.requesterShift].map((n:string) => n === req.requesterName ? req.targetName : n);
+        }
+        try {
+            await Cloud.saveSchedule(newSchedule);
+            const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'completed', appliedToSchedule: true } : r);
+            await Cloud.updateSwapRequests(updatedReqs);
+            showNotification({type: 'message', title: "Success", message: "Swap applied."});
+        } catch(e) { console.error(e); }
+    };
+
+    const calculateFinancials = () => {
         const stats: Record<string, any> = {};
         const getStats = (rawName: string) => {
             const name = normalizeName(rawName);
@@ -3153,18 +2473,17 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             s.wageType = wages[m.name]?.type || 'hourly';
         });
         
-        const filteredDays = (schedule?.days || []).filter((day: ScheduleDay) => {
-            if(!day || !day.date) return false;
+        const filteredDays = displayedDays.filter((day: any) => {
             const [m, d] = day.date.split('-').map(Number);
             const nowY = new Date().getFullYear();
             let y = nowY;
-            if (parseInt(selectedMonth.split('-')[1]) === 1 && m === 12) y--; 
-            else if (parseInt(selectedMonth.split('-')[1]) === 12 && m === 1) y++;
+            if (parseInt(financialMonth.split('-')[1]) === 1 && m === 12) y--; 
+            else if (parseInt(financialMonth.split('-')[1]) === 12 && m === 1) y++;
             const dayY = (new Date().getMonth()===11 && m===1) ? nowY+1 : nowY;
-            return `${dayY}-${String(m).padStart(2,'0')}` === selectedMonth;
+            return `${dayY}-${String(m).padStart(2,'0')}` === financialMonth;
         });
 
-        filteredDays.forEach((day: ScheduleDay) => { 
+        filteredDays.forEach((day: any) => { 
             const shifts = day.shifts || [];
             if (shifts.length > 0) {
                 shifts.forEach((s: any) => {
@@ -3182,21 +2501,16 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         });
                     }
                 });
-            } else {
-                [...(day.morning||[]), ...(day.evening||[]), ...(day.night||[])].forEach(rawName => {
-                    const name = normalizeName(rawName);
-                    if (validStaffNames.has(name)) getStats(name).estHours += 5;
-                });
             }
         }); 
         
         const logsByUser: Record<string, LogEntry[]> = {};
-        logs.forEach((l: LogEntry) => { 
+        scopedLogs.forEach((l: LogEntry) => { 
             if (l.isDeleted || !l.time) return;
             const d = new Date(l.time);
             if (isNaN(d.getTime())) return;
             const logMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-            if (logMonth !== selectedMonth) return;
+            if (logMonth !== financialMonth) return;
             let rawName = l.name || 'Unknown';
             if (l.userId) { const u = safeUsers.find(user => user && user.id === l.userId); if (u) rawName = u.name; }
             const finalName = normalizeName(rawName);
@@ -3231,92 +2545,29 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
             if (!validStaffNames.has(name)) return;
             const s = stats[name];
             const setting = wages[name] || { type: 'hourly', value: 12 };
-            
             if (setting.type === 'fixed') {
-                s.estCost = setting.value; 
-                s.actualCost = setting.value; 
-                totalFixed += setting.value; 
+                s.estCost = setting.value; s.actualCost = setting.value; totalFixed += setting.value; 
             } else {
-                s.estCost = s.estHours * setting.value; 
-                s.actualCost = s.actualHours * setting.value;
-                totalHourlyEst += s.estCost; 
-                totalHourlyAct += s.actualCost; 
+                s.estCost = s.estHours * setting.value; s.actualCost = s.actualHours * setting.value;
+                totalHourlyEst += s.estCost; totalHourlyAct += s.actualCost; 
             }
             totalEstCost += s.estCost; totalActualCost += s.actualCost; 
         });
 
-        return { stats, totalEstCost, totalActualCost, totalHourlyEst, totalHourlyAct, totalFixed, filteredDays };
+        return { stats, totalEstCost, totalActualCost, totalHourlyEst, totalHourlyAct, totalFixed };
     };
 
-    const { stats, totalEstCost, totalActualCost, totalHourlyEst, totalHourlyAct, totalFixed, filteredDays: monthlyDays } = calculateFinancials(financialMonth);
+    const { stats, totalEstCost, totalActualCost, totalHourlyEst, totalHourlyAct, totalFixed } = calculateFinancials();
 
-    const getDailyFinancials = () => {
-        return monthlyDays.map((day: ScheduleDay) => {
-            const staffMap: Record<string, { est: number, act: number, setting: { type: string, value: number } }> = {};
-            const addEst = (rawName: string, hours: number) => {
-                const name = normalizeName(rawName);
-                if (!validStaffNames.has(name)) return;
-                const setting = wages[name] || { type: 'hourly', value: 12 };
-                if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, setting };
-                if (setting.type === 'hourly') staffMap[name].est += hours * setting.value;
-            }
-
-            const scheduleShifts = day.shifts || [];
-            if (scheduleShifts.length > 0) {
-                scheduleShifts.forEach((shift: any) => {
-                    if (!shift) return;
-                    let hours = 5;
-                    if (shift.start && shift.end) {
-                        const s = parseInt(shift.start.split(':')[0]) + (parseInt(shift.start.split(':')[1]||'0')/60);
-                        const e = parseInt(shift.end.split(':')[0]) + (parseInt(shift.end.split(':')[1]||'0')/60);
-                        hours = Math.max(0, e - s);
-                    }
-                    if (Array.isArray(shift.staff)) shift.staff.forEach((p: string) => addEst(p, hours));
-                });
-            } else {
-                 [...(day.morning||[]), ...(day.evening||[]), ...(day.night||[])].forEach(p => addEst(p, 5));
-            }
-
-            const scheduleDateObj = new Date(parseInt(financialMonth.split('-')[0]), parseInt(financialMonth.split('-')[1])-1, parseInt(day.date.split('-')[1]));
-            const dayLogs = logs.filter(l => !l.isDeleted && l.time && new Date(l.time).toDateString() === scheduleDateObj.toDateString());
-            
-            dayLogs.forEach(l => {
-                if (l.type !== 'clock-out') return;
-                const name = normalizeName(l.name || 'Unknown');
-                if (!validStaffNames.has(name)) return;
-                const setting = wages[name] || { type: 'hourly', value: 12 };
-                if (setting.type === 'fixed') return;
-                const outTime = new Date(l.time).getTime();
-                const matchingIn = dayLogs.find(i => i.type === 'clock-in' && normalizeName(i.name||'') === name && new Date(i.time).getTime() < outTime);
-                if (matchingIn) {
-                    const hrs = (outTime - new Date(matchingIn.time).getTime()) / 3600000;
-                    if (!staffMap[name]) staffMap[name] = { est: 0, act: 0, setting };
-                    staffMap[name].act += hrs * setting.value;
-                }
-            });
-
-            let estTotal = 0; let actTotal = 0;
-            const details = Object.entries(staffMap).map(([name, data]) => {
-                estTotal += data.est; actTotal += data.act;
-                return { name, est: data.est, act: data.act, diff: data.act - data.est }; 
-            }).sort((a, b) => b.act - a.act); 
-
-            return { date: day.date, name: day.name, est: estTotal, act: actTotal, diff: estTotal - actTotal, details };
-        });
-    };
+    const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem(`onesip_budget_max_${adminStoreId}`, b.toString()); };
 
     const handleExportFinancialCSV = () => {
         let csv = "FINANCIAL SUMMARY REPORT\n";
-        csv += `Report Month,${financialMonth}\n`;
-        csv += `Budget Max,${budgetMax}\n`;
-        csv += `Total Estimated Cost (Schedule),${totalEstCost.toFixed(2)}\n`;
-        csv += `Total Actual Cost (Logs),${totalActualCost.toFixed(2)}\n`;
-        csv += `Balance (Budget - Actual),${(budgetMax - totalActualCost).toFixed(2)}\n\n`;
+        csv += `Report Month,${financialMonth}\nBudget Max,${budgetMax}\nTotal Estimated Cost,${totalEstCost.toFixed(2)}\nTotal Actual Cost,${totalActualCost.toFixed(2)}\nBalance,${(budgetMax - totalActualCost).toFixed(2)}\n\n`;
         csv += "Name,Wage Type,Value,Est. Hours,Est. Cost,Act. Hours,Act. Cost,Difference\n";
         Object.keys(stats).forEach(name => {
             if (!validStaffNames.has(name)) return;
-            const s = stats[name];
-            const w = wages[name];
+            const s = stats[name]; const w = wages[name];
             if (s.estHours > 0 || s.actualHours > 0 || s.wageType === 'fixed') csv += `"${name}",${s.wageType},${w?.value||0},${s.estHours.toFixed(1)},${s.estCost.toFixed(2)},${s.actualHours.toFixed(1)},${s.actualCost.toFixed(2)},${(s.actualCost - s.estCost).toFixed(2)}\n`;
         });
         const link = document.createElement("a"); link.href = encodeURI("data:text/csv;charset=utf-8," + csv); link.download = `financial_summary_${financialMonth}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
@@ -3325,7 +2576,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
     const handleExportLogsCSV = () => {
         let csv = "Date,Staff Name,User ID,Hourly Wage,Clock In,Clock Out,Duration (Hrs),Cost,Status\n";
         const logsByUser: Record<string, LogEntry[]> = {};
-        logs.forEach(l => {
+        scopedLogs.forEach((l:LogEntry) => {
             if (l.isDeleted) return; 
             const finalName = normalizeName(l.name || 'Unknown');
             if (!validStaffNames.has(finalName)) return;
@@ -3363,99 +2614,22 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
         const link = document.createElement("a"); link.href = encodeURI("data:text/csv;charset=utf-8," + csv); link.download = `attendance_${financialMonth}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
-    const allReqs = swapRequests?.slice().sort((a: SwapRequest, b: SwapRequest) => b.timestamp - a.timestamp) || [];
-    const visibleLogs = logs?.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
-    
-    const handlePublishSchedule = async () => {
-        if (!window.confirm(`Publish schedule? Staff will be notified.`)) return;
-        const startDate = displayedDays[0].date; const endDate = displayedDays[displayedDays.length - 1].date;
-        const year = new Date().getFullYear();
-        const startISO = `${year}-${startDate.split('-').map(p=>p.padStart(2,'0')).join('-')}`;
-        const endISO = `${year}-${endDate.split('-').map(p=>p.padStart(2,'0')).join('-')}`;
-        const cycleId = `${startISO}_${endISO}`;
-        const confirmations: any = {};
-        activeStaff.forEach((u: User) => { confirmations[u.id] = { status: 'pending', viewed: false }; });
-        const newCycle = { cycleId, startDate: startISO, endDate: endISO, publishedAt: new Date().toISOString(), status: 'published', confirmations, snapshot: {} };
-        const updatedCycles = (scheduleCycles || []).filter((c: ScheduleCycle) => c && c.cycleId !== cycleId);
-        updatedCycles.push(newCycle);
-        await Cloud.updateScheduleCycles(updatedCycles);
-        if (setScheduleCycles) setScheduleCycles(updatedCycles); 
-        await Cloud.updateNotices([{ id: Date.now().toString(), type: 'announcement', title: "📅 New Schedule", content: `Schedule ${startDate} to ${endDate} is live. Please confirm.`, timestamp: Date.now(), sender: 'Manager', frequency: 'once' }]);
-        showNotification({ type: 'message', title: 'Published!', message: `Staff notified.`});
-    };
-
-    const handleApplySwap = async (reqId: string) => {
-        const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
-        if (!req) return;
-        const newSchedule = JSON.parse(JSON.stringify(schedule));
-        
-        const dayIndex = newSchedule.days.findIndex((d: ScheduleDay) => {
-            const dKey = d.date.split('-').map(n => parseInt(n, 10)).join('-');
-            const rKey = req.requesterDate.split('-').map(n => parseInt(n, 10)).join('-');
-            return dKey === rKey;
-        });
-        
-        if (dayIndex === -1) return;
-        const day = newSchedule.days[dayIndex];
-        const targetShift = (day.shifts || []).find((s: any) => s && s.start && s.start.startsWith(req.requesterShift.split('-')[0].trim())); 
-        if (targetShift) {
-             targetShift.staff = targetShift.staff.map((n:string) => n === req.requesterName ? req.targetName : n);
-        } else if (day[req.requesterShift]) { 
-             day[req.requesterShift] = day[req.requesterShift].map((n:string) => n === req.requesterName ? req.targetName : n);
-        }
-        try {
-            await Cloud.saveSchedule(newSchedule);
-            const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'completed', appliedToSchedule: true } : r);
-            await Cloud.updateSwapRequests(updatedReqs);
-            showNotification({type: 'message', title: "Success", message: "Swap applied."});
-        } catch(e) { console.error(e); }
-    };
-
-    const handleSaveSchedule = (updatedShifts: any[]) => { 
-        if (!editingShift) return; 
-        const { dayIdx } = editingShift; 
-        const targetDay = displayedDays[dayIdx];
-        const realIndex = schedule.days.findIndex((d: ScheduleDay) => d.date === targetDay.date);
-        if (realIndex === -1) return;
-        const newSched = JSON.parse(JSON.stringify(schedule));
-        newSched.days[realIndex].shifts = updatedShifts;
-        newSched.days[realIndex].morning = []; newSched.days[realIndex].evening = []; newSched.days[realIndex].night = [];
-        setSchedule(newSched); Cloud.saveSchedule(newSched); setEditingShift(null); 
-    };
-
-    // --- 【防崩溃】：提取当前周期
     const currentCycle = (scheduleCycles || []).find((c: ScheduleCycle) => {
         if (!c) return false;
         const start = new Date(c.startDate); const end = new Date(c.endDate);
-        return today >= start && today <= end;
+        return today >= start && today <= end && c.storeId === adminStoreId;
     });
 
-    const totalWeeklyPlanningCost = displayedDays?.slice(0, 7).reduce((acc: number, day: ScheduleDay) => {
-        const getCost = (shift: any) => {
-            const start = shift?.start || '10:00'; const end = shift?.end || '15:00';
-            return getShiftCost(shift?.staff || [], start, end);
-        };
-        const shifts = day.shifts || [];
-        if (shifts.length > 0) return acc + shifts.reduce((sum:number, s:any) => sum + getCost(s), 0);
-        return acc + getShiftCost(day.morning||[], '10:00', '15:00') + getShiftCost(day.evening||[], '14:30', '19:00') + (day.night ? getShiftCost(day.night, '18:00', '22:00') : 0);
-    }, 0) || 0;
-
-    const formattedDateSafe = (time: any) => {
-        if (!time) return '';
-        const d = new Date(time);
-        return isNaN(d.getTime()) ? '' : d.toLocaleString();
-    };
+    const visibleLogs = scopedLogs.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
+    const formattedDateSafe = (time: any) => { if (!time) return ''; const d = new Date(time); return isNaN(d.getTime()) ? '' : d.toLocaleString(); };
+    const allReqs = scopedSwapRequests.slice().sort((a: SwapRequest, b: SwapRequest) => b.timestamp - a.timestamp) || [];
 
     return (
-        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
-            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
-                <div><h1 className="text-xl font-black tracking-tight text-white">{t.manager_title}</h1><p className="text-xs text-dark-text-light">User: {managerUser.name}</p></div>
-                <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
-            </div>
+        <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
             <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
-                {['requests', 'schedule', 'planning', 'availability', 'chat', 'logs', 'financial', 'confirmations'].map(v => (
+                {['schedule', 'requests', 'financial', 'logs', 'confirmations'].map(v => (
                     <button key={v} onClick={() => setView(v as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === v ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
-                        {v} {v === 'requests' && allReqs.filter(r => r && r.status === 'accepted_by_peer' && !r.appliedToSchedule).length > 0 && `(${allReqs.filter(r => r && r.status === 'accepted_by_peer' && !r.appliedToSchedule).length})`}
+                        {v} {v === 'requests' && allReqs.filter((r:any) => r && r.status === 'accepted_by_peer' && !r.appliedToSchedule).length > 0 && `(${allReqs.filter((r:any) => r && r.status === 'accepted_by_peer' && !r.appliedToSchedule).length})`}
                     </button>
                 ))}
             </div>
@@ -3481,15 +2655,10 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                             <div className="flex justify-between items-center"><h3 className="font-bold text-dark-text mb-2">Week {currentWeekIndex + 1} of {totalWeeks || 1}</h3><div className="flex gap-2"><button onClick={() => setCurrentWeekIndex(Math.max(0, currentWeekIndex - 1))} disabled={currentWeekIndex === 0} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronLeft" size={16}/></button><button onClick={() => setCurrentWeekIndex(Math.min((totalWeeks || 1) - 1, currentWeekIndex + 1))} disabled={currentWeekIndex >= (totalWeeks || 1) - 1} className="p-2 bg-white/10 rounded-lg disabled:opacity-50"><Icon name="ChevronRight" size={16}/></button></div></div>
                             <button onClick={handlePublishSchedule} className="w-full mt-3 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2.5 rounded-lg">Publish Current View ({displayedDays.length} days)</button>
                         </div>
-                        {displayedDays?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: ScheduleDay, dayIndexInWeek: number) => {
+                        {displayedDays?.slice(currentWeekIndex * 7, (currentWeekIndex + 1) * 7).map((day: any, dayIndexInWeek: number) => {
                             if (!day) return null;
                             const absoluteDayIndex = currentWeekIndex * 7 + dayIndexInWeek;
                             let displayShifts = day.shifts || [];
-                            if (displayShifts.length === 0) {
-                                if (day.morning?.length) displayShifts.push({ name: 'Shift 1', start: day.hours?.morning?.start||'10:00', end: day.hours?.morning?.end||'15:00', staff: day.morning });
-                                if (day.evening?.length) displayShifts.push({ name: 'Shift 2', start: day.hours?.evening?.start||'14:30', end: day.hours?.evening?.end||'19:00', staff: day.evening });
-                                if (day.night?.length) displayShifts.push({ name: 'Shift 3', start: day.hours?.night?.start||'18:00', end: day.hours?.night?.end||'22:00', staff: day.night });
-                            }
                             return (
                                 <div key={absoluteDayIndex} className="bg-dark-surface p-3 rounded-xl shadow-sm border border-white/10">
                                     <div className="flex justify-between mb-3 items-center"><div><span className="font-bold text-dark-text mr-2">{day.name}</span><span className="text-xs text-dark-text-light">{day.date}</span></div><button onClick={() => setEditingShift({ dayIdx: absoluteDayIndex, shift: 'all' })} className="px-3 py-1 bg-white/10 rounded text-[10px] font-bold text-white hover:bg-white/20">Edit Shifts</button></div>
@@ -3504,16 +2673,11 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                         })}
                     </div>
                 )}
-                
                 {view === 'financial' && (
                     <div className="space-y-4 pb-10">
                         <div className="bg-dark-surface p-4 rounded-xl border border-white/10 sticky top-0 z-20 shadow-md">
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm font-bold text-white">💰 Financial Month</span>
-                                <input type="month" value={financialMonth} onChange={(e) => setFinancialMonth(e.target.value)} className="bg-dark-bg border border-white/20 rounded-lg px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-dark-accent"/>
-                            </div>
+                            <div className="flex items-center justify-between"><span className="text-sm font-bold text-white">💰 Financial Month</span><input type="month" value={financialMonth} onChange={(e) => setFinancialMonth(e.target.value)} className="bg-dark-bg border border-white/20 rounded-lg px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-dark-accent"/></div>
                         </div>
-
                         <div className="bg-dark-surface p-5 rounded-2xl shadow-lg border border-white/10 relative overflow-hidden">
                             <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Briefcase" size={16}/> Total Overview</h3>
                             <div className="mb-4"><label className="block text-xs font-bold text-dark-text-light mb-1 uppercase">Monthly Budget Max (€)</label><input type="number" className="w-full border rounded-xl p-3 text-xl font-black bg-dark-bg border-white/10 text-white focus:ring-2 focus:ring-dark-accent outline-none" value={budgetMax} onChange={e => handleBudgetChange(e.target.value)} /></div>
@@ -3524,20 +2688,10 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                             <div><div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-dark-text-light uppercase">Total Budget Used</span><span className={`text-xs font-black ${totalActualCost > budgetMax ? 'text-red-400' : 'text-green-400'}`}>{totalActualCost > budgetMax ? 'OVER BUDGET' : `€${(budgetMax - totalActualCost).toFixed(0)} Left`}</span></div><div className="w-full bg-dark-bg rounded-full h-3 overflow-hidden border border-white/5"><div className={`h-full rounded-full transition-all duration-500 ${totalActualCost > budgetMax ? 'bg-red-500' : 'bg-gradient-to-r from-green-500 to-emerald-400'}`} style={{ width: `${Math.min(100, (totalActualCost/budgetMax)*100)}%` }}></div></div></div>
                             <p className="text-[10px] text-center text-dark-text-light mt-3 border-t border-white/5 pt-2">Includes Fixed Salaries: €{totalFixed.toFixed(0)}</p>
                         </div>
-
-                        <div className="bg-dark-surface p-5 rounded-2xl shadow-lg border border-white/10 border-l-4 border-l-blue-500">
-                            <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Grid" size={16}/> Operational Costs</h3>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5"><p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Proj. Hourly</p><p className="text-xl font-black text-blue-400">€{totalHourlyEst.toFixed(0)}</p></div>
-                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5"><p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Act. Hourly</p><p className="text-xl font-black text-green-400">€{totalHourlyAct.toFixed(0)}</p></div>
-                            </div>
-                        </div>
-
                         <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
                             <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center"><h4 className="font-bold text-sm text-white">Staff Wage Settings</h4></div>
                             <table className="w-full text-xs"><thead className="bg-dark-bg text-dark-text-light uppercase"><tr><th className="p-3 text-left">Staff</th><th className="p-3 text-left">Type</th><th className="p-3 text-right">Value (€)</th><th className="p-3 text-right">Act Cost</th></tr></thead><tbody className="divide-y divide-white/10">{Object.keys(stats).map(name => { const wage = wages[name] || { type: 'hourly', value: 12 }; return (<tr key={name}><td className="p-3 font-bold text-dark-text">{name}</td><td className="p-3"><select className="bg-dark-bg border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-dark-accent text-[10px]" value={wage.type} onChange={(e) => { const newWages = { ...wages, [name]: { ...wage, type: e.target.value as any } }; saveWages(newWages); }}><option value="hourly">Hourly</option><option value="fixed">Monthly</option></select></td><td className="p-3 text-right"><input type="number" step={wage.type === 'hourly' ? "0.5" : "100"} className="w-20 text-right py-1 rounded bg-dark-bg border border-white/20 text-white font-mono focus:border-dark-accent outline-none px-2" value={wage.value || ''} onChange={(e) => { const val = parseFloat(e.target.value); const newWages = { ...wages, [name]: { ...wage, value: isNaN(val) ? 0 : val } }; saveWages(newWages); }} /></td><td className="p-3 text-right font-mono text-dark-text-light">€{stats[name].actualCost.toFixed(0)}</td></tr>)})}</tbody></table>
                         </div>
-
                         <div className="bg-dark-surface p-4 rounded-xl border border-white/10 mt-4">
                             <div className="flex items-center justify-between mb-3"><span className="text-xs font-bold text-dark-text-light uppercase">Export Data ({financialMonth})</span></div>
                             <div className="grid grid-cols-2 gap-3"><button onClick={handleExportLogsCSV} className="bg-white/10 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-white/20 transition-all border border-white/5"><Icon name="Clock" size={16} /> Export Logs</button><button onClick={handleExportFinancialCSV} className="bg-green-600 text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-green-700 transition-all shadow-lg"><Icon name="List" size={16} /> Summary</button></div>
@@ -3547,6 +2701,7 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                 {view === 'logs' && (
                     <div className="space-y-2">
                         <div className="flex justify-end mb-4"><button onClick={() => setIsAddingManualLog(true)} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all"><Icon name="Plus" size={16} /> Add Manual Log</button></div>
+                        {visibleLogs.length === 0 && <p className="text-dark-text-light text-center py-10">No logs found.</p>}
                         {visibleLogs.map((log: LogEntry) => {
                             if (!log) return null;
                             return (
@@ -3561,1268 +2716,193 @@ const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =
                     <div className="space-y-4">
                         <div className="bg-dark-surface p-4 rounded-xl shadow-sm border border-white/10">
                             <h3 className="font-bold text-dark-text mb-2">Staff Confirmations</h3>
-                            <div className="overflow-x-auto"><table className="w-full text-xs text-left"><thead className="text-dark-text-light border-b border-white/10"><tr><th className="p-3">Staff</th><th className="p-3">Status</th><th className="p-3">Viewed</th></tr></thead><tbody className="divide-y divide-white/10">{currentCycle && Object.entries(currentCycle.confirmations || {}).map(([userId, conf]) => { const staff = safeUsers.find((u:User) => u && u.id === userId); const confirmation = conf as any; return (<tr key={userId}><td className="p-3 font-bold">{staff?.name || userId}</td><td className={`p-3 capitalize font-bold ${confirmation.status === 'confirmed' ? 'text-green-400' : 'text-red-400'}`}>{confirmation.status?.replace('_', ' ')}</td><td className="p-3">{confirmation.viewed ? 'Yes' : 'No'}</td></tr>)})}</tbody></table>{!currentCycle && <p className="text-center p-4 text-dark-text-light italic">No schedule published.</p>}</div>
+                            <div className="overflow-x-auto"><table className="w-full text-xs text-left"><thead className="text-dark-text-light border-b border-white/10"><tr><th className="p-3">Staff</th><th className="p-3">Status</th><th className="p-3">Viewed</th></tr></thead><tbody className="divide-y divide-white/10">{currentCycle && Object.entries(currentCycle.confirmations || {}).map(([userId, conf]) => { const staff = safeUsers.find((u:User) => u && u.id === userId); const confirmation = conf as any; return (<tr key={userId}><td className="p-3 font-bold">{staff?.name || userId}</td><td className={`p-3 capitalize font-bold ${confirmation.status === 'confirmed' ? 'text-green-400' : 'text-red-400'}`}>{confirmation.status?.replace('_', ' ')}</td><td className="p-3">{confirmation.viewed ? 'Yes' : 'No'}</td></tr>)})}</tbody></table>{!currentCycle && <p className="text-center p-4 text-dark-text-light italic">No schedule published for this branch.</p>}</div>
                         </div>
                     </div>
                 )}
-                {/* Manager 的其他子视图可酌情补充，此为防崩溃完整版 */}
             </div>
-        </div>
-    );
-};
-// --- STAFF APP ---
-
-const RefillDetailsModal = ({ isOpen, onClose, data, t, lang }: any) => {
-    if (!isOpen) return null;
-
-    const items = (data.items || []).map((item: any) => ({
-        key: item.itemId || Math.random(),
-        text: `${item.name} - ${item.amount || '0'}${item.unit}`
-    }));
-
-    return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in">
-            <div className="bg-surface rounded-2xl p-6 w-full max-w-sm shadow-2xl border flex flex-col max-h-[80vh]">
-                <h3 className="text-lg font-black text-text mb-2 shrink-0">{t.refill_details_title}</h3>
-                
-                <div className="text-xs text-text-light mb-4 border-b pb-3">
-                    <p><strong>{t.staff_label || 'Operator'}:</strong> {data.name}</p>
-                    <p><strong>{t.time_label || 'Time'}:</strong> {formattedDate(data.time)}</p>
-                </div>
-
-                <div className="flex-1 overflow-y-auto space-y-2 no-scrollbar pr-2 -mr-2">
-                    {items.length === 0 ? (
-                        <p className="text-sm text-text-light italic">本次补料没有明细记录</p>
-                    ) : (
-                        items.map((item) => (
-                            <div key={item.key} className="bg-secondary p-3 rounded-lg text-sm text-text">
-                                {item.text}
-                            </div>
-                        ))
-                    )}
-                </div>
-                <div className="mt-6 shrink-0">
-                    <button onClick={onClose} className="w-full py-3 rounded-xl bg-gray-100 text-text-light font-bold hover:bg-gray-200 transition-all">{t.close}</button>
-                </div>
-            </div>
+            {editingShift && <ShiftEditorModal isOpen={!!editingShift} onClose={() => setEditingShift(null)} shiftData={displayedDays[editingShift.dayIdx]?.shifts || []} onSave={handleSaveSchedule} availableStaff={activeStaff.map((u:User) => u.name)} />}
+            {isAddingManualLog && <ManualLogModal isOpen={isAddingManualLog} onClose={() => setIsAddingManualLog(false)} onSave={handleSaveManualLog} users={activeStaff} />}
+            {logToInvalidate && (<div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4"><div className="bg-dark-surface p-6 rounded-2xl border border-white/10 w-full max-w-sm"><h3 className="text-lg font-bold text-red-400 mb-2">Invalidate Log?</h3><p className="text-sm text-dark-text-light mb-6">This will mark the log as deleted and ignore it in financial calculations.</p><div className="flex gap-3"><button onClick={() => setLogToInvalidate(null)} className="flex-1 py-2 rounded-lg bg-white/10 font-bold">Cancel</button><button onClick={() => handleInvalidateConfirm({...logToInvalidate, isDeleted: true})} className="flex-1 py-2 rounded-lg bg-red-600 text-white font-bold">Confirm</button></div></div></div>)}
+            {logPairToAdjust && <AdjustHoursModal isOpen={!!logPairToAdjust} onClose={() => setLogPairToAdjust(null)} inLog={logPairToAdjust.inLog} outLog={logPairToAdjust.outLog} onSave={handleSaveAdjustedHours} />}
         </div>
     );
 };
 
-const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
-    const [modalOpen, setModalOpen] = useState(false);
-
-    const lastReportData = React.useMemo(() => {
-        const reports = (inventoryHistory || []).filter((r: InventoryReport) => r && r.date);
-        if (reports.length === 0) {
-            return null;
-        }
-
-        const sortedReports = reports.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        const lastReport = sortedReports[0];
-
-        const reportItems = Object.entries(lastReport.data).map(([itemId, values]) => {
-            const itemDef = inventoryList.find((i: InventoryItem) => i.id === itemId);
-            const name = itemDef ? (itemDef.name[lang] || itemDef.name['zh']) : itemId;
-            return {
-                name: name,
-                amount: (values as any).end,
-                unit: itemDef?.unit || '',
-                itemId: itemId,
-            };
-        });
-
-        return {
-            name: lastReport.submittedBy,
-            time: lastReport.date,
-            items: reportItems,
-        };
-    }, [inventoryHistory, inventoryList, lang]);
-
-    const handleCardClick = () => {
-        if (lastReportData) {
-            setModalOpen(true);
-        }
-    };
-
-    const renderCardContent = () => {
-        if (!lastReportData) {
-            return (
-                <p className="text-sm font-medium text-text-light italic">{t.no_refill_record}</p>
-            );
-        }
-
-        const translation = t.refilled_by_on || '由 {name} 在 {time} 补料';
-        return (
-            <div>
-                <p className="text-sm font-medium text-text-light">
-                    {translation.replace('{name}', lastReportData.name).replace('{time}', formattedDate(lastReportData.time))}
-                </p>
-                <p className="text-xs text-text-light mt-1">
-                    {(t.total_items_refilled || '共补料 {count} 项').replace('{count}', lastReportData.items?.length || 0)}
-                </p>
-            </div>
-        );
-    };
-
-    const isClickable = !!lastReportData;
-
-    return (
-        <>
-            <div 
-                onClick={handleCardClick}
-                className={`bg-surface p-5 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between ${isClickable ? 'active:scale-95 transition-transform cursor-pointer' : 'cursor-default'}`}
-            >
-                <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-green-100 text-green-600 rounded-2xl flex items-center justify-center">
-                        <Icon name="Refresh" size={28} />
-                    </div>
-                    <div>
-                        <span className="font-bold text-lg text-text">{t.last_refill_title}</span>
-                        <div className="mt-1">
-                            {renderCardContent()}
-                        </div>
-                    </div>
-                </div>
-                {isClickable && <Icon name="ChevronRight" className="text-gray-300" />}
-            </div>
-            {lastReportData && <RefillDetailsModal 
-                isOpen={modalOpen} 
-                onClose={() => setModalOpen(false)} 
-                data={lastReportData}
-                t={t}
-                lang={lang}
-            />}
-        </>
-    );
-};
-
 // ============================================================================
-// 新增组件: 物料报损单 (Waste Report View) [含自动暂存]
+// 组件 5: 店长总控台 (Owner Dashboard) - 满血多门店集成版
 // ============================================================================
-const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser }: any) => {
-    const [wasteData, setWasteData] = useState<Record<string, { loss: string, reason: string }>>({});
+const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
+    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, stores, setStores, schedule, setSchedule } = data;
+    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
+    const [view, setView] = useState<'main' | 'manager'>('main');
+    const [ownerSubView, setOwnerSubView] = useState<'stores' | 'presets' | 'history' | 'smart' | 'smart_history' | 'staff' | 'logs'>('stores');
+    
+    const safeStores = Array.isArray(stores) && stores.length > 0 ? stores : [{ id: 'default_store', name: 'Main Store', staff: [], features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true } }];
+    const [adminStoreId, setAdminStoreId] = useState(safeStores[0].id);
+
+    const scopedInventoryList = inventoryList.filter((i:any) => i.storeId === adminStoreId || !i.storeId);
+    const scopedHistory = inventoryHistory.filter((h:any) => h.storeId === adminStoreId || !h.storeId);
+    const scopedSmartReports = smartReports.filter((r:any) => r.storeId === adminStoreId || !r.storeId);
+    const scopedLogs = logs.filter((l:any) => l.storeId === adminStoreId || !l.storeId);
+    
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
-    const draftKey = `onesip_waste_draft_${currentUser?.id}`;
-
-    useEffect(() => {
-        const saved = localStorage.getItem(draftKey);
-        if (saved) {
-            try { setWasteData(JSON.parse(saved)); } catch(e) {}
-        }
-    }, [draftKey]);
-
-    useEffect(() => {
-        localStorage.setItem(draftKey, JSON.stringify(wasteData));
-    }, [wasteData, draftKey]);
-
-    const handleSubmit = () => {
-        const dataToSubmit: Record<string, { loss: string, reason: string }> = {};
-        let hasData = false;
-        Object.keys(wasteData).forEach(id => {
-            if (wasteData[id].loss && parseFloat(wasteData[id].loss) > 0) {
-                dataToSubmit[id] = wasteData[id];
-                hasData = true;
-            }
-        });
-
-        if (!hasData) {
-            alert(lang === 'zh' ? "请至少输入一项浪费/损耗的数量。" : "Please enter at least one waste amount.");
-            return;
-        }
-
-        onSubmit({
-            submittedBy: currentUser?.name,
-            userId: currentUser?.id,
-            data: dataToSubmit,
-            shift: 'waste', 
-            date: new Date().toISOString()
-        });
-
-        localStorage.removeItem(draftKey);
-        setWasteData({});
+    const handleUpdateInventoryList = (newList: any[]) => {
+        const others = inventoryList.filter((i:any) => i.storeId !== adminStoreId && i.storeId);
+        const mapped = newList.map(i => ({ ...i, storeId: adminStoreId }));
+        const merged = [...others, ...mapped];
+        setInventoryList(merged);
+        Cloud.saveInventoryList(merged);
     };
 
-    return (
-        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
-            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3">
-                <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
-                <h2 className="text-xl font-black text-red-500 flex items-center gap-2">
-                    <Icon name="Trash" size={20} /> {lang === 'zh' ? '物料报损记录' : 'Waste Report'}
-                </h2>
+    const handleSaveSmartReport = async (report: any) => {
+        try {
+            const scopedReport = { ...report, storeId: adminStoreId };
+            await Cloud.saveSmartInventoryReport(scopedReport);
+            setOwnerSubView('smart_history'); 
+        } catch (error) { alert("Error uploading report."); }
+    };
+
+    const handleExportPrepCsv = () => { 
+         if (scopedHistory.length === 0) return alert("No prep history found to export.");
+         let csvContent = "\uFEFFDate,Type,Staff,Item,Added,Waste/Loss,Reason\n";
+         scopedHistory.forEach((r: any) => {
+            if (r && r.data) {
+                Object.entries(r.data).forEach(([id, val]: any) => {
+                     const itemDef = inventoryList.find((i:any) => i.id === id);
+                     const cleanName = (itemDef ? getLoc(itemDef.name) : id).replace(/"/g, '""');
+                     const isWaste = r.shift === 'waste';
+                     csvContent += `"${r.date}","${r.shift}","${r.submittedBy}","${cleanName}",${!isWaste ? (val.end ?? 0) : 0},${isWaste ? (val.loss ?? 0) : 0},"${val.reason || ''}"\n`;
+                });
+            }
+         });
+         const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })); link.download = `prep_history_${adminStoreId}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    };
+
+    const handleExportSmartCsv = () => {
+        if (scopedSmartReports.length === 0) return alert("No reports found to export.");
+        let csvContent = "\uFEFFWeek,Date Range,Submitted By,Item Name,Category,Supplier,Count (Rem),Add (New),Total Stock,Safety Stock,Status\n";
+        scopedSmartReports.forEach((report: any) => {
+            if (!report || report.status === 'deleted') return;
+            (report.items || []).forEach((item: any) => {
+                if (!item) return;
+                const name = (item.name || 'Unknown').replace(/"/g, '""'); 
+                csvContent += `"${report.weekStr || '-'}","${report.dateRange || '-'}","${report.submittedBy || '-'}","${name}","${item.category || '-'}","${item.supplier || '-'}",${item.count ?? 0},${item.added ?? 0},${item.currentStock ?? 0},${item.safetyStock ?? 0},"${item.status || '-'}"\n`;
+            });
+        });
+        const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })); link.download = `smart_warehouse_${adminStoreId}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    };
+
+    if (view === 'manager') return (
+        <div className="flex flex-col h-[100dvh] bg-dark-bg">
+            <div className="p-4 bg-dark-surface flex justify-between items-center border-b border-white/10">
+                <h2 className="font-black text-white text-lg">Branch Manager: {safeStores.find((s:any)=>s.id===adminStoreId)?.name}</h2>
+                <button onClick={() => setView('main')} className="bg-white/10 px-4 py-2 rounded-lg text-white font-bold text-xs">Back to Admin</button>
             </div>
-            <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-xs font-bold border border-red-100 mb-4">
-                    {lang === 'zh' 
-                        ? '💡 提示：仅填写今天有额外损耗/浪费的物料，正常使用的无需填写。' 
-                        : '💡 Tip: Only fill in items with extra waste/loss. Leave others blank.'}
-                </div>
-                {inventoryList.filter((i:any)=>!i.hidden).map((item: any) => (
-                    <div key={item.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                            <div className="font-bold text-gray-800 text-sm truncate">{getLoc(item.name)}</div>
-                            <div className="text-[10px] text-gray-400">{item.unit}</div>
-                        </div>
-                        <div className="flex gap-2">
-                            <input
-                                type="number"
-                                placeholder="Qty"
-                                value={wasteData[item.id]?.loss || ''}
-                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], loss: e.target.value}}))}
-                                className="w-16 p-2 rounded-lg border border-red-200 text-center text-red-500 font-bold bg-red-50 focus:bg-white outline-none placeholder-red-300 text-sm"
-                            />
-                            <input
-                                type="text"
-                                placeholder={lang === 'zh' ? '原因' : 'Reason'}
-                                value={wasteData[item.id]?.reason || ''}
-                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], reason: e.target.value}}))}
-                                className="w-20 p-2 rounded-lg border border-gray-200 text-xs bg-gray-50 focus:bg-white outline-none"
-                            />
-                        </div>
-                    </div>
-                ))}
-            </div>
-            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-                <button onClick={handleSubmit} className="w-full bg-red-500 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-red-600">
-                    <Icon name="Save" size={20} /> {lang === 'zh' ? '提交报损记录' : 'Submit Waste'}
-                </button>
+            <div className="flex-1 overflow-hidden">
+                <ManagerDashboard data={data} adminStoreId={adminStoreId} onExit={() => setView('main')} />
             </div>
         </div>
     );
-};
-
-// ============================================================================
-// 新增组件: 分店与权限管理 (Store Management View) - [极致防崩溃版]
-// ============================================================================
-const StoreManagementView = ({ data }: any) => {
-    const { stores, setStores, users, lang } = data;
     
-    // 【核心修复】：过滤掉所有 undefined 的脏数据，防止 s.id 崩溃
-    const safeStores = Array.isArray(stores) ? stores.filter(Boolean) : [];
-    const [activeStoreId, setActiveStoreId] = useState<string>(safeStores[0]?.id || '');
-
-    const activeStore = safeStores.find((s: any) => s.id === activeStoreId);
-
-    const handleAddStore = () => {
-        const newStore = {
-            id: `store_${Date.now()}`,
-            name: `New Branch ${safeStores.length + 1}`,
-            staff: [],
-            features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true }
-        };
-        setStores([...safeStores, newStore]);
-        setActiveStoreId(newStore.id);
-    };
-
-    const handleDeleteStore = () => {
-        if(safeStores.length <= 1) return alert("Must keep at least one store.");
-        if(window.confirm("Delete this store?")) {
-            const newStores = safeStores.filter((s:any) => s.id !== activeStoreId);
-            setStores(newStores);
-            setActiveStoreId(newStores[0]?.id || '');
-        }
-    };
-
-    const updateStoreField = (field: string, value: any) => {
-        setStores(safeStores.map((s:any) => s.id === activeStoreId ? { ...s, [field]: value } : s));
-    };
-
-    const updateFeature = (featureKey: string, value: boolean) => {
-        if(!activeStore) return;
-        updateStoreField('features', { ...activeStore.features, [featureKey]: value });
-    };
-
-    const toggleStaff = (userId: string) => {
-        if(!activeStore) return;
-        const currentStaff = activeStore.staff || [];
-        const newStaff = currentStaff.includes(userId) 
-            ? currentStaff.filter((id:string) => id !== userId) 
-            : [...currentStaff, userId];
-        updateStoreField('staff', newStaff);
-    };
-
-    const modulesList = [
-        { key: 'recipes', label: '饮品配方 (Recipes)' },
-        { key: 'prep', label: '日常盘点 (Daily Prep)' },
-        { key: 'waste', label: '物料报损 (Waste Report)' },
-        { key: 'schedule', label: '员工排班 (Schedule)' },
-        { key: 'swap', label: '换班申请 (Shift Swap)' },
-        { key: 'availability', label: '意向时间 (Availability)' },
-        { key: 'sop', label: 'SOP知识库 (SOP Library)' },
-        { key: 'training', label: '员工培训 (Training)' },
-        { key: 'chat', label: '团队沟通 (Team Chat)' }
-    ];
-
-    if(!activeStore) return <div className="p-4 text-white">Loading Stores...</div>;
-
     return (
-        <div className="flex flex-col md:flex-row h-full gap-4 p-4 animate-fade-in">
-            <div className="w-full md:w-1/3 bg-dark-surface rounded-xl border border-white/10 overflow-hidden flex flex-col max-h-64 md:max-h-full shrink-0">
-                <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center">
-                    <h3 className="font-bold text-white text-sm">Branches</h3>
-                    <button onClick={handleAddStore} className="text-dark-accent hover:opacity-80"><Icon name="Plus" size={18}/></button>
+        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
+            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
+                <div className="flex items-center gap-4">
+                    <h1 className="text-xl font-black tracking-tight text-white hidden md:block">Owner Dashboard</h1>
+                    <select 
+                        value={adminStoreId} 
+                        onChange={e => setAdminStoreId(e.target.value)}
+                        className="bg-dark-bg border border-white/20 rounded-lg px-3 py-2 text-white font-bold outline-none focus:border-dark-accent text-sm shadow-inner"
+                    >
+                        {safeStores.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
                 </div>
-                <div className="overflow-y-auto flex-1 p-2 space-y-2">
-                    {safeStores.map((s:any) => (
-                        <button 
-                            key={s.id} 
-                            onClick={() => setActiveStoreId(s.id)}
-                            className={`w-full text-left p-3 rounded-lg text-sm font-bold transition-all ${activeStoreId === s.id ? 'bg-dark-accent text-dark-bg' : 'bg-dark-bg text-dark-text-light hover:bg-white/5 border border-white/5'}`}
-                        >
-                            {s.name} <span className="text-[10px] font-normal opacity-70 ml-1">({s.staff?.length || 0} Staff)</span>
-                        </button>
-                    ))}
+                <div className="flex gap-2">
+                    <button onClick={() => setView('manager')} className="bg-blue-600/20 text-blue-400 p-2 rounded hover:bg-blue-600/30 transition-all text-xs font-bold px-3">Manager Mode</button>
+                    <button onClick={onExit} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20 transition-all"><Icon name="LogOut" /></button>
                 </div>
             </div>
+            
+            <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
+                <button onClick={() => setOwnerSubView('stores')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'stores' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Branch Mgmt</button>
+                <div className="w-px bg-white/10 mx-1"></div>
+                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep Target</button>
+                <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep History</button>
+                <div className="w-px bg-white/10 mx-1"></div>
+                <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-purple-600 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Smart WH</button>
+                <button onClick={() => setOwnerSubView('smart_history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart_history' ? 'bg-purple-900/50 text-purple-200 border border-purple-500/30' : 'text-dark-text-light hover:bg-white/10'}`}>WH History</button>
+                <div className="w-px bg-white/10 mx-1"></div>
+                <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Global Staff</button>
+                <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Branch Logs</button>
+            </div>
 
-            <div className="flex-1 overflow-y-auto space-y-4">
-                <div className="bg-dark-surface p-4 rounded-xl border border-white/10">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-bold text-white">Store Settings</h3>
-                        <button onClick={handleDeleteStore} className="text-red-400 bg-red-400/10 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-400/20">Delete Store</button>
-                    </div>
-                    <label className="text-xs text-dark-text-light font-bold mb-1 block">Store Name</label>
-                    <input 
-                        className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white font-bold outline-none focus:border-dark-accent" 
-                        value={activeStore.name} 
-                        onChange={(e) => updateStoreField('name', e.target.value)} 
-                    />
-                </div>
-
-                <div className="bg-dark-surface p-4 rounded-xl border border-white/10">
-                    <h3 className="font-bold text-white mb-1">Feature Toggles</h3>
-                    <p className="text-xs text-dark-text-light mb-4">Turn modules on/off for employees assigned to this store.</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {modulesList.map(mod => (
-                            <label key={mod.key} className="flex items-center justify-between bg-dark-bg p-3 rounded-lg border border-white/5 cursor-pointer hover:border-white/10 transition-colors">
-                                <span className="text-sm font-bold text-white">{mod.label}</span>
-                                <input 
-                                    type="checkbox" 
-                                    checked={activeStore.features?.[mod.key] !== false}
-                                    onChange={(e) => updateFeature(mod.key, e.target.checked)}
-                                    className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
-                                />
-                            </label>
+            <div className="flex-1 overflow-y-auto">
+                {ownerSubView === 'stores' && <StoreManagementView data={data} />}
+                {ownerSubView === 'presets' && <InventoryView lang={lang} t={t} inventoryList={scopedInventoryList} onUpdateInventoryList={handleUpdateInventoryList} isOwner={true} currentUser={ownerUser} />}
+                
+                {ownerSubView === 'history' && (
+                    <div className="p-4 space-y-3">
+                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Prep & Waste History</h3><button onClick={handleExportPrepCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16} /> Export</button></div>
+                        {scopedHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found for this branch.</p>}
+                        {scopedHistory.slice().reverse().map((report: any) => (
+                            <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 mb-3">
+                                <div className="flex justify-between items-center mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-sm text-white">{new Date(report.date).toLocaleString()}</span>
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${report.shift === 'waste' ? 'bg-red-500/20 text-red-400' : 'bg-white/10 text-purple-300'}`}>{report.shift === 'waste' ? 'WASTE/LOSS' : report.shift}</span>
+                                    </div>
+                                </div>
+                                <div className="text-xs text-dark-text-light mt-2 pt-2 border-t border-white/5 space-y-1">
+                                    {Object.entries(report.data || {}).map(([itemId, val]: any) => {
+                                        const itemDef = inventoryList.find((i: any) => i.id === itemId);
+                                        return (
+                                            <div key={itemId} className="flex justify-between">
+                                                <span>{itemDef ? getLoc(itemDef.name) : itemId}</span>
+                                                {report.shift === 'waste' ? <span className="text-red-400">-{val.loss} ({val.reason})</span> : <span className="text-green-400">+{val.end}</span>}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         ))}
                     </div>
-                </div>
+                )}
 
-                <div className="bg-dark-surface p-4 rounded-xl border border-white/10">
-                    <h3 className="font-bold text-white mb-1">Assigned Staff</h3>
-                    <p className="text-xs text-dark-text-light mb-4">Select employees to assign to this branch.</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {(users || []).filter((u:User) => u && u.active !== false).map((u:User) => {
-                            const isAssigned = activeStore.staff?.includes(u.id);
+                {ownerSubView === 'smart' && <SmartInventoryView data={data} onSaveReport={handleSaveSmartReport} />}
+                
+                {ownerSubView === 'smart_history' && (
+                    <div className="p-4 space-y-3">
+                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Warehouse Weekly Reports</h3><button onClick={handleExportSmartCsv} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16} /> Export CSV</button></div>
+                        {scopedSmartReports.length === 0 && <p className="text-dark-text-light text-center py-10">No warehouse reports for this branch.</p>}
+                        {scopedSmartReports.slice().reverse().map((report: any) => {
+                            if (report.status === 'deleted') return null;
                             return (
-                                <button 
-                                    key={u.id}
-                                    onClick={() => toggleStaff(u.id)}
-                                    className={`p-2 rounded-lg text-xs font-bold border transition-all flex items-center justify-between ${isAssigned ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-dark-bg border-white/5 text-dark-text-light hover:bg-white/5'}`}
-                                >
-                                    {u.name}
-                                    {isAssigned && <Icon name="CheckCircle2" size={14} />}
-                                </button>
+                                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group mb-3">
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex-1">
+                                            <p className="text-sm font-bold text-white flex items-center gap-2">{report.weekStr} <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light font-normal">{(report.items || []).length} items</span></p>
+                                            <p className="text-xs text-dark-text-light mt-0.5">{report.dateRange} • by {report.submittedBy}</p>
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 max-h-60 overflow-y-auto animate-fade-in">
+                                        <div className="grid grid-cols-4 font-bold text-dark-text-light mb-1"><span className="col-span-2">Item</span><span className="text-center">Stock</span><span className="text-center">Status</span></div>
+                                        {(report.items || []).map((item: any, idx: number) => (
+                                            <div key={idx} className="grid grid-cols-4 items-center py-1 border-b border-white/5 last:border-0 hover:bg-white/5"><span className="col-span-2 text-white truncate">{item.name}</span><span className={`text-center font-mono ${item.currentStock === 0 ? 'text-gray-500' : 'text-purple-300 font-bold'}`}>{item.currentStock}</span><span className={`text-center font-bold ${item.status==='LOW'?'text-red-400':'text-green-400'}`}>{item.status}</span></div>
+                                        ))}
+                                    </div>
+                                </div>
                             );
                         })}
                     </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// ============================================================================
-// 新增: 分店沙盒隔离层 (Branch Manager Wrapper) - 数据全隔离
-// ============================================================================
-const BranchManagerWrapper = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { stores, setStores, currentUser, users, setUsers, scheduleCycles, setScheduleCycles, schedule, setSchedule, inventoryList, setInventoryList, inventoryHistory, smartInventory, setSmartInventory, smartReports } = data;
-    
-    const accessibleStores = currentUser?.role === 'boss' 
-        ? stores 
-        : stores.filter((s:any) => s.staff?.includes(currentUser.id));
-        
-    const [storeId, setStoreId] = useState(accessibleStores[0]?.id || 'default_store');
-    const activeStore = stores.find((s:any) => s.id === storeId) || accessibleStores[0];
-
-    if (!activeStore) {
-        return (
-            <div className="min-h-screen bg-dark-bg flex items-center justify-center text-white">
-                <div className="text-center">
-                    <Icon name="Lock" size={48} className="mx-auto mb-4 text-dark-accent opacity-50" />
-                    <h2 className="text-xl font-bold mb-2">No Branch Assigned</h2>
-                    <p className="text-dark-text-light mb-6">You are not assigned to manage any branch.</p>
-                    <button onClick={onExit} className="bg-dark-accent text-dark-bg px-6 py-2 rounded-lg font-bold">Go Back</button>
-                </div>
-            </div>
-        );
-    }
-
-    // 员工 & 排班隔离
-    const branchUsers = users.filter((u:User) => activeStore.staff?.includes(u.id) || u.role === 'boss');
-    const proxySetUsers = (newUsers: User[]) => {
-        setUsers(newUsers); 
-        const oldIds = users.map((u:User) => u.id);
-        const addedIds = newUsers.filter((u:User) => !oldIds.includes(u.id)).map(u => u.id);
-        if (addedIds.length > 0) {
-            const updatedStores = stores.map((s:any) => s.id === activeStore.id ? { ...s, staff: [...(s.staff||[]), ...addedIds] } : s);
-            setStores(updatedStores);
-        }
-    };
-
-    const branchCycles = scheduleCycles.filter((c:any) => c.storeId === activeStore.id || (!c.storeId && activeStore.id === 'default_store'));
-    const proxySetScheduleCycles = (newCycles: any[]) => {
-        const injected = newCycles.map((c:any) => ({ ...c, storeId: c.storeId || activeStore.id }));
-        const otherCycles = scheduleCycles.filter((c:any) => c.storeId !== activeStore.id && (c.storeId || activeStore.id !== 'default_store'));
-        setScheduleCycles([...otherCycles, ...injected.filter((c:any) => c.storeId === activeStore.id)]);
-    };
-
-    const branchSchedule = activeStore.schedule || schedule || { days: [] };
-    const proxySetSchedule = (newSchedule: any) => {
-        setSchedule(newSchedule);
-        const updatedStores = stores.map((s:any) => s.id === activeStore.id ? { ...s, schedule: newSchedule } : s);
-        setStores(updatedStores);
-    };
-
-    // 库存 & 记录隔离
-    const branchInventoryList = activeStore.inventoryList || inventoryList;
-    const proxySetInventoryList = (newList: any[]) => {
-        if (activeStore.id === 'default_store') {
-            setInventoryList(newList);
-        } else {
-            const updatedStores = stores.map((s:any) => s.id === activeStore.id ? { ...s, inventoryList: newList } : s);
-            setStores(updatedStores);
-        }
-    };
-
-    const branchSmartInventory = activeStore.smartInventory || smartInventory;
-    const proxySetSmartInventory = (newList: any[]) => {
-        if (activeStore.id === 'default_store') {
-            setSmartInventory(newList);
-        } else {
-            const updatedStores = stores.map((s:any) => s.id === activeStore.id ? { ...s, smartInventory: newList } : s);
-            setStores(updatedStores);
-        }
-    };
-
-    const branchHistory = inventoryHistory.filter((r:any) => r.storeId === activeStore.id || (!r.storeId && activeStore.id === 'default_store'));
-    const branchSmartReports = smartReports.filter((r:any) => r.storeId === activeStore.id || (!r.storeId && activeStore.id === 'default_store'));
-
-    const proxyData = {
-        ...data,
-        users: branchUsers, setUsers: proxySetUsers,
-        scheduleCycles: branchCycles, setScheduleCycles: proxySetScheduleCycles,
-        schedule: branchSchedule, setSchedule: proxySetSchedule,
-        inventoryList: branchInventoryList, setInventoryList: proxySetInventoryList,
-        inventoryHistory: branchHistory,
-        smartInventory: branchSmartInventory, setSmartInventory: proxySetSmartInventory,
-        smartReports: branchSmartReports
-    };
-
-    return (
-        <div className="flex flex-col h-screen bg-dark-bg relative">
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[100] bg-dark-surface border border-white/20 pl-4 pr-3 py-2 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md animate-fade-in-up">
-                <Icon name="Store" size={16} className="text-dark-accent" />
-                <select 
-                    className="bg-transparent text-white text-sm font-bold outline-none appearance-none cursor-pointer pr-4"
-                    value={storeId}
-                    onChange={e => setStoreId(e.target.value)}
-                >
-                    {accessibleStores.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-                <div className="w-px h-4 bg-white/20"></div>
-                <span className="text-[10px] text-dark-accent font-black uppercase tracking-widest">Branch Mgr</span>
-            </div>
-            
-            <div className="flex-1 w-full h-full overflow-hidden [&>div]:pt-16">
-                <ManagerDashboard data={proxyData} onExit={onExit} />
-            </div>
-        </div>
-    );
-};
-
-// ============================================================================
-// 新增组件: 今日盘点结果卡片 (修复作用域)
-// ============================================================================
-const TodaysPrepReports = ({ inventoryHistory, inventoryList, lang }: { inventoryHistory: any[], inventoryList: any[], lang: string }) => {
-    const today = new Date();
-    const todaysReports = (inventoryHistory || []).filter((r: any) => 
-        new Date(r.date).toDateString() === today.toDateString() && r.shift !== 'waste'
-    );
-
-    return (
-        <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
-            <h3 className="text-xs font-bold text-text-light uppercase mb-3 flex items-center gap-1">
-                <Icon name="Package" size={14}/> {lang === 'zh' ? '今日盘点结果' : "Today's Prep Results"}
-            </h3>
-            
-            {todaysReports.length === 0 ? (
-                <p className="text-sm text-text-light italic">
-                    {lang === 'zh' ? '今天还没有人提交盘点报告。' : 'No reports submitted today.'}
-                </p>
-            ) : (
-                <div className="space-y-3">
-                    {todaysReports.slice().reverse().map((report: any) => (
-                        <div key={report.id} className="bg-secondary p-3 rounded-xl border border-gray-200">
-                            <div className="flex justify-between items-center mb-2 border-b border-gray-200 pb-2">
-                                <div className="flex items-center gap-2">
-                                    <span className="font-bold text-primary text-sm">{report.submittedBy}</span>
-                                    <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded uppercase">{report.shift}</span>
-                                    {report.fridgeChecked && (
-                                        <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Fridge Temp < 6°C Confirmed">
-                                            <Icon name="Snowflake" size={10} /> OK
-                                        </span>
-                                    )}
-                                </div>
-                                <span className="text-xs text-text-light">{new Date(report.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                            </div>
-                            <div className="space-y-1">
-                                {Object.entries(report.data || {}).map(([itemId, val]: any) => {
-                                    const itemDef = inventoryList.find((i: any) => i.id === itemId);
-                                    if (!itemDef) return null;
-                                    return (
-                                        <div key={itemId} className="flex justify-between text-xs items-center bg-white p-2 rounded border border-gray-100">
-                                            <span className="text-gray-700 font-bold w-2/3 truncate" title={itemDef.name.zh}>{itemDef.name[lang] || itemDef.name.zh} <span className="opacity-50 font-normal">({itemDef.name.en})</span></span>
-                                            <div className="font-mono w-1/3 text-right">
-                                                <span className="font-bold text-green-600 bg-green-50 px-2 py-1 rounded">+{val.end} {itemDef.unit}</span>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
-
-
-// ============================================================================
-// 组件 4: 员工端 (Staff App) - [修复变量丢失版]
-// ============================================================================
-const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    const { 
-        lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, 
-        directMessages, setDirectMessages, users, recipes, scheduleCycles, setScheduleCycles, 
-        inventoryHistory, inventoryList, setInventoryList, sopList, trainingLevels, stores 
-    } = data;
-    const { showNotification } = useNotification();
-
-    const [view, setView] = useState<StaffViewMode>('home');
-    const [currentShift, setCurrentShift] = useState<string>('opening'); 
-    const [hasUnreadChat, setHasUnreadChat] = useState(false);
-    const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
-    const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
-    
-    // Recipe States
-    const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
-    const [recipeTypeFilter, setRecipeTypeFilter] = useState<'product' | 'premix'>('product');
-    const [newRecipesToAck, setNewRecipesToAck] = useState<DrinkRecipe[]>([]);
-    const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
-    const recipeReminderCheckDone = useRef(false);
-
-    // Swap & Schedule States
-    const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
-    const [currentSwap, setCurrentSwap] = useState<{ date: string, shift: 'morning'|'evening'|'night' } | null>(null);
-    const [targetEmployeeId, setTargetEmployeeId] = useState('');
-    const [reason, setReason] = useState('');
-    const [isScheduleReminderOpen, setIsScheduleReminderOpen] = useState(false);
-    const [isSwapReminderOpen, setIsSwapReminderOpen] = useState(false);
-    const [pendingSwapCount, setPendingSwapCount] = useState(0);
-    const scheduleReminderShown = useRef(false);
-    const swapReminderShown = useRef(false);
-
-    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-    const today = new Date();
-
-    // --- 获取当前员工的分店权限 ---
-    const myStore = stores?.find((s: any) => s.staff?.includes(currentUser.id));
-    const defaultFeatures = { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true };
-    const activeFeatures = myStore ? (myStore.features || defaultFeatures) : defaultFeatures;
-    
-    const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
-      const start = new Date(c.startDate);
-      const end = new Date(c.endDate);
-      return today >= start && today <= end && c.status === 'published';
-    });
-    const userConfirmation = currentCycle?.confirmations[currentUser.id];
-
-    const activeNotices = (notices || []).filter((n: Notice) => n.status !== 'cancelled');
-    const latestNotice = activeNotices.length > 0 ? activeNotices[activeNotices.length - 1] : null;
-    const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
-
-    // --- 强制盘点逻辑 ---
-    const m = today.getMonth() + 1;
-    const d = today.getDate();
-    const todayDateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
-    
-    const todaySchedule = schedule?.days?.find((day: any) => todayDateKeys.includes(day.date));
-    const myNameLower = currentUser.name.trim().toLowerCase();
-    
-    const myShiftsToday = todaySchedule?.shifts?.filter((s: any) => 
-        s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myNameLower)
-    ) || [];
-    const hasShiftToday = myShiftsToday.length > 0;
-
-    const hasSubmittedToday = (inventoryHistory || []).some((r: any) =>
-        r.submittedBy === currentUser.name &&
-        new Date(r.date).toDateString() === today.toDateString() && r.shift !== 'waste'
-    );
-
-    const needsToSubmitPrep = activeFeatures.prep && hasShiftToday && !hasSubmittedToday;
-
-    // --- 【修复重点：补充 myNextShift 变量的定义】 ---
-    const myNextShift = useMemo(() => {
-        if (!activeFeatures.schedule || !schedule?.days) return null;
-        const now = new Date();
-        const nm = now.getMonth() + 1; const nd = now.getDate();
-        const tDateKeys = [`${nm}-${nd}`, `${nm.toString().padStart(2, '0')}-${nd.toString().padStart(2, '0')}`];
-
-        const allShifts = schedule.days.flatMap((day: any) => {
-            let date = new Date(day.date);
-            if (isNaN(date.getTime()) || day.date.indexOf('-') > -1) {
-                const parts = day.date.split('-');
-                if (parts.length >= 2) {
-                    const dm = parseInt(parts[0]); const dd = parseInt(parts[1]);
-                    let year = now.getFullYear();
-                    if (now.getMonth() === 11 && dm === 1) year++;
-                    date = new Date(year, dm - 1, dd);
-                }
-            }
-            const myName = currentUser.name.trim().toLowerCase();
-            const myShifts = (day.shifts || []).filter((s: any) => s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myName));
-            
-            return myShifts.map((s: any) => {
-                const [sh, sm] = s.start.split(':').map(Number); const [eh, em] = s.end.split(':').map(Number);
-                const fullStart = new Date(date); fullStart.setHours(sh, sm, 0, 0);
-                const fullEnd = new Date(date); fullEnd.setHours(eh, em, 0, 0);
-                if (fullEnd < fullStart) fullEnd.setDate(fullEnd.getDate() + 1);
-                return { dateStr: day.date, dateObj: date, start: s.start, end: s.end, fullStart, fullEnd };
-            });
-        });
-
-        allShifts.sort((a: any, b: any) => a.fullEnd.getTime() - b.fullEnd.getTime());
-        const next = allShifts.find((shift: any) => shift.fullEnd > now);
-
-        if (next) {
-            const isToday = tDateKeys.includes(next.dateStr) || next.dateObj.toDateString() === now.toDateString();
-            const displayDate = isToday ? (t.today || "Today") : `${next.dateObj.getMonth() + 1}/${next.dateObj.getDate()}`;
-            return { date: displayDate, shift: `${next.start} - ${next.end}` };
-        }
-        return null;
-    }, [schedule, currentUser, t, activeFeatures.schedule]);
-
-    useEffect(() => {
-        if (!needsToSubmitPrep) return;
-        const timer = setInterval(() => {
-            const now = new Date();
-            let shouldAlert = false;
-            myShiftsToday.forEach((shift: any) => {
-                const [endH, endM] = shift.end.split(':').map(Number);
-                const shiftEnd = new Date();
-                shiftEnd.setHours(endH, endM, 0, 0);
-                const diffMins = (shiftEnd.getTime() - now.getTime()) / 60000;
-                if (diffMins <= 30) shouldAlert = true;
-            });
-
-            if (shouldAlert && view !== 'inventory') {
-                showNotification({
-                    type: 'clock_out_reminder', 
-                    title: '🚨 强制盘点提醒 (MANDATORY)',
-                    message: lang === 'zh' ? '你的班次即将结束或已结束，请务必前往 [Inventory] 填写今日的备料盘点！' : 'Your shift is ending. Please submit today\'s prep report!',
-                    sticky: true,
-                    dedupeKey: 'mandatory_prep_reminder'
-                });
-            }
-        }, 60000); 
-        return () => clearInterval(timer);
-    }, [needsToSubmitPrep, myShiftsToday, view, showNotification, lang]);
-
-    useEffect(() => {
-        if (!activeFeatures.recipes || recipeReminderCheckDone.current || !recipes || !currentUser || recipes.length === 0) return;
-        const allNewRecipes = recipes.filter((r: DrinkRecipe) => r.isNew === true);
-        if (allNewRecipes.length === 0) { recipeReminderCheckDone.current = true; return; }
-        const acknowledgedIds = new Set(currentUser.acknowledgedNewRecipes || []);
-        const unacknowledged = allNewRecipes.filter((r: DrinkRecipe) => !acknowledgedIds.has(r.id));
-        if (unacknowledged.length > 0) { setTimeout(() => setNewRecipesToAck(unacknowledged), 2000); }
-        recipeReminderCheckDone.current = true;
-    }, [recipes, currentUser, activeFeatures.recipes]);
-
-    useEffect(() => {
-        if (!activeFeatures.schedule || !schedule?.days) return;
-        const timer = setInterval(() => {
-            const now = new Date();
-            const cm = now.getMonth() + 1;
-            const cd = now.getDate();
-            const dateKeys = [`${cm}-${cd}`, `${cm.toString().padStart(2, '0')}-${cd.toString().padStart(2, '0')}`];
-            const tSchedule = schedule.days.find((day: any) => dateKeys.includes(day.date));
-            if (!tSchedule || !tSchedule.shifts) return;
-            const myShifts = tSchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
-
-            myShifts.forEach((shift: any) => {
-                const [startH, startM] = shift.start.split(':').map(Number);
-                const shiftStart = new Date(now); shiftStart.setHours(startH, startM, 0, 0);
-                const diffStart = (shiftStart.getTime() - now.getTime()) / 60000;
-                if (diffStart > 0 && diffStart <= 15) {
-                    showNotification({ type: 'announcement', title: 'Upcoming Shift', message: lang === 'zh' ? `你的班次 (${shift.start}) 即将开始！` : `Shift (${shift.start}) starts soon!`, dedupeKey: `shift_start_${dateKeys[0]}_${shift.start}` });
-                }
-            });
-        }, 60000); 
-        return () => clearInterval(timer);
-    }, [currentUser, schedule, showNotification, lang, activeFeatures.schedule]);
-
-    useEffect(() => {
-        if (view !== 'home' || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) return;
-
-        const runChecks = async () => {
-            if (activeFeatures.swap && !swapReminderShown.current) {
-                const pendingSwaps = (swapRequests || []).filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
-                if (pendingSwaps.length > 0) {
-                    setPendingSwapCount(pendingSwaps.length);
-                    setIsSwapReminderOpen(true);
-                    swapReminderShown.current = true;
-                    return;
-                }
-            }
-            if (activeFeatures.schedule && !scheduleReminderShown.current && userConfirmation?.status === 'pending') {
-                setIsScheduleReminderOpen(true);
-                scheduleReminderShown.current = true;
-            }
-        };
-        const timer = setTimeout(runChecks, 1500);
-        return () => clearTimeout(timer);
-    }, [currentUser, swapRequests, schedule, view, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder, userConfirmation, activeFeatures]);
-
-    useEffect(() => {
-        if (!notices || notices.length === 0) return;
-        const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
-        if (activeNotices.length === 0) return;
-        const latest = activeNotices[activeNotices.length - 1];
-        const seenKey = `notice_seen_${latest.id}`;
-        const lastSeen = localStorage.getItem(seenKey);
-        let shouldShow = false;
-
-        if (!latest.frequency || latest.frequency === 'always') shouldShow = true;
-        else if (latest.frequency === 'once') { if (!lastSeen) shouldShow = true; }
-        else if (latest.frequency === 'daily') { if (!lastSeen || new Date(parseInt(lastSeen)).toDateString() !== new Date().toDateString()) shouldShow = true; }
-        else if (latest.frequency === '3days') { if (!lastSeen || Date.now() - parseInt(lastSeen) > 3 * 86400000) shouldShow = true; }
-
-        if (shouldShow) {
-            showNotification({ type: 'announcement', title: t.team_board || 'Announcement', message: latest.content, sticky: latest.frequency === 'always', dedupeKey: latest.id, imageUrl: latest.imageUrl });
-            if (latest.frequency !== 'always') localStorage.setItem(seenKey, Date.now().toString());
-        }
-    }, [notices, showNotification, t.team_board]);
-
-    const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
-        const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
-        if(!req) return;
-        const updatedReq = { ...req, status: action, decidedAt: Date.now() };
-        const updatedReqs = swapRequests.map((r: SwapRequest) => (r.id === reqId ? updatedReq : r));
-        await Cloud.updateSwapRequests(updatedReqs);
-        showNotification({ type: 'message', title: 'Swap Updated', message: `You have ${action === 'accepted_by_peer' ? 'accepted' : 'rejected'} the request.` });
-    };
-
-    const handleConfirmSchedule = async () => {
-        if (!currentCycle) return;
-        const updatedCycle = { ...currentCycle, confirmations: { ...currentCycle.confirmations, [currentUser.id]: { status: 'confirmed', viewed: true } } };
-        const updatedCycles = scheduleCycles.map((c: ScheduleCycle) => c.cycleId === updatedCycle.cycleId ? updatedCycle : c);
-        await Cloud.updateScheduleCycles(updatedCycles);
-        showNotification({ type: 'message', title: 'Schedule Confirmed!', message: 'Thank you.' });
-    };
-
-    const handleSendSwapRequest = async () => {
-        if (!currentSwap || !targetEmployeeId) { alert("Please select a colleague."); return; }
-        const targetUser = users.find((u:User) => u.id === targetEmployeeId);
-        if (!targetUser) return;
-
-        const newRequest: Omit<SwapRequest, 'id'> = {
-            requesterId: currentUser.id, requesterName: currentUser.name, requesterDate: currentSwap.date, requesterShift: currentSwap.shift,
-            targetId: targetUser.id, targetName: targetUser.name, targetDate: null, targetShift: null,
-            status: 'pending', reason: reason || null, timestamp: Date.now(),
-        };
-        await Cloud.saveSwapRequest(newRequest);
-        showNotification({ type: 'message', title: 'Swap Request Sent', message: `Sent to ${targetUser.name}.` });
-        setIsSwapModalOpen(false); setReason(''); setTargetEmployeeId('');
-    };
-
-    const ConfirmationBanner = () => {
-        if (!currentCycle || !userConfirmation || userConfirmation.status !== 'pending') return null;
-        return ( <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in"><div className="flex-1"><h4 className="font-bold">Please Confirm Your Schedule</h4><p className="text-sm mt-1">Review upcoming shifts ({currentCycle.startDate} - {currentCycle.endDate})</p></div><button onClick={handleConfirmSchedule} className="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg text-sm shadow-md w-full sm:w-auto">Confirm Schedule</button></div>);
-    };
-
-    const renderView = () => {
-        if (view === 'team' && activeFeatures.schedule) {
-            const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
-            const startOfCurrentWeek = getStartOfWeek(new Date(), 0);
-            const weeksData = [];
-            for(let w=0; w<3; w++) {
-                const weekStart = new Date(startOfCurrentWeek); weekStart.setDate(weekStart.getDate() + (w * 7));
-                const weekDays = [];
-                for(let d=0; d<7; d++) {
-                    const day = new Date(weekStart); day.setDate(day.getDate() + d);
-                    weekDays.push({
-                         dateObj: day, dateStr: `${day.getMonth() + 1}-${day.getDate()}`,
-                         dayName: day.toLocaleDateString('en-US', { weekday: 'long' }),
-                         displayDate: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                         isToday: day.toDateString() === todayDate.toDateString()
-                    });
-                }
-                weeksData.push({ id: w, label: w === 0 ? "Current Week" : `Week ${w + 1}`, range: `${weekDays[0].displayDate} - ${weekDays[6].displayDate}`, days: weekDays });
-            }
-            const scheduleMap = new Map<string, ScheduleDay>(schedule.days?.map((day: ScheduleDay) => [normalizeDateKey(day.date), day]) || []);
-            
-            return (
-                <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
-                    <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-black">{t.team_title}</h2></div>
-                    <ConfirmationBanner />
-                    <div className="space-y-8">
-                        {weeksData.map((week) => (
-                            <div key={week.id} className="space-y-3">
-                                <div className="sticky top-0 bg-secondary/95 backdrop-blur-sm z-10 py-2 border-b border-gray-200/50 flex justify-between items-end"><h3 className="text-lg font-black text-primary">{week.label}</h3><span className="text-xs font-bold text-text-light">{week.range}</span></div>
-                                <div className="space-y-3">
-                                {week.days.map((dayInfo) => {
-                                    const daySchedule = scheduleMap.get(normalizeDateKey(dayInfo.dateStr));
-                                    let shiftsToRender = daySchedule?.shifts || [];
-                                    const isTodayClass = dayInfo.isToday ? 'ring-2 ring-primary ring-offset-2 border-primary/20' : 'border-gray-100';
-                                    return (
-                                        <div key={dayInfo.dateStr} className={`p-4 rounded-xl shadow-sm border bg-surface ${isTodayClass}`}>
-                                            <div className="flex justify-between items-center mb-3">
-                                                <h3 className="font-bold text-text flex items-center gap-2">{dayInfo.dayName} <span className="text-text-light font-normal text-sm">{dayInfo.dateStr}</span>{dayInfo.isToday && <span className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Today</span>}</h3>
-                                            </div>
-                                            {shiftsToRender.length > 0 ? (
-                                                <div className="space-y-2">
-                                                    {shiftsToRender.map((shift: any, sIdx: number) => {
-                                                        const staffList: string[] = shift.staff || [];
-                                                        const timeDisplay = shift.start && shift.end ? `${shift.start}-${shift.end}` : '';
-                                                        return (
-                                                            <div key={sIdx} className="flex items-start gap-3">
-                                                                <div className="flex flex-col items-center gap-0.5 w-16 shrink-0">
-                                                                    <span className={`text-[10px] font-black uppercase tracking-wider w-full py-1.5 text-center rounded-md ${sIdx === 0 ? 'bg-orange-50 text-orange-500' : sIdx === 1 ? 'bg-indigo-50 text-indigo-500' : 'bg-purple-50 text-purple-500'}`}>Shift {sIdx + 1}</span>
-                                                                    {timeDisplay && <span className="text-[9px] text-text-light font-mono">{timeDisplay}</span>}
-                                                                </div>
-                                                                <div className="flex-1 flex flex-wrap gap-2 items-center">
-                                                                    {staffList.map((name: string, i: number) => { 
-                                                                        const isMe = name === currentUser.name;
-                                                                        return (<div key={i} className={`flex items-center gap-1.5 pl-3 pr-2 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white border-primary shadow-sm' : 'bg-secondary text-text-light border-transparent'}`}>{name}</div>); 
-                                                                    })}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ) : <div className="flex items-center gap-2 opacity-50"><div className="w-1.5 h-1.5 rounded-full bg-gray-300"></div><p className="text-xs text-text-light italic">No shifts scheduled</p></div>}
-                                        </div>
-                                    );
-                                })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-        }
-        
-        if (view === 'recipes' && activeFeatures.recipes) {
-             const filteredRecipes = recipes
-                .filter((r: DrinkRecipe) => r.isPublished !== false)
-                .filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType)))
-                .filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
-             
-             const renderVideo = (url: string) => {
-                 if (url.includes('youtube.com') || url.includes('youtu.be')) {
-                     const yId = getYouTubeId(url);
-                     return yId ? (
-                         <iframe className="w-full aspect-video rounded-lg mt-2 shadow-md" src={`https://www.youtube.com/embed/${yId}`} title="Video" allowFullScreen></iframe>
-                     ) : null;
-                 }
-                 return (
-                     <video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-lg mt-2 shadow-md bg-black object-contain" />
-                 );
-             };
-
-             return (
-                <div className="h-full flex flex-col bg-secondary animate-fade-in-up text-text">
-                    <div className="p-4 sticky top-0 bg-secondary z-10">
-                        <h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2>
-                        <div className="relative mb-4">
-                            <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-                            <input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm" />
-                        </div>
-                         <div className="flex gap-2">
-                            <button onClick={() => setRecipeTypeFilter('product')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'product' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Product</button>
-                            <button onClick={() => setRecipeTypeFilter('premix')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'premix' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Premix</button>
-                        </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 pt-0 pb-24">
-                        {filteredRecipes.map((drink: DrinkRecipe) => (
-                            <div key={drink.id} id={`recipe-${drink.id}`} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer transition-all" onClick={() => setExpandedRecipeId(expandedRecipeId === drink.id ? null : drink.id)}>
-                                <div className="flex justify-between items-center">
-                                    <div>
-                                        <h3 className="font-bold text-text flex items-center gap-2">
-                                            {drink.name?.[lang] || drink.name?.['zh']}
-                                            {drink.isNew && <span className="bg-red-100 text-red-500 text-[10px] px-1.5 py-0.5 rounded uppercase">New</span>}
-                                        </h3>
-                                        <p className="text-xs text-text-light">{drink.cat} • {drink.size}</p>
-                                    </div>
-                                    <Icon name={expandedRecipeId === drink.id ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" />
-                                </div>
-                                {expandedRecipeId === drink.id && (
-                                    <div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in" onClick={e => e.stopPropagation()}>
-                                        <p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p>
-                                        <p><strong>Sugar:</strong> {drink.sugar}</p>
-                                        <p><strong>Ice:</strong> {drink.ice}</p>
-                                        {drink.coverImageUrl && (<img src={drink.coverImageUrl} alt={drink.name?.[lang] || drink.name?.['zh']} className="w-full h-auto rounded-lg my-2 object-cover shadow-md" />)}
-                                        {(drink.basePreparation?.en || drink.basePreparation?.zh) && (
-                                            <div className="bg-yellow-500/10 p-3 rounded-lg my-2">
-                                                <p className="font-bold text-yellow-800 mb-1 text-xs uppercase">Base Preparation</p>
-                                                <p className="text-sm text-yellow-900 whitespace-pre-line leading-relaxed">{drink.basePreparation?.[lang] || drink.basePreparation?.['zh']}</p>
-                                            </div>
-                                        )}
-                                        <div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
-                                        <div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
-                                        
-                                        {drink.tutorialVideoUrl && (
-                                            <div className="mt-3 bg-gray-50 p-2 rounded-lg border border-gray-100">
-                                                <p className="font-bold text-gray-700 mb-1 text-xs uppercase flex items-center gap-1">
-                                                    <Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '教学视频' : 'Tutorial Video'}
-                                                </p>
-                                                {renderVideo(drink.tutorialVideoUrl)}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                        {filteredRecipes.length === 0 && <p className="text-center text-text-light py-10 text-sm">没有找到相关配方 / No recipes found.</p>}
-                    </div>
-                </div>
-            );
-        }
-        
-        if (view === 'inventory' && activeFeatures.prep) { 
-            const defaultShift = new Date().getHours() < 16 ? 'morning' : 'evening';
-            return (
-                <InventoryView 
-                    lang={lang} t={t} inventoryList={inventoryList} setInventoryList={setInventoryList} 
-                    onSubmit={(report: any) => {
-                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
-                        Cloud.saveInventoryReport(completeReport); 
-                        showNotification({ type: 'message', title: 'Saved', message: '盘点记录已提交。' });
-                        setView('home');
-                    }}
-                    currentUser={currentUser} isForced={false} onCancel={() => setView('home')} 
-                    forcedShift={defaultShift} isOwner={false} 
-                />
-            ); 
-        }
-
-        if (view === 'waste' as any && activeFeatures.waste) {
-            return (
-                <WasteReportView 
-                    lang={lang} inventoryList={inventoryList} 
-                    onSubmit={(report: any) => {
-                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
-                        Cloud.saveInventoryReport(completeReport); 
-                        showNotification({ type: 'message', title: 'Saved', message: '报损记录已提交。' });
-                        setView('home');
-                    }} 
-                    onCancel={() => setView('home')} currentUser={currentUser} 
-                />
-            );
-        }
-        
-        if (view === 'chat' && activeFeatures.chat) { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={false} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={users} />; }
-        if (view === 'swapRequests' && activeFeatures.swap) {
-            const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
-            const incomingRequests = swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
-            return (
-                <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
-                    <h2 className="text-2xl font-black mb-4">Shift Swap Center</h2>
-                    <div className="mb-6"><h3 className="font-bold mb-2 text-text">Incoming Requests</h3>{incomingRequests.length > 0 ? incomingRequests.map((req: SwapRequest) => (<div key={req.id} className="bg-surface p-4 rounded-xl border mb-2"><p className="text-sm mb-2"><strong className="text-primary">{req.requesterName}</strong> wants to swap:</p><div className="bg-secondary p-2 rounded-lg text-center font-mono text-sm mb-3">{req.requesterDate} ({req.requesterShift})</div><div className="flex gap-2"><button onClick={() => handleSwapAction(req.id, 'rejected')} className="flex-1 bg-red-100 text-red-600 font-bold py-2 rounded-lg text-sm">Reject</button><button onClick={() => handleSwapAction(req.id, 'accepted_by_peer')} className="flex-1 bg-green-100 text-green-700 font-bold py-2 rounded-lg text-sm">Accept</button></div></div>)) : <p className="text-sm text-text-light italic">No incoming requests.</p>}</div>
-                    <div><h3 className="font-bold mb-2 text-text">My Sent Requests</h3>{myRequests.length > 0 ? myRequests.map((req: SwapRequest) => (<div key={req.id} className="bg-surface p-3 rounded-xl border mb-2 text-sm"><p>To <strong className="text-primary">{req.targetName}</strong> for <span className="font-mono">{req.requesterDate} ({req.requesterShift})</span></p><p>Status: <strong className="capitalize text-gray-500">{req.status.replace(/_/g, ' ')}</strong></p></div>)) : <p className="text-sm text-text-light italic">No sent requests.</p>}</div>
-                </div>
-            );
-        }
-        return null;
-    };
-
-    const renderHomeView = () => (
-        <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
-            <div className="flex justify-between items-start mb-6">
-                <div>
-                    <h1 className="text-2xl font-black">{t.hello} {currentUser.name}</h1>
-                    {myStore && <p className="text-primary font-bold text-xs mt-1 px-2 py-0.5 bg-primary/10 rounded inline-block">{myStore.name}</p>}
-                </div>
-                <div className="flex items-center gap-2"><button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light font-bold text-sm">{lang === 'zh' ? 'En' : '中'}</button><button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button><button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button></div>
-            </div>
-
-            {needsToSubmitPrep && (
-                <div className="bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in flex items-center justify-between">
-                    <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
-                    <div>
-                        <h3 className="text-sm font-bold text-red-600 flex items-center gap-1">
-                            <Icon name="AlertCircle" size={16}/> 
-                            {lang === 'zh' ? '盘点未完成' : 'Prep Incomplete'}
-                        </h3>
-                        <p className="text-xs text-red-500 mt-1">
-                            {lang === 'zh' ? '下班前请务必填写今日备料盘点' : 'Please submit today\'s prep before leaving.'}
-                        </p>
-                    </div>
-                    <button onClick={() => setView('inventory')} className="bg-red-500 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-red-600 active:scale-95">
-                        {lang === 'zh' ? '去盘点' : 'Go to Prep'}
-                    </button>
-                </div>
-            )}
-
-            {activeFeatures.recipes && featuredRecipes.length > 0 && (
-                <div className="mb-4 animate-fade-in">
-                    <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1">
-                        <Icon name="Flame" size={14}/> 
-                        {lang === 'zh' ? '新品配方推荐' : 'Featured New Recipes'}
-                    </h3>
-                    <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
-                        {featuredRecipes.map((recipe: DrinkRecipe) => (
-                            <div 
-                                key={recipe.id} 
-                                onClick={() => { 
-                                    setView('recipes'); 
-                                    setRecipeSearchQuery(''); 
-                                    setRecipeTypeFilter(recipe.recipeType || 'product'); 
-                                    setExpandedRecipeId(recipe.id); 
-                                    setTimeout(() => {
-                                        document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                    }, 200);
-                                }} 
-                                className="min-w-[240px] bg-gradient-to-br from-red-500 to-orange-500 rounded-2xl p-4 shadow-md text-white shrink-0 relative overflow-hidden cursor-pointer active:scale-95 transition-transform"
-                            >
-                                <div className="absolute -right-4 -bottom-4 opacity-20"><Icon name="Coffee" size={80}/></div>
-                                <h4 className="font-black text-lg mb-1 relative z-10">{recipe.name[lang] || recipe.name.zh}</h4>
-                                <p className="text-xs opacity-90 relative z-10">{recipe.cat}</p>
-                                <button className="mt-4 bg-white text-red-500 px-4 py-1.5 rounded-full text-xs font-bold relative z-10 shadow-sm hover:bg-gray-50 flex items-center gap-1">
-                                    <Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '查看做法' : 'View Recipe'}
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {latestNotice && (
-                <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in">
-                    <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
-                    <div className="flex items-center gap-2 mb-2">
-                        <Icon name="Megaphone" size={16} className="text-blue-500"/>
-                        <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wider">
-                            {lang === 'zh' ? '团队公告' : 'Team Announcement'}
-                        </h3>
-                    </div>
-                    <p className="text-sm text-gray-800 font-medium whitespace-pre-line">{latestNotice.content}</p>
-                    {latestNotice.imageUrl && <img src={latestNotice.imageUrl} alt="notice" className="mt-3 rounded-xl w-full max-h-40 object-cover border border-blue-100/50 shadow-sm" />}
-                    <div className="mt-2 text-[10px] text-blue-400 font-bold text-right">{latestNotice.author} • {new Date(latestNotice.date).toLocaleDateString()}</div>
-                </div>
-            )}
-
-            {activeFeatures.schedule && (
-                <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
-                    <p className="text-xs text-text-light font-bold uppercase mb-2">{t.next_shift}</p>
-                    {myNextShift ? (<p className="font-bold text-text text-lg">{myNextShift.date} <span className="text-primary">{myNextShift.shift}</span></p>) : <p className="text-sm text-text-light italic">{t.no_shift}</p>}
-                </div>
-            )}
-            
-            {activeFeatures.prep && (
-                <TodaysPrepReports inventoryHistory={inventoryHistory} inventoryList={inventoryList} lang={lang} />
-            )}
-
-            <div className="mt-4">
-                <h3 className="font-bold text-text mb-2">My Modules</h3>
-                <div className="grid grid-cols-2 gap-3">
-                    {activeFeatures.waste && (
-                        <button onClick={() => setView('waste' as any)} className="bg-red-50 p-4 rounded-2xl shadow-sm border border-red-100 text-left active:scale-95 transition-transform">
-                            <Icon name="Trash" className="mb-1 text-red-500"/> 
-                            <p className="font-bold text-red-700">{lang === 'zh' ? '物料报损' : 'Waste Report'}</p>
-                        </button>
-                    )}
-                    {activeFeatures.schedule && <button onClick={() => setView('team')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Users" className="mb-1 text-primary"/> <p className="font-bold">My Schedule</p></button>}
-                    {activeFeatures.swap && <button onClick={() => setView('swapRequests')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Refresh" className="mb-1 text-primary"/> <p className="font-bold">Shift Swaps</p></button>}
-                    {activeFeatures.availability && <button onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Calendar" className="mb-1 text-primary"/> <p className="font-bold">Availability</p></button>}
-                </div>
-            </div>
-        </div>
-    );
-
-    return (
-        <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative pt-[calc(env(safe-area-inset-top)_+_1rem)]">
-            {view === 'home' ? renderHomeView() : renderView()}
-            
-            {currentUser && <StaffBottomNav activeView={view} setActiveView={(v) => { setView(v); if (v !== 'recipes') { setExpandedRecipeId(null); setRecipeSearchQuery(''); } }} t={t} hasUnreadChat={hasUnreadChat} features={activeFeatures} />}
-            
-            <AvailabilityReminderModal isOpen={showAvailabilityReminder} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} onCancel={() => setShowAvailabilityReminder(false)} t={t} />
-            {currentUser && <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />}
-            <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={users} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
-            <ActionReminderModal isOpen={isScheduleReminderOpen} title="排班确认提醒" message="你未来两周有排班安排，请尽快确认。" confirmText="去排班页面" cancelText="稍后" onConfirm={() => { setView('team'); setIsScheduleReminderOpen(false); }} onCancel={() => setIsScheduleReminderOpen(false)} />
-            <ActionReminderModal isOpen={isSwapReminderOpen} title="换班申请提醒" message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`} confirmText="去处理" cancelText="稍后" onConfirm={() => { setView('swapRequests'); setIsSwapReminderOpen(false); }} onCancel={() => setIsSwapReminderOpen(false)} />
-        </div>
-    );
-};
-
-// ============================================================================
-// 组件: 底部导航栏 (StaffBottomNav)
-// ============================================================================
-const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat, features }: any) => {
-    let navItems = [{ key: 'home', icon: 'Grid', label: t.home }];
-    if (features?.training) navItems.push({ key: 'training', icon: 'Award', label: t.training });
-    if (features?.recipes) navItems.push({ key: 'recipes', icon: 'Coffee', label: t.recipes });
-    if (features?.prep) navItems.push({ key: 'inventory', icon: 'Package', label: t.stock });
-    if (features?.chat) navItems.push({ key: 'chat', icon: 'MessageSquare', label: t.chat });
-
-    return (
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-surface/80 backdrop-blur-lg border-t border-gray-100 flex justify-around items-center max-w-md mx-auto">
-            {navItems.map(item => (
-                <button key={item.key} onClick={() => setActiveView(item.key as StaffViewMode)} className={`flex flex-col items-center gap-1 w-16 transition-all relative ${activeView === item.key ? 'text-primary' : 'text-text-light hover:text-primary'}`}>
-                    <Icon name={item.icon as any} size={22} />
-                    <span className="text-[10px] font-bold">{item.label}</span>
-                    {item.key === 'chat' && hasUnreadChat && <div className="absolute top-0 right-3.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-surface"></div>}
-                </button>
-            ))}
-        </div>
-    );
-};
-
-// ============================================================================
-// MAIN APP COMPONENT
-// ============================================================================
-const App = () => {
-    const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('onesip_lang') as Lang) || 'zh');
-    const [currentUser, setCurrentUser] = useState<User | null>(null);
-    const [adminMode, setAdminMode] = useState<'manager' | 'owner' | 'editor' | null>(null);
-    const [adminModalOpen, setAdminModalOpen] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
-    const [showCloudSetup, setShowCloudSetup] = useState(false);
-    const [storeAuthInput, setStoreAuthInput] = useState('');
-    const [isStoreAuthModalOpen, setIsStoreAuthModalOpen] = useState(false);
-    
-    // --- Data States ---
-    const [users, setUsers] = useState<User[]>(STATIC_USERS);
-    const [inventoryList, setInventoryList] = useState<InventoryItem[]>(INVENTORY_ITEMS);
-    const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
-    const [schedule, setSchedule] = useState<any>({ days: [] });
-    const [notices, setNotices] = useState<Notice[]>([]);
-    const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
-    const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
-    const [sales, setSales] = useState<SalesRecord[]>([]);
-    const [smartInventory, setSmartInventory] = useState<any[]>([]);
-    const [sopList, setSopList] = useState<SopItem[]>(SOP_DATABASE);
-    const [trainingLevels, setTrainingLevels] = useState<TrainingLevel[]>(TRAINING_LEVELS);
-    const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
-    const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
-    const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
-    const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
-
-    const [stores, setStores] = useState<any[]>(() => {
-        const saved = localStorage.getItem('onesip_stores_v1');
-        if (saved) return JSON.parse(saved);
-        return [{ id: 'default_store', name: 'Main Store', staff: STATIC_USERS.map((u:User)=>u.id), features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true } }];
-    });
-
-    useEffect(() => { localStorage.setItem('onesip_stores_v1', JSON.stringify(stores)); }, [stores]);
-
-    const t = TRANSLATIONS[lang];
-
-    const appData = {
-        lang, setLang, users, inventoryList, setInventoryList, inventoryHistory, 
-        schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
-        setDirectMessages, swapRequests, setSwapRequests, sales, sopList, 
-        setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
-        confirmations, scheduleCycles, setScheduleCycles, 
-        smartInventory, setSmartInventory, 
-        smartInventoryReports, setSmartInventoryReports,
-        smartReports: smartInventoryReports, 
-        setSmartReports: setSmartInventoryReports,
-        stores, setStores
-    };
-
-    useEffect(() => {
-        Cloud.seedInitialData();
-        const unsubs = [
-            Cloud.subscribeToUsers(setUsers),
-            Cloud.subscribeToInventory(setInventoryList),
-            Cloud.subscribeToSmartInventory(setSmartInventory),
-            Cloud.subscribeToSchedule((week) => setSchedule({ days: week?.days || [] })),
-            Cloud.subscribeToLogs(setLogs),
-            Cloud.subscribeToChat((msgs, nts) => { setDirectMessages(msgs); setNotices(nts); }),
-            Cloud.subscribeToSwaps(setSwapRequests),
-            Cloud.subscribeToSales(setSales),
-            Cloud.subscribeToInventoryHistory(setInventoryHistory),
-            Cloud.subscribeToScheduleConfirmations(setConfirmations),
-            Cloud.subscribeToScheduleCycles(setScheduleCycles),
-            Cloud.subscribeToContent((data) => {
-                if (data?.sops) setSopList(data.sops);
-                if (data?.training) setTrainingLevels(data.training);
-                if (data?.recipes) setRecipes(data.recipes);
-            }),
-            Cloud.subscribeToSmartInventoryReports(setSmartInventoryReports)
-        ];
-
-        setTimeout(() => setIsLoading(false), 800);
-        return () => { unsubs.forEach(unsub => unsub && unsub()); };
-    }, []);
-
-    useEffect(() => { localStorage.setItem('onesip_lang', lang); }, [lang]);
-
-    const handleLogin = (user: User, keepLoggedIn: boolean) => { setCurrentUser(user); };
-    const handleLogout = () => { setCurrentUser(null); setAdminMode(null); };
-
-    if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-secondary text-primary font-bold animate-pulse">Loading ONESIP...</div>;
-    if (adminMode === 'editor') return <EditorDashboard data={appData} onExit={() => setAdminMode(null)} />;
-    
-    if (adminMode === 'owner' || adminMode === 'manager') {
-        return (
-            <>
-                <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />
-                {isStoreAuthModalOpen && (
-                    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-dark-surface rounded-3xl p-6 w-full max-w-xs shadow-2xl animate-pop-in border border-white/10 text-center">
-                            <Icon name="Lock" size={24} className="mx-auto mb-2 text-white" />
-                            <h3 className="font-black text-xl text-white mb-4">Branch Control</h3>
-                            <input 
-                                type="password" value={storeAuthInput} onChange={e => setStoreAuthInput(e.target.value)} 
-                                className="w-full text-center text-2xl tracking-[0.5em] p-4 bg-dark-bg border border-white/20 rounded-xl mb-4 font-black text-white outline-none focus:border-dark-accent" 
-                                placeholder="PIN" autoFocus maxLength={4} 
-                                onKeyDown={e => {
-                                    if(e.key === 'Enter') {
-                                        if (storeAuthInput === '0117') { setIsStoreAuthModalOpen(false); } 
-                                        else { alert("Invalid PIN"); setStoreAuthInput(''); }
-                                    }
-                                }}
-                            />
-                            <div className="grid grid-cols-2 gap-3">
-                                <button onClick={() => {setIsStoreAuthModalOpen(false); setStoreAuthInput('');}} className="p-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
-                                <button onClick={() => { if(storeAuthInput === '0117') { setIsStoreAuthModalOpen(false); setStoreAuthInput('__success__'); } else { alert("Invalid PIN"); setStoreAuthInput(''); } }} className="p-3 rounded-xl bg-dark-accent text-dark-bg font-bold">Enter</button>
-                            </div>
-                        </div>
-                    </div>
                 )}
-            </>
-        );
-    }
-
-    return (
-        <>
-            {!currentUser && <LoginScreen users={users} onLogin={handleLogin} t={t} lang={lang} setLang={setLang} />}
-            {currentUser && <StaffApp onSwitchMode={() => {}} data={appData} onLogout={handleLogout} currentUser={currentUser} openAdmin={() => setAdminModalOpen(true)} />}
-            {!currentUser && !adminMode && (
-                <div className="fixed bottom-6 right-6 z-50">
-                    <button onClick={() => setAdminModalOpen(true)} className="w-10 h-10 bg-gray-200/50 hover:bg-gray-200 text-gray-500 hover:text-gray-800 rounded-full flex items-center justify-center transition-all backdrop-blur-sm">
-                        <Icon name="Shield" size={18} />
-                    </button>
-                </div>
-            )}
-            <AdminLoginModal isOpen={adminModalOpen} onClose={() => setAdminModalOpen(false)} onLogin={(role) => { setAdminModalOpen(false); setAdminMode(role); }} />
-            {showCloudSetup && <CloudSetupModal isOpen={showCloudSetup} onClose={() => setShowCloudSetup(false)} />}
-        </>
+                
+                {ownerSubView === 'staff' && <StaffManagementView users={users} />}
+                
+                {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={scopedLogs} currentUser={ownerUser} onUpdateLogs={(l:any) => Cloud.updateLogs(l)} />}
+            </div>
+        </div>
     );
 };
 
