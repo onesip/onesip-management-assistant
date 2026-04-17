@@ -2311,6 +2311,93 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
 };
 
 // ============================================================================
+// 新增组件: 分店与权限管理 (Store Management View)
+// ============================================================================
+const StoreManagementView = ({ data }: any) => {
+    const { stores, setStores, users, lang } = data;
+    const safeStores = Array.isArray(stores) ? stores : [];
+    const [activeStoreId, setActiveStoreId] = useState<string>(safeStores[0]?.id || '');
+    const activeStore = safeStores.find((s: any) => s && s.id === activeStoreId);
+
+    const handleSaveGlobalStores = () => {
+        localStorage.setItem('onesip_stores_v1', JSON.stringify(safeStores));
+        alert(lang === 'zh' ? '✅ 分店设置已永久保存！' : '✅ Store configuration saved permanently!');
+    };
+
+    const handleAddStore = () => {
+        const newStore = { id: `store_${Date.now()}`, name: `New Branch ${safeStores.length + 1}`, staff: [], features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true } };
+        setStores([...safeStores, newStore]);
+        setActiveStoreId(newStore.id);
+    };
+
+    const handleDeleteStore = () => {
+        if(safeStores.length <= 1) return alert("Must keep at least one store.");
+        if(window.confirm("Delete this store?")) {
+            const newStores = safeStores.filter((s:any) => s && s.id !== activeStoreId);
+            setStores(newStores);
+            setActiveStoreId(newStores[0]?.id || '');
+        }
+    };
+
+    const updateStoreField = (field: string, value: any) => setStores(safeStores.map((s:any) => (s && s.id === activeStoreId) ? { ...s, [field]: value } : s));
+    const updateFeature = (featureKey: string, value: boolean) => { if(activeStore) updateStoreField('features', { ...activeStore.features, [featureKey]: value }); };
+    const toggleStaff = (userId: string) => {
+        if(!activeStore) return;
+        const currentStaff = activeStore.staff || [];
+        const newStaff = currentStaff.includes(userId) ? currentStaff.filter((id:string) => id !== userId) : [...currentStaff, userId];
+        updateStoreField('staff', newStaff);
+    };
+
+    const modulesList = [ { key: 'recipes', label: '饮品配方 (Recipes)' }, { key: 'prep', label: '日常盘点 (Daily Prep)' }, { key: 'waste', label: '物料报损 (Waste Report)' }, { key: 'schedule', label: '员工排班 (Schedule)' }, { key: 'swap', label: '换班申请 (Shift Swap)' }, { key: 'availability', label: '意向时间 (Availability)' }, { key: 'sop', label: 'SOP知识库 (SOP Library)' }, { key: 'training', label: '员工培训 (Training)' }, { key: 'chat', label: '团队沟通 (Team Chat)' } ];
+
+    if(!activeStore) return <div className="p-4 text-white">Loading Stores...</div>;
+
+    return (
+        <div className="flex flex-col md:flex-row h-full gap-4 p-4 animate-fade-in">
+            <div className="w-full md:w-1/3 bg-dark-surface rounded-xl border border-white/10 overflow-hidden flex flex-col max-h-64 md:max-h-full shrink-0">
+                <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center"><h3 className="font-bold text-white text-sm">Branches</h3><button onClick={handleAddStore} className="text-dark-accent hover:opacity-80"><Icon name="Plus" size={18}/></button></div>
+                <div className="overflow-y-auto flex-1 p-2 space-y-2">
+                    {safeStores.map((s:any) => {
+                        if (!s) return null;
+                        return (<button key={s.id} onClick={() => setActiveStoreId(s.id)} className={`w-full text-left p-3 rounded-lg text-sm font-bold transition-all ${activeStoreId === s.id ? 'bg-dark-accent text-dark-bg' : 'bg-dark-bg text-dark-text-light hover:bg-white/5 border border-white/5'}`}>{s.name} <span className="text-[10px] font-normal opacity-70 ml-1">({s.staff?.length || 0} Staff)</span></button>);
+                    })}
+                </div>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-4">
+                <div className="flex justify-between items-center bg-dark-surface p-4 rounded-xl border border-dark-accent/50 shadow-[0_0_15px_rgba(var(--dark-accent),0.1)]">
+                    <div><h3 className="font-bold text-white mb-1">Save Configuration</h3><p className="text-xs text-dark-text-light">Remember to save after assigning staff or toggling features.</p></div>
+                    <button onClick={handleSaveGlobalStores} className="bg-dark-accent text-dark-bg px-6 py-3 rounded-xl font-black text-sm shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center gap-2"><Icon name="Save" size={18}/> SAVE SETTINGS</button>
+                </div>
+                <div className="bg-dark-surface p-4 rounded-xl border border-white/10">
+                    <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-white">Store Settings</h3><button onClick={handleDeleteStore} className="text-red-400 bg-red-400/10 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-400/20">Delete Store</button></div>
+                    <label className="text-xs text-dark-text-light font-bold mb-1 block">Store Name</label>
+                    <input className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white font-bold outline-none focus:border-dark-accent" value={activeStore.name} onChange={(e) => updateStoreField('name', e.target.value)} />
+                </div>
+                <div className="bg-dark-surface p-4 rounded-xl border border-white/10">
+                    <h3 className="font-bold text-white mb-1">Feature Toggles</h3>
+                    <p className="text-xs text-dark-text-light mb-4">Turn modules on/off for employees assigned to this store.</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {modulesList.map(mod => (
+                            <label key={mod.key} className="flex items-center justify-between bg-dark-bg p-3 rounded-lg border border-white/5 cursor-pointer hover:border-white/10 transition-colors"><span className="text-sm font-bold text-white">{mod.label}</span><input type="checkbox" checked={activeStore.features?.[mod.key] !== false} onChange={(e) => updateFeature(mod.key, e.target.checked)} className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"/></label>
+                        ))}
+                    </div>
+                </div>
+                <div className="bg-dark-surface p-4 rounded-xl border border-white/10">
+                    <h3 className="font-bold text-white mb-1">Assigned Staff</h3>
+                    <p className="text-xs text-dark-text-light mb-4">Select employees to assign to this branch.</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {(users || []).filter((u:any) => u && u.active !== false).map((u:any) => {
+                            const isAssigned = activeStore.staff?.includes(u.id);
+                            return (<button key={u.id} onClick={() => toggleStaff(u.id)} className={`p-2 rounded-lg text-xs font-bold border transition-all flex items-center justify-between ${isAssigned ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-dark-bg border-white/5 text-dark-text-light hover:bg-white/5'}`}>{u.name} {isAssigned && <Icon name="CheckCircle2" size={14} />}</button>);
+                        })}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
 // 组件 5: 经理后台 (Manager Dashboard) - [全功能保留 + 分店隔离防崩版]
 // ============================================================================
 const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStoreId: string, onExit: () => void }) => {
