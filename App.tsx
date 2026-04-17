@@ -1742,7 +1742,7 @@ const StaffManagementView = ({ users }: { users: any[] }) => {
 };
 
 // ============================================================================
-// 组件 1: Prep Inventory (前台补料 & 后台管理 - 支持多门店隔离)
+// 组件 1: Prep Inventory (前台补料 & 后台管理 - 修复数据不显示问题)
 // ============================================================================
 const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
     const todayObj = new Date();
@@ -1758,10 +1758,18 @@ const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner,
     const [viewShift, setViewShift] = useState<'morning' | 'evening'>(initialShift);
 
     const [editTargets, setEditTargets] = useState(false);
-    const [localList, setLocalList] = useState<any[]>(JSON.parse(JSON.stringify(inventoryList || [])));
+    // 【关键修复 1】：初始设为空数组
+    const [localList, setLocalList] = useState<any[]>([]); 
     const [isAddingItem, setIsAddingItem] = useState(false);
     const [newItemData, setNewItemData] = useState({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // 【关键修复 2】：监听云端数据和分店切换，只要数据一变，立马刷新界面显示
+    useEffect(() => {
+        if (!editTargets) {
+            setLocalList(JSON.parse(JSON.stringify(inventoryList || [])));
+        }
+    }, [inventoryList, editTargets]);
 
     const [inputData, setInputData] = useState<Record<string, { end: string, isChecked?: boolean }>>({});
     const [fridgeChecked, setFridgeChecked] = useState(false);
@@ -1851,7 +1859,6 @@ const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner,
                 else { newItems.push({ id: `p_imp_${Date.now()}_${Math.floor(Math.random()*1000)}`, name: { zh: zh, en: en || zh }, unit: unit || 'L', category: cat || 'other', defaultVal: '0', hidden: false, dailyTargets: targets }); createdCount++; }
             });
             setLocalList(newItems);
-            // 调用分店隔离保存函数
             if (onUpdateInventoryList) onUpdateInventoryList(newItems);
             alert(`✅ Import Success!\nUpdated: ${updatedCount}\nCreated: ${createdCount}`);
         } catch (err) { console.error(err); alert("Error reading file."); } finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
@@ -1933,6 +1940,12 @@ const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner,
                             ))}
                         </div>
                     ))}
+                    {localList.length === 0 && (
+                        <div className="text-center text-dark-text-light py-10">
+                            <p>No prep targets configured for this branch.</p>
+                            <p className="text-xs mt-2 opacity-60">Click "Import" to upload your CSV file.</p>
+                        </div>
+                    )}
                 </div>
                 {isAddingItem && (
                     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
@@ -1972,7 +1985,7 @@ const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner,
             </div>
 
             <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                {inventoryList.filter((item: any) => !item.hidden).map((item: any) => {
+                {localList.filter((item: any) => !item.hidden).map((item: any) => {
                     const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
                     if (target === 0) return null;
                     return (
@@ -1991,6 +2004,7 @@ const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner,
                         </div>
                     );
                 })}
+                {localList.length === 0 && <p className="text-center text-gray-400 py-10 text-sm">No items configured for this branch.</p>}
             </div>
             
             <div className="p-4 bg-white border-t sticky bottom-0 z-20 space-y-3 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
