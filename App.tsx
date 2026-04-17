@@ -1742,17 +1742,24 @@ const StaffManagementView = ({ users }: { users: any[] }) => {
 };
 
 // ============================================================================
-// 组件 1: Prep Inventory (前台补料 & 后台管理 - 极简补加量双语版)
+// 组件 1: Prep Inventory (前台补料 & 后台管理 - 智能显隐 AM/PM)
 // ============================================================================
 const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
-    const todayIndex = new Date().getDay(); 
+    const todayObj = new Date();
+    const todayIndex = todayObj.getDay(); 
     let dayGroup: 'mon_thu' | 'fri' | 'sat' | 'sun' = 'mon_thu';
     if (todayIndex === 5) dayGroup = 'fri';
     if (todayIndex === 6) dayGroup = 'sat';
     if (todayIndex === 0) dayGroup = 'sun';
 
-    // 强制固定为 evening (PM)
-    const [viewShift, setViewShift] = useState<'morning' | 'evening'>('evening');
+    // 【新增逻辑】判断今天是否需要早班 (只有周五=5 和 周六=6 需要)
+    const isAmNeeded = (todayIndex === 5 || todayIndex === 6);
+
+    // 如果今天是周五/周六，且当前时间早于 16:00，默认显示 morning，否则显示 evening
+    // 如果今天不是周五/周六，强制显示 evening
+    const initialShift = (isAmNeeded && todayObj.getHours() < 16) ? 'morning' : 'evening';
+
+    const [viewShift, setViewShift] = useState<'morning' | 'evening'>(initialShift);
 
     const [editTargets, setEditTargets] = useState(false);
     const [localList, setLocalList] = useState<any[]>(JSON.parse(JSON.stringify(inventoryList || [])));
@@ -2046,24 +2053,34 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm">
                  <div className="flex justify-between items-center mb-2">
                     <h2 className="text-xl font-black flex items-center gap-2">
-                        <span className="text-indigo-500">{lang === 'zh' ? '🌙 晚班盘点 (PM)' : '🌙 Evening Prep (PM)'}</span>
+                        {viewShift === 'morning' 
+                            ? <span className="text-orange-500">{lang === 'zh' ? '☀️ 早班盘点 (AM)' : '☀️ Morning Prep (AM)'}</span>
+                            : <span className="text-indigo-500">{lang === 'zh' ? '🌙 晚班盘点 (PM)' : '🌙 Evening Prep (PM)'}</span>
+                        }
                     </h2>
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
                     <span>{lang === 'zh' ? '目标周期:' : 'Target Day:'} <strong className="uppercase text-gray-800">{dayGroup.replace('_', '-')}</strong></span>
+                    {/* 【智能显示】只有周五和周六才显示切换按钮 */}
+                    {isAmNeeded && (
+                        <div className="flex gap-2">
+                            <button onClick={()=>setViewShift('morning')} className={`px-2 py-1 rounded ${viewShift==='morning'?'bg-white shadow text-orange-500 font-bold':'text-gray-400'}`}>AM</button>
+                            <button onClick={()=>setViewShift('evening')} className={`px-2 py-1 rounded ${viewShift==='evening'?'bg-white shadow text-indigo-500 font-bold':'text-gray-400'}`}>PM</button>
+                        </div>
+                    )}
                 </div>
             </div>
 
             <div className="p-4 space-y-3 overflow-y-auto flex-1">
                 {inventoryList.filter((item: any) => !item.hidden).map((item: any) => {
-                    const target = item.dailyTargets?.[dayGroup]?.['evening'] || 0;
+                    const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
                     if (target === 0) return null;
 
                     return (
                         <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm flex flex-col gap-3">
                             <div className="flex justify-between items-center border-b pb-2 border-gray-100">
                                 <div className="font-bold text-lg text-gray-800">{getLoc(item.name)}</div>
-                                <div className="text-xs font-bold text-primary bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+                                <div className={`text-xs font-bold px-3 py-1 rounded-full border ${viewShift === 'morning' ? 'text-orange-600 bg-orange-50 border-orange-100' : 'text-primary bg-indigo-50 border-indigo-100'}`}>
                                     {lang === 'zh' ? '目标:' : 'Target:'} <span className="text-lg">{target}</span> {item.unit}
                                 </div>
                             </div>
@@ -2115,7 +2132,10 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
 
                 <button onClick={handleStaffSubmit} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark">
                     <Icon name="Save" size={20} /> 
-                    {lang === 'zh' ? '提交盘点报告' : 'Submit PM Report'}
+                    {lang === 'zh' 
+                        ? (viewShift === 'morning' ? '提交早班盘点报告' : '提交晚班盘点报告') 
+                        : (viewShift === 'morning' ? 'Submit AM Report' : 'Submit PM Report')
+                    }
                 </button>
             </div>
         </div>
@@ -2426,7 +2446,7 @@ const SmartInventoryView = ({ data, onSaveReport }: any) => {
 };
 
 // ============================================================================
-// 组件 5: 店长总控台 (Owner Dashboard)
+// 组件 5: 店长总控台 (Owner Dashboard) - 支持报损显示和双向导出
 // ============================================================================
 const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, setSmartReports } = data;
@@ -2535,14 +2555,14 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         } catch (e) { console.error("Export Error:", e); alert("Export failed! Error: " + (e as Error).message); }
     };
 
-    // --- 【修改】导出 CSV：只包含 Added 列 ---
+    // --- 【修改】导出 CSV：同时支持 Added 和 Waste/Loss 的导出 ---
     const handleExportPrepCsv = () => { 
          if (!inventoryHistory || inventoryHistory.length === 0) {
              alert("No prep history found to export.");
              return;
          }
          try {
-             let csvContent = "\uFEFFDate,Shift,Staff,Item,Added\n";
+             let csvContent = "\uFEFFDate,Type,Staff,Item,Added,Waste/Loss,Reason\n";
              
              inventoryHistory.forEach((r: any) => {
                 if (r && r.data) {
@@ -2550,9 +2570,12 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                          const itemDef = inventoryList.find((i:any) => i.id === id);
                          const name = itemDef ? (itemDef.name.en || itemDef.name.zh) : id;
                          const cleanName = (name || 'Unknown').replace(/"/g, '""');
-                         const end = val.end ?? 0; // 这就是加进去的量
+                         const isWaste = r.shift === 'waste';
+                         const added = !isWaste ? (val.end ?? 0) : 0;
+                         const loss = isWaste ? (val.loss ?? 0) : 0;
+                         const reason = val.reason || '';
                          
-                         csvContent += `"${r.date}","${r.shift}","${r.submittedBy}","${cleanName}",${end}\n`;
+                         csvContent += `"${r.date}","${r.shift}","${r.submittedBy}","${cleanName}",${added},${loss},"${reason}"\n`;
                     });
                 }
              });
@@ -2644,7 +2667,7 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
         </div>
     );
 
-    // --- 【修改】Prep History View ---
+    // --- 【修改】Prep History View：支持区分显示报损记录 ---
     const InventoryHistoryView = () => (
         <div className="p-4 space-y-3">
              <div className="flex justify-between items-center">
@@ -2654,46 +2677,57 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
                 </button>
             </div>
             {inventoryHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found.</p>}
-            {inventoryHistory.slice().reverse().map((report: any) => (
-                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group-report">
-                    <div onClick={() => setExpandedReportId(expandedReportId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'}</p>
-                                <span className="text-[10px] bg-white/10 px-1 rounded uppercase text-purple-300">{report.shift}</span>
-                                {report.fridgeChecked && (
-                                    <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-0.5" title="Fridge Temp < 6°C Confirmed">
-                                        <Icon name="Snowflake" size={10} /> OK
+            {inventoryHistory.slice().reverse().map((report: any) => {
+                const isWaste = report.shift === 'waste';
+                return (
+                    <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group-report">
+                        <div onClick={() => setExpandedReportId(expandedReportId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'}</p>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${isWaste ? 'bg-red-500/20 text-red-400' : 'bg-white/10 text-purple-300'}`}>
+                                        {isWaste ? 'WASTE/LOSS' : report.shift}
                                     </span>
-                                )}
-                            </div>
-                            <p className="text-xs text-dark-text-light">by {report.submittedBy}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <button onClick={(e) => { e.stopPropagation(); setReportToDelete(report); }} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20"><Icon name="Trash" size={16} /></button>
-                            <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
-                        </div>
-                    </div>
-                    {expandedReportId === report.id && (
-                        <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 animate-fade-in">
-                            {Object.entries(report.data || {}).map(([itemId, val]: any) => {
-                                const itemDef = inventoryList.find((i: any) => i.id === itemId);
-                                return (
-                                    <div key={itemId} className="flex justify-between items-center group hover:bg-white/5 p-1.5 rounded transition-colors border-b border-white/5 last:border-0">
-                                        <span className="text-dark-text-light font-medium">
-                                            {itemDef ? getLoc(itemDef.name) : itemId}
+                                    {report.fridgeChecked && (
+                                        <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-0.5" title="Fridge Temp < 6°C Confirmed">
+                                            <Icon name="Snowflake" size={10} /> OK
                                         </span>
-                                        <div className="flex items-center gap-3">
-                                            {/* 只显示 Added 数量，移除 Loss */}
-                                            <span className="font-mono text-green-400 font-bold">+{val.end}</span>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                                    )}
+                                </div>
+                                <p className="text-xs text-dark-text-light mt-1">by {report.submittedBy}</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button onClick={(e) => { e.stopPropagation(); setReportToDelete(report); }} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20"><Icon name="Trash" size={16} /></button>
+                                <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
+                            </div>
                         </div>
-                    )}
-                </div>
-            ))}
+                        {expandedReportId === report.id && (
+                            <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 animate-fade-in">
+                                {Object.entries(report.data || {}).map(([itemId, val]: any) => {
+                                    const itemDef = inventoryList.find((i: any) => i.id === itemId);
+                                    return (
+                                        <div key={itemId} className="flex justify-between items-center group hover:bg-white/5 p-1.5 rounded transition-colors border-b border-white/5 last:border-0">
+                                            <span className="text-dark-text-light font-medium">
+                                                {itemDef ? getLoc(itemDef.name) : itemId}
+                                            </span>
+                                            <div className="flex items-center gap-3">
+                                                {isWaste ? (
+                                                    <div className="text-right">
+                                                        <span className="font-mono text-red-400 font-bold">-{val.loss}</span>
+                                                        {val.reason && <p className="text-[10px] text-gray-500 mt-0.5">({val.reason})</p>}
+                                                    </div>
+                                                ) : (
+                                                    <span className="font-mono text-green-400 font-bold">+{val.end}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 
@@ -3674,6 +3708,86 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 };
 
 // ============================================================================
+// 新增组件: 物料报损单 (Waste Report View)
+// ============================================================================
+const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser }: any) => {
+    const [wasteData, setWasteData] = useState<Record<string, { loss: string, reason: string }>>({});
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+
+    const handleSubmit = () => {
+        const dataToSubmit: Record<string, { loss: string, reason: string }> = {};
+        let hasData = false;
+        
+        Object.keys(wasteData).forEach(id => {
+            if (wasteData[id].loss && parseFloat(wasteData[id].loss) > 0) {
+                dataToSubmit[id] = wasteData[id];
+                hasData = true;
+            }
+        });
+
+        if (!hasData) {
+            alert(lang === 'zh' ? "请至少输入一项浪费/损耗的数量。" : "Please enter at least one waste amount.");
+            return;
+        }
+
+        onSubmit({
+            submittedBy: currentUser?.name,
+            userId: currentUser?.id,
+            data: dataToSubmit,
+            shift: 'waste', // 特殊标记，用于后台区分
+            date: new Date().toISOString()
+        });
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
+            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3">
+                <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
+                <h2 className="text-xl font-black text-red-500 flex items-center gap-2">
+                    <Icon name="Trash" size={20} /> {lang === 'zh' ? '物料报损记录' : 'Waste Report'}
+                </h2>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-xs font-bold border border-red-100 mb-4">
+                    {lang === 'zh' 
+                        ? '💡 提示：仅填写今天有额外损耗/浪费的物料，正常使用的无需填写。' 
+                        : '💡 Tip: Only fill in items with extra waste/loss. Leave others blank.'}
+                </div>
+                {inventoryList.filter((i:any)=>!i.hidden).map((item: any) => (
+                    <div key={item.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                            <div className="font-bold text-gray-800 text-sm truncate">{getLoc(item.name)}</div>
+                            <div className="text-[10px] text-gray-400">{item.unit}</div>
+                        </div>
+                        <div className="flex gap-2">
+                            <input
+                                type="number"
+                                placeholder="Qty"
+                                value={wasteData[item.id]?.loss || ''}
+                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], loss: e.target.value}}))}
+                                className="w-16 p-2 rounded-lg border border-red-200 text-center text-red-500 font-bold bg-red-50 focus:bg-white outline-none placeholder-red-300 text-sm"
+                            />
+                            <input
+                                type="text"
+                                placeholder={lang === 'zh' ? '原因' : 'Reason'}
+                                value={wasteData[item.id]?.reason || ''}
+                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], reason: e.target.value}}))}
+                                className="w-20 p-2 rounded-lg border border-gray-200 text-xs bg-gray-50 focus:bg-white outline-none"
+                            />
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+                <button onClick={handleSubmit} className="w-full bg-red-500 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-red-600">
+                    <Icon name="Save" size={20} /> {lang === 'zh' ? '提交报损记录' : 'Submit Waste Report'}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
 // 组件 4: 员工端 (Staff App) - [终极防崩溃 + 修复变量丢失]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
@@ -4104,6 +4218,7 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
 
     const renderView = () => {
         if (view === 'team') {
+            // (保持原有的 team 渲染逻辑...)
             const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
             const startOfCurrentWeek = getStartOfWeek(new Date(), 0);
             const weeksData = [];
@@ -4175,7 +4290,7 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
         }
         
         if (view === 'recipes') {
-             const filteredRecipes = (recipes || [])
+             const filteredRecipes = recipes
                 .filter((r: DrinkRecipe) => r.isPublished !== false)
                 .filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType)))
                 .filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
@@ -4208,7 +4323,8 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
             );
         }
         
-      if (view === 'inventory') { 
+        if (view === 'inventory') { 
+            const defaultShift = new Date().getHours() < 16 ? 'morning' : 'evening';
             return (
                 <InventoryView 
                     lang={lang} 
@@ -4219,21 +4335,39 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
                     currentUser={currentUser} 
                     isForced={false} 
                     onCancel={() => setView('home')} 
-                    // 【修改】不管什么时候打开，都传 evening，彻底禁用 morning
-                    forcedShift="evening" 
+                    forcedShift={defaultShift} 
                     isOwner={false} 
                 />
             ); 
         }
+
+        // --- 【新增】物料报损页面入口 ---
+        if (view === 'waste' as any) {
+            return (
+                <WasteReportView 
+                    lang={lang} 
+                    inventoryList={inventoryList} 
+                    onSubmit={(report: any) => {
+                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
+                        Cloud.saveInventoryReport(completeReport); // 保存到后台
+                        showNotification({ type: 'message', title: 'Saved', message: '报损记录已提交。' });
+                        setView('home');
+                    }} 
+                    onCancel={() => setView('home')} 
+                    currentUser={currentUser} 
+                />
+            );
+        }
+        
+        if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={false} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={users} />; }
         
         if (view === 'checklist') {
             const checklist = CHECKLIST_TEMPLATES[currentShift];
-            return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{(checklist.items || []).map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
+            return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
         }
-        
         if (view === 'swapRequests') {
-            const myRequests = (swapRequests || []).filter((r: SwapRequest) => r.requesterId === currentUser.id);
-            const incomingRequests = (swapRequests || []).filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
+            const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
+            const incomingRequests = swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
                     <h2 className="text-2xl font-black mb-4">Shift Swap Center</h2>
@@ -4242,71 +4376,10 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
                 </div>
             );
         }
-        if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={data.setDirectMessages} notices={notices} isManager={true} onExit={() => setView('home')} sopList={data.sopList} trainingLevels={data.trainingLevels} allUsers={users} />; }
-        if (view === 'contact') { return <ContactView t={t} lang={lang} />; }
-        if (view === 'training') { return <TrainingView data={data} onComplete={()=>{}} />; }
-        if (view === 'sop') { return <LibraryView data={data} onOpenChecklist={(key) => { setCurrentShift(key); setView('checklist'); }} />; }
-        if (view === 'availability') { return <AvailabilityModal isOpen={true} onClose={() => setView('home')} t={t} currentUser={currentUser} />; }
-        
         return null;
     };
 
-// --- 今日盘点结果卡片组件 (双语支持) ---
-    const TodaysPrepReports = () => {
-        const innerToday = new Date();
-        const todaysReports = (inventoryHistory || []).filter((r: any) => 
-            new Date(r.date).toDateString() === innerToday.toDateString()
-        );
-
-        return (
-            <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
-                <h3 className="text-xs font-bold text-text-light uppercase mb-3 flex items-center gap-1">
-                    <Icon name="Package" size={14}/> {lang === 'zh' ? '今日盘点结果' : "Today's Prep Results"}
-                </h3>
-                
-                {todaysReports.length === 0 ? (
-                    <p className="text-sm text-text-light italic">
-                        {lang === 'zh' ? '今天还没有人提交盘点报告。' : 'No reports submitted today.'}
-                    </p>
-                ) : (
-                    <div className="space-y-3">
-                        {todaysReports.slice().reverse().map((report: any) => (
-                            <div key={report.id} className="bg-secondary p-3 rounded-xl border border-gray-200">
-                                <div className="flex justify-between items-center mb-2 border-b border-gray-200 pb-2">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-bold text-primary text-sm">{report.submittedBy}</span>
-                                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded uppercase">{report.shift}</span>
-                                        {report.fridgeChecked && (
-                                            <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Fridge Temp < 6°C Confirmed">
-                                                <Icon name="Snowflake" size={10} /> OK
-                                            </span>
-                                        )}
-                                    </div>
-                                    <span className="text-xs text-text-light">{new Date(report.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                                </div>
-                                <div className="space-y-1">
-                                    {Object.entries(report.data || {}).map(([itemId, val]: any) => {
-                                        const itemDef = inventoryList.find((i: any) => i.id === itemId);
-                                        if (!itemDef) return null;
-                                        return (
-                                            <div key={itemId} className="flex justify-between text-xs items-center bg-white p-2 rounded border border-gray-100">
-                                                <span className="text-gray-700 font-bold w-2/3 truncate" title={itemDef.name.zh}>{itemDef.name[lang] || itemDef.name.zh} <span className="opacity-50 font-normal">({itemDef.name.en})</span></span>
-                                                <div className="font-mono w-1/3 text-right">
-                                                    <span className="font-bold text-green-600 bg-green-50 px-2 py-1 rounded">+{val.end} {itemDef.unit}</span>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-    // --- HOME VIEW 核心区 (双语支持) ---
+    // --- HOME VIEW ---
     const homeView = (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
@@ -4390,10 +4463,16 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
                 <div className="grid grid-cols-2 gap-3">
-                    <button onClick={() => setView('team')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left"><Icon name="Users" className="mb-1 text-primary"/> <p className="font-bold">My Schedule</p></button>
-                    <button onClick={() => setView('swapRequests')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left"><Icon name="Refresh" className="mb-1 text-primary"/> <p className="font-bold">Shift Swaps</p></button>
-                    <button onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left"><Icon name="Calendar" className="mb-1 text-primary"/> <p className="font-bold">Availability</p></button>
-                    <button onClick={() => setView('sop')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left"><Icon name="Book" className="mb-1 text-primary"/> <p className="font-bold">SOP Library</p></button>
+                    {/* --- 【修改】添加了物料报损的入口按钮 --- */}
+                    <button onClick={() => setView('waste' as any)} className="bg-red-50 p-4 rounded-2xl shadow-sm border border-red-100 text-left active:scale-95 transition-transform">
+                        <Icon name="Trash" className="mb-1 text-red-500"/> 
+                        <p className="font-bold text-red-700">{lang === 'zh' ? '物料报损' : 'Waste Report'}</p>
+                    </button>
+                    
+                    <button onClick={() => setView('team')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Users" className="mb-1 text-primary"/> <p className="font-bold">My Schedule</p></button>
+                    <button onClick={() => setView('swapRequests')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Refresh" className="mb-1 text-primary"/> <p className="font-bold">Shift Swaps</p></button>
+                    <button onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Calendar" className="mb-1 text-primary"/> <p className="font-bold">Availability</p></button>
+                    <button onClick={() => setView('sop')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left col-span-2 active:scale-95 transition-transform"><Icon name="Book" className="mb-1 text-primary"/> <p className="font-bold">SOP Library</p></button>
                 </div>
             </div>
         </div>
