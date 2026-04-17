@@ -2398,6 +2398,150 @@ const StoreManagementView = ({ data }: any) => {
 };
 
 // ============================================================================
+// 经理后台依赖组件: 排班编辑、补卡、工时调整弹窗
+// ============================================================================
+const ShiftEditorModal = ({ isOpen, onClose, shiftData, onSave, availableStaff }: any) => {
+    const [shifts, setShifts] = useState<any[]>(shiftData || []);
+
+    useEffect(() => {
+        setShifts(shiftData?.length > 0 ? JSON.parse(JSON.stringify(shiftData)) : [
+            { id: 's1', name: 'Shift 1', start: '10:00', end: '15:00', staff: [] },
+            { id: 's2', name: 'Shift 2', start: '14:30', end: '19:00', staff: [] }
+        ]);
+    }, [shiftData]);
+
+    if (!isOpen) return null;
+
+    const handleAddShift = () => {
+        setShifts([...shifts, { id: Date.now().toString(), name: `Shift ${shifts.length + 1}`, start: '12:00', end: '16:00', staff: [] }]);
+    };
+
+    const toggleStaff = (shiftIdx: number, staffName: string) => {
+        const newShifts = [...shifts];
+        const staffList = newShifts[shiftIdx].staff || [];
+        if (staffList.includes(staffName)) {
+            newShifts[shiftIdx].staff = staffList.filter((n: string) => n !== staffName);
+        } else {
+            newShifts[shiftIdx].staff = [...staffList, staffName];
+        }
+        setShifts(newShifts);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 animate-fade-in">
+            <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 w-full max-w-md max-h-[90vh] flex flex-col shadow-2xl">
+                <div className="flex justify-between items-center mb-4 shrink-0">
+                    <h3 className="text-lg font-bold text-white">Edit Shifts</h3>
+                    <button onClick={onClose} className="text-dark-text-light hover:text-white"><Icon name="X" size={20}/></button>
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+                    {shifts.map((shift, idx) => (
+                        <div key={shift.id || idx} className="bg-dark-bg p-4 rounded-xl border border-white/5 space-y-3">
+                            <div className="flex justify-between items-center">
+                                <input className="bg-transparent text-white font-bold outline-none w-24 border-b border-white/20 focus:border-dark-accent" value={shift.name} onChange={e => { const n = [...shifts]; n[idx].name = e.target.value; setShifts(n); }} />
+                                <button onClick={() => { const n = [...shifts]; n.splice(idx, 1); setShifts(n); }} className="text-red-400 hover:text-red-300"><Icon name="Trash" size={16}/></button>
+                            </div>
+                            <div className="flex gap-2 items-center">
+                                <input type="time" className="bg-dark-surface border border-white/10 rounded px-2 py-1 text-white text-sm outline-none focus:border-dark-accent" value={shift.start} onChange={e => { const n = [...shifts]; n[idx].start = e.target.value; setShifts(n); }} />
+                                <span className="text-dark-text-light">-</span>
+                                <input type="time" className="bg-dark-surface border border-white/10 rounded px-2 py-1 text-white text-sm outline-none focus:border-dark-accent" value={shift.end} onChange={e => { const n = [...shifts]; n[idx].end = e.target.value; setShifts(n); }} />
+                            </div>
+                            <div>
+                                <p className="text-[10px] uppercase font-bold text-dark-text-light mb-2">Assigned Staff</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {availableStaff.map((staffName: string) => {
+                                        const isSelected = (shift.staff || []).includes(staffName);
+                                        return (
+                                            <button key={staffName} onClick={() => toggleStaff(idx, staffName)} className={`px-2 py-1 rounded text-xs font-bold transition-all border ${isSelected ? 'bg-dark-accent/20 text-dark-accent border-dark-accent/50' : 'bg-dark-surface text-dark-text-light border-white/5 hover:border-white/20'}`}>
+                                                {staffName}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                    <button onClick={handleAddShift} className="w-full py-3 border-2 border-dashed border-white/10 rounded-xl text-dark-text-light font-bold hover:border-dark-accent hover:text-dark-accent transition-all">+ Add Shift</button>
+                </div>
+                <div className="mt-4 pt-4 border-t border-white/10 shrink-0">
+                    <button onClick={() => onSave(shifts)} className="w-full bg-dark-accent text-dark-bg py-3 rounded-xl font-bold shadow-lg hover:opacity-90 active:scale-95 transition-all">Save Shifts</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ManualLogModal = ({ isOpen, onClose, onSave, users }: any) => {
+    const [selectedUser, setSelectedUser] = useState(users[0]?.id || '');
+    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [inTime, setInTime] = useState('10:00');
+    const [outTime, setOutTime] = useState('18:00');
+
+    if (!isOpen) return null;
+
+    const handleSave = () => {
+        const u = users.find((u:any) => u.id === selectedUser);
+        if(!u) return;
+        const inDate = new Date(`${date}T${inTime}:00`);
+        const outDate = new Date(`${date}T${outTime}:00`);
+        const inLog = { id: Date.now()+1, userId: u.id, name: u.name, time: inDate.toISOString(), type: 'clock-in', isManual: true, reason: 'Manager manual entry' };
+        const outLog = { id: Date.now()+2, userId: u.id, name: u.name, time: outDate.toISOString(), type: 'clock-out', isManual: true, reason: 'Manager manual entry' };
+        onSave(inLog, outLog);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 animate-fade-in">
+            <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 w-full max-w-sm shadow-2xl space-y-4">
+                <h3 className="text-lg font-bold text-white mb-2">Add Manual Log</h3>
+                <div><label className="text-xs text-dark-text-light mb-1 block">Staff</label><select className="w-full bg-dark-bg border border-white/20 p-2 rounded text-white" value={selectedUser} onChange={e=>setSelectedUser(e.target.value)}>{users.map((u:any)=><option key={u.id} value={u.id}>{u.name}</option>)}</select></div>
+                <div><label className="text-xs text-dark-text-light mb-1 block">Date</label><input type="date" className="w-full bg-dark-bg border border-white/20 p-2 rounded text-white" value={date} onChange={e=>setDate(e.target.value)}/></div>
+                <div className="flex gap-2">
+                    <div className="flex-1"><label className="text-xs text-dark-text-light mb-1 block">In Time</label><input type="time" className="w-full bg-dark-bg border border-white/20 p-2 rounded text-white" value={inTime} onChange={e=>setInTime(e.target.value)}/></div>
+                    <div className="flex-1"><label className="text-xs text-dark-text-light mb-1 block">Out Time</label><input type="time" className="w-full bg-dark-bg border border-white/20 p-2 rounded text-white" value={outTime} onChange={e=>setOutTime(e.target.value)}/></div>
+                </div>
+                <div className="flex gap-3 mt-4"><button onClick={onClose} className="flex-1 py-2 bg-white/10 rounded-xl text-white font-bold hover:bg-white/20 transition-all">Cancel</button><button onClick={handleSave} className="flex-1 py-2 bg-dark-accent text-dark-bg rounded-xl font-bold hover:opacity-90 transition-all">Save</button></div>
+            </div>
+        </div>
+    );
+};
+
+const AdjustHoursModal = ({ isOpen, onClose, inLog, outLog, onSave }: any) => {
+    const [inTime, setInTime] = useState('');
+    const [outTime, setOutTime] = useState('');
+
+    useEffect(() => {
+        if(inLog) { const d = new Date(inLog.time); setInTime(`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`); }
+        if(outLog) { const d = new Date(outLog.time); setOutTime(`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`); }
+    }, [inLog, outLog]);
+
+    if (!isOpen) return null;
+
+    const handleSave = () => {
+        const updateTime = (log:any, newTime:string) => {
+            const d = new Date(log.time);
+            const [h,m] = newTime.split(':').map(Number);
+            d.setHours(h, m, 0);
+            return { ...log, time: d.toISOString(), isManual: true, reason: 'Manager adjusted' };
+        };
+        onSave(updateTime(inLog, inTime), updateTime(outLog, outTime));
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 animate-fade-in">
+            <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 w-full max-w-sm shadow-2xl space-y-4">
+                <h3 className="text-lg font-bold text-white mb-2">Adjust Hours</h3>
+                <p className="text-sm text-dark-text-light mb-2">{inLog?.name}</p>
+                <div className="flex gap-2">
+                    <div className="flex-1"><label className="text-xs text-dark-text-light mb-1 block">In Time</label><input type="time" className="w-full bg-dark-bg border border-white/20 p-2 rounded text-white" value={inTime} onChange={e=>setInTime(e.target.value)}/></div>
+                    <div className="flex-1"><label className="text-xs text-dark-text-light mb-1 block">Out Time</label><input type="time" className="w-full bg-dark-bg border border-white/20 p-2 rounded text-white" value={outTime} onChange={e=>setOutTime(e.target.value)}/></div>
+                </div>
+                <div className="flex gap-3 mt-4"><button onClick={onClose} className="flex-1 py-2 bg-white/10 rounded-xl text-white font-bold hover:bg-white/20 transition-all">Cancel</button><button onClick={handleSave} className="flex-1 py-2 bg-dark-accent text-dark-bg rounded-xl font-bold hover:opacity-90 transition-all">Save Changes</button></div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
 // 组件 5: 经理后台 (Manager Dashboard) - [全功能保留 + 分店隔离防崩版]
 // ============================================================================
 const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStoreId: string, onExit: () => void }) => {
