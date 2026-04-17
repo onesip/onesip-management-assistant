@@ -3708,91 +3708,72 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 };
 
 // ============================================================================
-// 新增组件: 物料报损单 (Waste Report View)
+// 新增组件: 今日盘点结果卡片 (提取到外部以防止加载顺序报错)
 // ============================================================================
-const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser }: any) => {
-    const [wasteData, setWasteData] = useState<Record<string, { loss: string, reason: string }>>({});
-    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-
-    const handleSubmit = () => {
-        const dataToSubmit: Record<string, { loss: string, reason: string }> = {};
-        let hasData = false;
-        
-        Object.keys(wasteData).forEach(id => {
-            if (wasteData[id].loss && parseFloat(wasteData[id].loss) > 0) {
-                dataToSubmit[id] = wasteData[id];
-                hasData = true;
-            }
-        });
-
-        if (!hasData) {
-            alert(lang === 'zh' ? "请至少输入一项浪费/损耗的数量。" : "Please enter at least one waste amount.");
-            return;
-        }
-
-        onSubmit({
-            submittedBy: currentUser?.name,
-            userId: currentUser?.id,
-            data: dataToSubmit,
-            shift: 'waste', // 特殊标记，用于后台区分
-            date: new Date().toISOString()
-        });
-    };
+const TodaysPrepReports = ({ inventoryHistory, inventoryList, lang }: { inventoryHistory: any[], inventoryList: any[], lang: string }) => {
+    const today = new Date();
+    const todaysReports = (inventoryHistory || []).filter((r: any) => 
+        new Date(r.date).toDateString() === today.toDateString()
+    );
 
     return (
-        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
-            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3">
-                <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
-                <h2 className="text-xl font-black text-red-500 flex items-center gap-2">
-                    <Icon name="Trash" size={20} /> {lang === 'zh' ? '物料报损记录' : 'Waste Report'}
-                </h2>
-            </div>
-            <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-xs font-bold border border-red-100 mb-4">
-                    {lang === 'zh' 
-                        ? '💡 提示：仅填写今天有额外损耗/浪费的物料，正常使用的无需填写。' 
-                        : '💡 Tip: Only fill in items with extra waste/loss. Leave others blank.'}
+        <div className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
+            <h3 className="text-xs font-bold text-text-light uppercase mb-3 flex items-center gap-1">
+                <Icon name="Package" size={14}/> {lang === 'zh' ? '今日盘点结果' : "Today's Prep Results"}
+            </h3>
+            
+            {todaysReports.length === 0 ? (
+                <p className="text-sm text-text-light italic">
+                    {lang === 'zh' ? '今天还没有人提交盘点报告。' : 'No reports submitted today.'}
+                </p>
+            ) : (
+                <div className="space-y-3">
+                    {todaysReports.slice().reverse().map((report: any) => (
+                        <div key={report.id} className="bg-secondary p-3 rounded-xl border border-gray-200">
+                            <div className="flex justify-between items-center mb-2 border-b border-gray-200 pb-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="font-bold text-primary text-sm">{report.submittedBy}</span>
+                                    <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded uppercase">{report.shift}</span>
+                                    {report.fridgeChecked && (
+                                        <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Fridge Temp < 6°C Confirmed">
+                                            <Icon name="Snowflake" size={10} /> OK
+                                        </span>
+                                    )}
+                                </div>
+                                <span className="text-xs text-text-light">{new Date(report.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                            </div>
+                            <div className="space-y-1">
+                                {Object.entries(report.data || {}).map(([itemId, val]: any) => {
+                                    const itemDef = inventoryList.find((i: any) => i.id === itemId);
+                                    if (!itemDef) return null;
+                                    return (
+                                        <div key={itemId} className="flex justify-between text-xs items-center bg-white p-2 rounded border border-gray-100">
+                                            <span className="text-gray-700 font-bold w-2/3 truncate" title={itemDef.name.zh}>{itemDef.name[lang] || itemDef.name.zh} <span className="opacity-50 font-normal">({itemDef.name.en})</span></span>
+                                            <div className="font-mono w-1/3 text-right">
+                                                <span className="font-bold text-green-600 bg-green-50 px-2 py-1 rounded">+{val.end} {itemDef.unit}</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
                 </div>
-                {inventoryList.filter((i:any)=>!i.hidden).map((item: any) => (
-                    <div key={item.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                            <div className="font-bold text-gray-800 text-sm truncate">{getLoc(item.name)}</div>
-                            <div className="text-[10px] text-gray-400">{item.unit}</div>
-                        </div>
-                        <div className="flex gap-2">
-                            <input
-                                type="number"
-                                placeholder="Qty"
-                                value={wasteData[item.id]?.loss || ''}
-                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], loss: e.target.value}}))}
-                                className="w-16 p-2 rounded-lg border border-red-200 text-center text-red-500 font-bold bg-red-50 focus:bg-white outline-none placeholder-red-300 text-sm"
-                            />
-                            <input
-                                type="text"
-                                placeholder={lang === 'zh' ? '原因' : 'Reason'}
-                                value={wasteData[item.id]?.reason || ''}
-                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], reason: e.target.value}}))}
-                                className="w-20 p-2 rounded-lg border border-gray-200 text-xs bg-gray-50 focus:bg-white outline-none"
-                            />
-                        </div>
-                    </div>
-                ))}
-            </div>
-            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-                <button onClick={handleSubmit} className="w-full bg-red-500 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-red-600">
-                    <Icon name="Save" size={20} /> {lang === 'zh' ? '提交报损记录' : 'Submit Waste Report'}
-                </button>
-            </div>
+            )}
         </div>
     );
 };
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [终极防崩溃 + 修复变量丢失]
+// 组件 4: 员工端 (Staff App)
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    // 【修复点 1】：确保所有需要的变量都被正确提取，包括 setInventoryList
-    const { lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, directMessages, users, recipes, scheduleCycles, setScheduleCycles, inventoryList, setInventoryList, inventoryHistory } = data;
+    // 完整解构所需变量
+    const { 
+        lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, 
+        directMessages, setDirectMessages, users, recipes, scheduleCycles, setScheduleCycles, 
+        inventoryHistory, inventoryList, setInventoryList, sopList, trainingLevels 
+    } = data;
     const { showNotification } = useNotification();
 
     const [view, setView] = useState<StaffViewMode>('home');
@@ -3800,6 +3781,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
+    const [deviationData, setDeviationData] = useState<any | null>(null);
     
     // Recipe States
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
@@ -3821,21 +3803,22 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
-    // 【修复点 2】：确保 today 在组件最顶层被定义
+    // 【关键修复】显式定义 today，防止 ReferenceError
     const today = new Date();
     
-    const currentCycle = (scheduleCycles || []).find((c: ScheduleCycle) => {
+    const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
       const start = new Date(c.startDate);
       const end = new Date(c.endDate);
       return today >= start && today <= end && c.status === 'published';
     });
-    const userConfirmation = currentCycle?.confirmations?.[currentUser.id];
+    const userConfirmation = currentCycle?.confirmations[currentUser.id];
 
+    // --- 提取公告和置顶配方 ---
     const activeNotices = (notices || []).filter((n: Notice) => n.status !== 'cancelled');
     const latestNotice = activeNotices.length > 0 ? activeNotices[activeNotices.length - 1] : null;
     const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
 
-    // --- 强制盘点逻辑检查 ---
+    // --- 检查今天是否需要盘点 ---
     const m = today.getMonth() + 1;
     const d = today.getDate();
     const todayDateKeys = [
@@ -3858,31 +3841,38 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const needsToSubmitPrep = hasShiftToday && !hasSubmittedToday;
 
-    // --- 强力盘点弹窗提醒 ---
+    // --- 强力盘点弹窗提醒 (距离下班不到 30 分钟时不断提醒) ---
     useEffect(() => {
         if (!needsToSubmitPrep) return;
+
         const timer = setInterval(() => {
             const now = new Date();
             let shouldAlert = false;
+
             myShiftsToday.forEach((shift: any) => {
                 const [endH, endM] = shift.end.split(':').map(Number);
                 const shiftEnd = new Date();
                 shiftEnd.setHours(endH, endM, 0, 0);
+                
                 const diffMins = (shiftEnd.getTime() - now.getTime()) / 60000;
-                if (diffMins <= 30) shouldAlert = true;
+                if (diffMins <= 30) {
+                    shouldAlert = true;
+                }
             });
+
             if (shouldAlert && view !== 'inventory') {
                 showNotification({
-                    type: 'clock_out_reminder',
+                    type: 'clock_out_reminder', 
                     title: '🚨 强制盘点提醒 (MANDATORY)',
-                    message: '你的班次即将结束或已结束，请务必前往 [Inventory] 填写今日的备料盘点！',
+                    message: lang === 'zh' ? '你的班次即将结束或已结束，请务必前往 [Inventory] 填写今日的备料盘点！' : 'Your shift is ending. Please submit today\'s prep report!',
                     sticky: true,
                     dedupeKey: 'mandatory_prep_reminder'
                 });
             }
-        }, 60000);
+        }, 60000); 
+
         return () => clearInterval(timer);
-    }, [needsToSubmitPrep, myShiftsToday, view, showNotification]);
+    }, [needsToSubmitPrep, myShiftsToday, view, showNotification, lang]);
 
     // --- Recipe Acknowledgment ---
     useEffect(() => {
@@ -3900,49 +3890,45 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         recipeReminderCheckDone.current = true;
     }, [recipes, currentUser]);
 
-    const handleAcknowledgeNewRecipes = async () => {
-        if (!currentUser || newRecipesToAck.length === 0) return;
-        const newAckIds = newRecipesToAck.map(r => r.id);
-        const existingAckIds = currentUser.acknowledgedNewRecipes || [];
-        const updatedAckIds = [...new Set([...existingAckIds, ...newAckIds])];
-        const updatedUser = { ...currentUser, acknowledgedNewRecipes: updatedAckIds };
-        await Cloud.saveUser(updatedUser);
-        const recipeNames = newRecipesToAck.map(r => r.name[lang] || r.name['zh']).join(', ');
-        const details = `Confirmed: ${recipeNames}`;
-        await Cloud.saveRecipeConfirmation(currentUser.id, details);
-        setNewRecipesToAck([]);
-        setView('recipes');
-        showNotification({ type: 'message', title: 'Acknowledgment Recorded', message: 'Your confirmation has been sent.' });
-    };
-
-    // --- 智能班次提醒 ---
+    // --- 智能班次提醒 (无打卡版) ---
     useEffect(() => {
         if (!schedule?.days) return;
         const timer = setInterval(() => {
             const now = new Date();
-            const m = now.getMonth() + 1;
-            const d = now.getDate();
-            const dateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
-            const todaySchedule = schedule.days.find((day: any) => dateKeys.includes(day.date));
-            if (!todaySchedule || !todaySchedule.shifts) return;
-            const myShifts = todaySchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
+            const cm = now.getMonth() + 1;
+            const cd = now.getDate();
+            const dateKeys = [`${cm}-${cd}`, `${cm.toString().padStart(2, '0')}-${cd.toString().padStart(2, '0')}`];
+            
+            const tSchedule = schedule.days.find((day: any) => dateKeys.includes(day.date));
+            if (!tSchedule || !tSchedule.shifts) return;
+
+            const myShifts = tSchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
+
             myShifts.forEach((shift: any) => {
                 const [startH, startM] = shift.start.split(':').map(Number);
                 const shiftStart = new Date(now);
                 shiftStart.setHours(startH, startM, 0, 0);
+                
                 const diffStart = (shiftStart.getTime() - now.getTime()) / 60000;
+
                 if (diffStart > 0 && diffStart <= 15) {
                     const dedupeKey = `shift_start_${dateKeys[0]}_${shift.start}`;
-                    showNotification({ type: 'announcement', title: 'Upcoming Shift', message: `你的班次 (${shift.start}) 即将开始，请做好准备！`, dedupeKey });
+                    showNotification({ 
+                        type: 'announcement', 
+                        title: 'Upcoming Shift', 
+                        message: lang === 'zh' ? `你的班次 (${shift.start}) 即将开始，请做好准备！` : `Your shift (${shift.start}) starts soon!`, 
+                        dedupeKey 
+                    });
                 }
             });
         }, 60000); 
         return () => clearInterval(timer);
-    }, [currentUser, schedule, showNotification]);
+    }, [currentUser, schedule, showNotification, lang]);
 
     // --- Swap & Schedule Reminders ---
     useEffect(() => {
         if (view !== 'home' || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) return;
+
         const runChecks = async () => {
             if (!swapReminderShown.current) {
                 const pendingSwaps = (swapRequests || []).filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
@@ -3967,16 +3953,22 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (!notices || notices.length === 0) return;
         const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
         if (activeNotices.length === 0) return;
+        
         const latest = activeNotices[activeNotices.length - 1];
         const seenKey = `notice_seen_${latest.id}`;
         const lastSeen = localStorage.getItem(seenKey);
         let shouldShow = false;
+
         if (!latest.frequency || latest.frequency === 'always') shouldShow = true;
         else if (latest.frequency === 'once') { if (!lastSeen) shouldShow = true; }
         else if (latest.frequency === 'daily') { if (!lastSeen || new Date(parseInt(lastSeen)).toDateString() !== new Date().toDateString()) shouldShow = true; }
         else if (latest.frequency === '3days') { if (!lastSeen || Date.now() - parseInt(lastSeen) > 3 * 86400000) shouldShow = true; }
+
         if (shouldShow) {
-            showNotification({ type: 'announcement', title: t.team_board || 'Announcement', message: latest.content, sticky: latest.frequency === 'always', dedupeKey: latest.id, imageUrl: latest.imageUrl });
+            showNotification({
+                type: 'announcement', title: t.team_board || 'Announcement', message: latest.content,
+                sticky: latest.frequency === 'always', dedupeKey: latest.id, imageUrl: latest.imageUrl,
+            });
             if (latest.frequency !== 'always') localStorage.setItem(seenKey, Date.now().toString());
         }
     }, [notices, showNotification, t.team_board]);
@@ -3985,9 +3977,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const myNextShift = useMemo(() => {
         if (!schedule?.days) return null;
         const now = new Date();
-        const m = now.getMonth() + 1;
-        const d = now.getDate();
-        const todayDateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
+        const nm = now.getMonth() + 1;
+        const nd = now.getDate();
+        const tDateKeys = [
+            `${nm}-${nd}`,
+            `${nm.toString().padStart(2, '0')}-${nd.toString().padStart(2, '0')}`
+        ];
+
         const allShifts = schedule.days.flatMap((day: any) => {
             let date = new Date(day.date);
             if (isNaN(date.getTime()) || day.date.indexOf('-') > -1) {
@@ -4000,8 +3996,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     date = new Date(year, dm - 1, dd);
                 }
             }
+
             const myName = currentUser.name.trim().toLowerCase();
             const myShifts = (day.shifts || []).filter((s: any) => s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myName));
+            
             return myShifts.map((s: any) => {
                 const [sh, sm] = s.start.split(':').map(Number);
                 const [eh, em] = s.end.split(':').map(Number);
@@ -4011,10 +4009,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 return { dateStr: day.date, dateObj: date, start: s.start, end: s.end, fullStart, fullEnd };
             });
         });
+
         allShifts.sort((a: any, b: any) => a.fullEnd.getTime() - b.fullEnd.getTime());
         const next = allShifts.find((shift: any) => shift.fullEnd > now);
+
         if (next) {
-            const isToday = todayDateKeys.includes(next.dateStr) || next.dateObj.toDateString() === now.toDateString();
+            const isToday = tDateKeys.includes(next.dateStr) || next.dateObj.toDateString() === now.toDateString();
             const displayDate = isToday ? (t.today || "Today") : `${next.dateObj.getMonth() + 1}/${next.dateObj.getDate()}`;
             return { date: displayDate, shift: `${next.start} - ${next.end}` };
         }
@@ -4023,18 +4023,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     // --- 盘点提交逻辑 ---
     const handleInventorySubmit = (report: any) => {
-        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
+        const completeReport = {
+            ...report,
+            id: Date.now().toString(),
+            date: new Date().toISOString(),
+        };
         Cloud.saveInventoryReport(completeReport);
-        const logs: InventoryLog[] = [];
-        const timestamp = new Date().toLocaleString();
-        Object.keys(report.data).forEach(itemId => {
-            const itemData = report.data[itemId];
-            if (itemData.end || itemData.loss) {
-                logs.push({ id: Date.now().toString() + Math.random().toString(36).substr(2, 9), timestamp, operator: report.submittedBy, itemId, itemName: itemId, newStock: itemData.end || '0', waste: itemData.loss || '0', actionType: 'report' });
-            }
-        });
-        if (logs.length > 0) Cloud.saveInventoryLogs(logs);
-        showNotification({ type: 'message', title: 'Inventory Saved', message: '盘点数据已成功保存。' });
+        showNotification({ type: 'message', title: 'Inventory Saved', message: lang === 'zh' ? '盘点数据已成功保存。' : 'Inventory saved successfully.' });
         setView('home');
     };
 
@@ -4060,165 +4055,27 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (!currentSwap || !targetEmployeeId) { alert("Please select a colleague."); return; }
         const targetUser = users.find((u:User) => u.id === targetEmployeeId);
         if (!targetUser) return;
-        const newRequest: Omit<SwapRequest, 'id'> = { requesterId: currentUser.id, requesterName: currentUser.name, requesterDate: currentSwap.date, requesterShift: currentSwap.shift, targetId: targetUser.id, targetName: targetUser.name, targetDate: null, targetShift: null, status: 'pending', reason: reason || null, timestamp: Date.now() };
+
+        const newRequest: Omit<SwapRequest, 'id'> = {
+            requesterId: currentUser.id, requesterName: currentUser.name, requesterDate: currentSwap.date, requesterShift: currentSwap.shift,
+            targetId: targetUser.id, targetName: targetUser.name, targetDate: null, targetShift: null,
+            status: 'pending', reason: reason || null, timestamp: Date.now(),
+        };
         await Cloud.saveSwapRequest(newRequest);
         showNotification({ type: 'message', title: 'Swap Request Sent', message: `Sent to ${targetUser.name}.` });
         setIsSwapModalOpen(false); setReason(''); setTargetEmployeeId('');
     };
 
     // ========================================================================
-    // SUB-VIEWS (安全渲染组件)
+    // Render Functions
     // ========================================================================
     const ConfirmationBanner = () => {
         if (!currentCycle || !userConfirmation || userConfirmation.status !== 'pending') return null;
         return ( <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in"><div className="flex-1"><h4 className="font-bold">Please Confirm Your Schedule</h4><p className="text-sm mt-1">Review upcoming shifts ({currentCycle.startDate} - {currentCycle.endDate})</p></div><button onClick={handleConfirmSchedule} className="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg text-sm shadow-md w-full sm:w-auto">Confirm Schedule</button></div>);
     };
 
-    const LibraryView = ({ data, onOpenChecklist }: { data: any, onOpenChecklist: (key: string) => void }) => {
-       const { sopList, t, lang } = data;
-       return (<div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text"><h2 className="text-2xl font-black text-text mb-4">{t.sop_library}</h2><div className="grid grid-cols-2 gap-3 mb-6"><button onClick={() => onOpenChecklist('opening')} className="p-4 bg-yellow-400/20 text-yellow-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Sun" size={24}/> Opening</button><button onClick={() => onOpenChecklist('mid')} className="p-4 bg-blue-400/20 text-blue-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Clock" size={24}/> Mid-Day</button><button onClick={() => onOpenChecklist('closing')} className="p-4 bg-purple-400/20 text-purple-800 rounded-xl font-bold flex flex-col items-center gap-2"><Icon name="Moon" size={24}/> Closing</button></div><div className="space-y-3">{(sopList || []).map((s: SopItem) => (<div key={s.id} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100"><div className="flex justify-between items-start mb-2"><h3 className="font-bold text-text">{s.title?.[lang] || s.title?.['zh']}</h3><span className="text-[10px] bg-secondary px-2 py-1 rounded text-text-light uppercase">{s.category}</span></div><p className="text-sm text-text-light whitespace-pre-line leading-relaxed">{s.content?.[lang] || s.content?.['zh']}</p></div>))}</div></div>);
-    }
-
-interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: boolean; }
-    const DrinkCard: React.FC<DrinkCardProps> = ({ drink, lang, t, autoExpand }) => {
-        const [expanded, setExpanded] = useState(autoExpand || false);
-        
-        useEffect(() => {
-            if (autoExpand) setExpanded(true);
-        }, [autoExpand]);
-
-        // 【新增】智能视频渲染函数 (支持 YouTube 和 直链 MP4)
-        const renderVideo = (url: string) => {
-            if (url.includes('youtube.com') || url.includes('youtu.be')) {
-                const yId = getYouTubeId(url);
-                return yId ? (
-                    <iframe className="w-full aspect-video rounded-lg mt-2 shadow-md" src={`https://www.youtube.com/embed/${yId}`} title="Video" allowFullScreen></iframe>
-                ) : null;
-            }
-            // 默认渲染为图床的直链视频
-            return (
-                <video 
-                    src={url} 
-                    controls 
-                    playsInline 
-                    preload="metadata" 
-                    className="w-full aspect-video rounded-lg mt-2 shadow-md bg-black object-contain" 
-                />
-            );
-        };
-
-        return (
-            <div id={`recipe-${drink.id}`} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer transition-all" onClick={() => setExpanded(!expanded)}>
-                <div className="flex justify-between items-center">
-                    <div>
-                        <h3 className="font-bold text-text flex items-center gap-2">
-                            {drink.name?.[lang] || drink.name?.['zh']}
-                            {drink.isNew && <span className="bg-red-100 text-red-500 text-[10px] px-1.5 py-0.5 rounded uppercase">New</span>}
-                        </h3>
-                        <p className="text-xs text-text-light">{drink.cat} • {drink.size}</p>
-                    </div>
-                    <Icon name={expanded ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" />
-                </div>
-                {expanded && (
-                    // onClick={e => e.stopPropagation()} 非常重要，防止点击视频播放时卡片折叠
-                    <div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in" onClick={e => e.stopPropagation()}>
-                        <p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p>
-                        <p><strong>Sugar:</strong> {drink.sugar}</p>
-                        <p><strong>Ice:</strong> {drink.ice}</p>
-                        {drink.coverImageUrl && (<img src={drink.coverImageUrl} alt={drink.name?.[lang] || drink.name?.['zh']} className="w-full h-auto rounded-lg my-2 object-cover shadow-md" />)}
-                        {(drink.basePreparation?.en || drink.basePreparation?.zh) && (
-                            <div className="bg-yellow-500/10 p-3 rounded-lg my-2">
-                                <p className="font-bold text-yellow-800 mb-1 text-xs uppercase">Base Preparation</p>
-                                <p className="text-sm text-yellow-900 whitespace-pre-line leading-relaxed">{drink.basePreparation?.[lang] || drink.basePreparation?.['zh']}</p>
-                            </div>
-                        )}
-                        <div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
-                        <div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
-                        
-                        {/* 【修改】渲染内嵌视频 */}
-                        {drink.tutorialVideoUrl && (
-                            <div className="mt-3 bg-gray-50 p-2 rounded-lg border border-gray-100">
-                                <p className="font-bold text-gray-700 mb-1 text-xs uppercase flex items-center gap-1">
-                                    <Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '教学视频' : 'Tutorial Video'}
-                                </p>
-                                {renderVideo(drink.tutorialVideoUrl)}
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-    // 【修复点 3】：给 Training 里的 .map() 加上 || [] 防止白屏崩溃
-    const TrainingView = ({ data, onComplete }: { data: any, onComplete: (levelId: number) => void }) => {
-        const { trainingLevels, t, lang } = data;
-        const [activeLevel, setActiveLevel] = useState<TrainingLevel | null>(null);
-        
-        if (activeLevel) { 
-            return (
-                <div className="h-full flex flex-col bg-surface animate-fade-in-up text-text">
-                    <div className="p-4 border-b flex items-center gap-3">
-                        <button onClick={() => setActiveLevel(null)}><Icon name="ArrowLeft"/></button>
-                        <h2 className="font-bold text-lg">{activeLevel.title?.[lang] || activeLevel.title?.['zh']}</h2>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                        <div className="bg-primary-light p-4 rounded-xl border border-primary/20">
-                            <h3 className="font-bold text-primary mb-2">Overview</h3>
-                            <p className="text-sm text-primary/80">{activeLevel.desc?.[lang] || activeLevel.desc?.['zh']}</p>
-                        </div>
-                        {activeLevel.youtubeLink && (<div className="rounded-xl overflow-hidden shadow-lg border border-gray-200"><iframe className="w-full aspect-video" src={`https://www.youtube.com/embed/${getYouTubeId(activeLevel.youtubeLink)}`} title="Training Video" allowFullScreen></iframe></div>)}
-                        {activeLevel.imageUrls && activeLevel.imageUrls.length > 0 && (<div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 scroll-smooth no-scrollbar">{activeLevel.imageUrls.map((url: string, idx: number) => (<img key={idx} src={url} alt={`Training slide ${idx+1}`} className="h-48 w-auto rounded-xl shadow-md object-cover border border-gray-100 flex-shrink-0" />))}</div>)}
-                        {(activeLevel.content || []).map((c: any, i: number) => (
-                            <div key={i}>
-                                <h3 className="font-bold text-text mb-2">{i+1}. {c.title?.[lang] || c.title?.['zh']}</h3>
-                                <p className="text-sm text-text-light whitespace-pre-line leading-relaxed">{c.body?.[lang] || c.body?.['zh']}</p>
-                            </div>
-                        ))}
-                        <div className="pt-6">
-                            <h3 className="font-bold text-text mb-4">Quiz</h3>
-                            {(activeLevel.quiz || []).map((q: any, i: number) => (
-                                <div key={q.id} className="mb-4 bg-secondary p-4 rounded-xl">
-                                    <p className="font-bold text-sm mb-2">{i+1}. {q.question?.[lang] || q.question?.['zh']}</p>
-                                    <div className="space-y-2">
-                                        {(q.options || []).map((opt: string, idx: number) => (
-                                            <button key={idx} className="w-full text-left p-3 bg-surface border rounded-lg text-sm hover:bg-gray-100">{opt}</button>
-                                        ))}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            ); 
-        }
-        
-        return (
-            <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
-                <h2 className="text-2xl font-black text-text mb-4">{t.training}</h2>
-                <div className="space-y-3">
-                    {(!trainingLevels || trainingLevels.length === 0) ? (
-                        <p className="text-center text-text-light py-10 text-sm">暂无培训内容 / No training modules found.</p>
-                    ) : (
-                        trainingLevels.map((l: TrainingLevel) => (
-                            <div key={l.id} onClick={() => setActiveLevel(l)} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4 cursor-pointer hover:shadow-md transition-all">
-                                <div className="w-12 h-12 bg-primary-light text-primary rounded-full flex items-center justify-center font-bold text-lg">{l.id}</div>
-                                <div className="flex-1">
-                                    <h3 className="font-bold text-text">{l.title?.[lang] || l.title?.['zh']}</h3>
-                                    <p className="text-xs text-text-light">{l.subtitle?.[lang] || l.subtitle?.['zh']}</p>
-                                </div>
-                                <Icon name="ChevronRight" className="text-gray-300"/>
-                            </div>
-                        ))
-                    )}
-                </div>
-            </div>
-        );
-    };
-
     const renderView = () => {
         if (view === 'team') {
-            // (保持原有的 team 渲染逻辑...)
             const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
             const startOfCurrentWeek = getStartOfWeek(new Date(), 0);
             const weeksData = [];
@@ -4295,6 +4152,19 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
                 .filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType)))
                 .filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
              
+             // --- 【修复】智能视频渲染函数 (支持 YouTube 和 直链 MP4) ---
+             const renderVideo = (url: string) => {
+                 if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                     const yId = getYouTubeId(url);
+                     return yId ? (
+                         <iframe className="w-full aspect-video rounded-lg mt-2 shadow-md" src={`https://www.youtube.com/embed/${yId}`} title="Video" allowFullScreen></iframe>
+                     ) : null;
+                 }
+                 return (
+                     <video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-lg mt-2 shadow-md bg-black object-contain" />
+                 );
+             };
+
              return (
                 <div className="h-full flex flex-col bg-secondary animate-fade-in-up text-text">
                     <div className="p-4 sticky top-0 bg-secondary z-10">
@@ -4314,8 +4184,44 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
                         </div>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 pt-0 pb-24">
-                        {filteredRecipes.map((r: DrinkRecipe) => (
-                            <DrinkCard key={r.id} drink={r} lang={lang} t={t} autoExpand={expandedRecipeId === r.id} />
+                        {filteredRecipes.map((drink: DrinkRecipe) => (
+                            <div key={drink.id} id={`recipe-${drink.id}`} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer transition-all" onClick={() => setExpandedRecipeId(expandedRecipeId === drink.id ? null : drink.id)}>
+                                <div className="flex justify-between items-center">
+                                    <div>
+                                        <h3 className="font-bold text-text flex items-center gap-2">
+                                            {drink.name?.[lang] || drink.name?.['zh']}
+                                            {drink.isNew && <span className="bg-red-100 text-red-500 text-[10px] px-1.5 py-0.5 rounded uppercase">New</span>}
+                                        </h3>
+                                        <p className="text-xs text-text-light">{drink.cat} • {drink.size}</p>
+                                    </div>
+                                    <Icon name={expandedRecipeId === drink.id ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" />
+                                </div>
+                                {expandedRecipeId === drink.id && (
+                                    <div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in" onClick={e => e.stopPropagation()}>
+                                        <p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p>
+                                        <p><strong>Sugar:</strong> {drink.sugar}</p>
+                                        <p><strong>Ice:</strong> {drink.ice}</p>
+                                        {drink.coverImageUrl && (<img src={drink.coverImageUrl} alt={drink.name?.[lang] || drink.name?.['zh']} className="w-full h-auto rounded-lg my-2 object-cover shadow-md" />)}
+                                        {(drink.basePreparation?.en || drink.basePreparation?.zh) && (
+                                            <div className="bg-yellow-500/10 p-3 rounded-lg my-2">
+                                                <p className="font-bold text-yellow-800 mb-1 text-xs uppercase">Base Preparation</p>
+                                                <p className="text-sm text-yellow-900 whitespace-pre-line leading-relaxed">{drink.basePreparation?.[lang] || drink.basePreparation?.['zh']}</p>
+                                            </div>
+                                        )}
+                                        <div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
+                                        <div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
+                                        
+                                        {drink.tutorialVideoUrl && (
+                                            <div className="mt-3 bg-gray-50 p-2 rounded-lg border border-gray-100">
+                                                <p className="font-bold text-gray-700 mb-1 text-xs uppercase flex items-center gap-1">
+                                                    <Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '教学视频' : 'Tutorial Video'}
+                                                </p>
+                                                {renderVideo(drink.tutorialVideoUrl)}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         ))}
                         {filteredRecipes.length === 0 && <p className="text-center text-text-light py-10 text-sm">没有找到相关配方 / No recipes found.</p>}
                     </div>
@@ -4341,7 +4247,6 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
             ); 
         }
 
-        // --- 【新增】物料报损页面入口 ---
         if (view === 'waste' as any) {
             return (
                 <WasteReportView 
@@ -4349,7 +4254,7 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
                     inventoryList={inventoryList} 
                     onSubmit={(report: any) => {
                         const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
-                        Cloud.saveInventoryReport(completeReport); // 保存到后台
+                        Cloud.saveInventoryReport(completeReport); 
                         showNotification({ type: 'message', title: 'Saved', message: '报损记录已提交。' });
                         setView('home');
                     }} 
@@ -4360,7 +4265,6 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
         }
         
         if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={false} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={users} />; }
-        
         if (view === 'checklist') {
             const checklist = CHECKLIST_TEMPLATES[currentShift];
             return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
@@ -4379,8 +4283,8 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
         return null;
     };
 
-    // --- HOME VIEW ---
-    const homeView = (
+    // --- HOME VIEW 拆分为独立函数以防止加载错误 ---
+    const renderHomeView = () => (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
                 <div><h1 className="text-2xl font-black">{t.hello} {currentUser.name}</h1><p className="text-text-light text-sm">{t.ready}</p></div>
@@ -4458,12 +4362,12 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
                 {myNextShift ? (<p className="font-bold text-text text-lg">{myNextShift.date} <span className="text-primary">{myNextShift.shift}</span></p>) : <p className="text-sm text-text-light italic">{t.no_shift}</p>}
             </div>
             
-            <TodaysPrepReports />
+            {/* 安全加载独立组件 */}
+            <TodaysPrepReports inventoryHistory={inventoryHistory} inventoryList={inventoryList} lang={lang} />
 
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
                 <div className="grid grid-cols-2 gap-3">
-                    {/* --- 【修改】添加了物料报损的入口按钮 --- */}
                     <button onClick={() => setView('waste' as any)} className="bg-red-50 p-4 rounded-2xl shadow-sm border border-red-100 text-left active:scale-95 transition-transform">
                         <Icon name="Trash" className="mb-1 text-red-500"/> 
                         <p className="font-bold text-red-700">{lang === 'zh' ? '物料报损' : 'Waste Report'}</p>
@@ -4472,12 +4376,10 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
                     <button onClick={() => setView('team')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Users" className="mb-1 text-primary"/> <p className="font-bold">My Schedule</p></button>
                     <button onClick={() => setView('swapRequests')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Refresh" className="mb-1 text-primary"/> <p className="font-bold">Shift Swaps</p></button>
                     <button onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Calendar" className="mb-1 text-primary"/> <p className="font-bold">Availability</p></button>
-                    <button onClick={() => setView('sop')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left col-span-2 active:scale-95 transition-transform"><Icon name="Book" className="mb-1 text-primary"/> <p className="font-bold">SOP Library</p></button>
                 </div>
             </div>
         </div>
     );
-
     
     const handleNavSwitch = (v: StaffViewMode) => {
         setView(v);
@@ -4489,7 +4391,7 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
 
     return (
         <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative pt-[calc(env(safe-area-inset-top)_+_1rem)]">
-            {view === 'home' ? homeView : renderView()}
+            {view === 'home' ? renderHomeView() : renderView()}
             
             {currentUser && <StaffBottomNav activeView={view} setActiveView={handleNavSwitch} t={t} hasUnreadChat={hasUnreadChat} />}
             
@@ -4502,6 +4404,9 @@ interface DrinkCardProps { drink: DrinkRecipe; lang: Lang; t: any; autoExpand?: 
     );
 };
 
+// ============================================================================
+// 组件: 底部导航栏 (StaffBottomNav)
+// ============================================================================
 const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat }: { activeView: string, setActiveView: (v: StaffViewMode) => void, t: any, hasUnreadChat: boolean }) => {
     const navItems = [
         { key: 'home', icon: 'Grid', label: t.home },
@@ -4670,4 +4575,3 @@ const App = () => {
 };
 
 export default App;
-
