@@ -2950,13 +2950,16 @@ const StaffAvailabilityView = ({ t, users }: { t: any, users: User[] }) => {
 // ============================================================================
 // 组件 5: 经理后台 (Manager Dashboard) - [彻底修复 today 与空对象报错]
 // ============================================================================
+// ============================================================================
+// 组件: 经理后台 (Manager Dashboard)
+// ============================================================================
 const ManagerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
     const { showNotification } = useNotification();
-    const safeUsers = Array.isArray(data.users) ? data.users : [];
-    const managerUser = safeUsers.find((u:User) => u && u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
+    const safeUsers = Array.isArray(data.users) ? data.users.filter(Boolean) : [];
+    const managerUser = safeUsers.find((u:User) => u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, notices, logs, setLogs, t, directMessages, setDirectMessages, swapRequests, setSwapRequests, users, scheduleCycles, setScheduleCycles } = data;
     
-    // 【核心修复 1】：显式定义 today 变量，防止 ReferenceError
+    // 【核心修复】：补回丢失的 today 定义
     const today = new Date();
 
     const [view, setView] = useState<'schedule' | 'logs' | 'chat' | 'financial' | 'requests' | 'planning' | 'availability' | 'confirmations'>('requests');
@@ -3795,12 +3798,11 @@ const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser 
 const StoreManagementView = ({ data }: any) => {
     const { stores, setStores, users, lang } = data;
     
-    // 防崩溃保护：确保 stores 是一个有效数组
-    const safeStores = Array.isArray(stores) ? stores : [];
+    // 【核心修复】：过滤掉所有 undefined 的脏数据，防止 s.id 崩溃
+    const safeStores = Array.isArray(stores) ? stores.filter(Boolean) : [];
     const [activeStoreId, setActiveStoreId] = useState<string>(safeStores[0]?.id || '');
 
-    // 防崩溃保护：确保 s 存在再去读取 s.id
-    const activeStore = safeStores.find((s: any) => s && s.id === activeStoreId);
+    const activeStore = safeStores.find((s: any) => s.id === activeStoreId);
 
     const handleAddStore = () => {
         const newStore = {
@@ -3816,14 +3818,14 @@ const StoreManagementView = ({ data }: any) => {
     const handleDeleteStore = () => {
         if(safeStores.length <= 1) return alert("Must keep at least one store.");
         if(window.confirm("Delete this store?")) {
-            const newStores = safeStores.filter((s:any) => s && s.id !== activeStoreId);
+            const newStores = safeStores.filter((s:any) => s.id !== activeStoreId);
             setStores(newStores);
             setActiveStoreId(newStores[0]?.id || '');
         }
     };
 
     const updateStoreField = (field: string, value: any) => {
-        setStores(safeStores.map((s:any) => (s && s.id === activeStoreId) ? { ...s, [field]: value } : s));
+        setStores(safeStores.map((s:any) => s.id === activeStoreId ? { ...s, [field]: value } : s));
     };
 
     const updateFeature = (featureKey: string, value: boolean) => {
@@ -3862,18 +3864,15 @@ const StoreManagementView = ({ data }: any) => {
                     <button onClick={handleAddStore} className="text-dark-accent hover:opacity-80"><Icon name="Plus" size={18}/></button>
                 </div>
                 <div className="overflow-y-auto flex-1 p-2 space-y-2">
-                    {safeStores.map((s:any) => {
-                        if (!s) return null;
-                        return (
-                            <button 
-                                key={s.id} 
-                                onClick={() => setActiveStoreId(s.id)}
-                                className={`w-full text-left p-3 rounded-lg text-sm font-bold transition-all ${activeStoreId === s.id ? 'bg-dark-accent text-dark-bg' : 'bg-dark-bg text-dark-text-light hover:bg-white/5 border border-white/5'}`}
-                            >
-                                {s.name} <span className="text-[10px] font-normal opacity-70 ml-1">({s.staff?.length || 0} Staff)</span>
-                            </button>
-                        );
-                    })}
+                    {safeStores.map((s:any) => (
+                        <button 
+                            key={s.id} 
+                            onClick={() => setActiveStoreId(s.id)}
+                            className={`w-full text-left p-3 rounded-lg text-sm font-bold transition-all ${activeStoreId === s.id ? 'bg-dark-accent text-dark-bg' : 'bg-dark-bg text-dark-text-light hover:bg-white/5 border border-white/5'}`}
+                        >
+                            {s.name} <span className="text-[10px] font-normal opacity-70 ml-1">({s.staff?.length || 0} Staff)</span>
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -3884,7 +3883,11 @@ const StoreManagementView = ({ data }: any) => {
                         <button onClick={handleDeleteStore} className="text-red-400 bg-red-400/10 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-400/20">Delete Store</button>
                     </div>
                     <label className="text-xs text-dark-text-light font-bold mb-1 block">Store Name</label>
-                    <input className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white font-bold outline-none focus:border-dark-accent" value={activeStore.name} onChange={(e) => updateStoreField('name', e.target.value)} />
+                    <input 
+                        className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white font-bold outline-none focus:border-dark-accent" 
+                        value={activeStore.name} 
+                        onChange={(e) => updateStoreField('name', e.target.value)} 
+                    />
                 </div>
 
                 <div className="bg-dark-surface p-4 rounded-xl border border-white/10">
@@ -3894,7 +3897,12 @@ const StoreManagementView = ({ data }: any) => {
                         {modulesList.map(mod => (
                             <label key={mod.key} className="flex items-center justify-between bg-dark-bg p-3 rounded-lg border border-white/5 cursor-pointer hover:border-white/10 transition-colors">
                                 <span className="text-sm font-bold text-white">{mod.label}</span>
-                                <input type="checkbox" checked={activeStore.features?.[mod.key] !== false} onChange={(e) => updateFeature(mod.key, e.target.checked)} className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"/>
+                                <input 
+                                    type="checkbox" 
+                                    checked={activeStore.features?.[mod.key] !== false}
+                                    onChange={(e) => updateFeature(mod.key, e.target.checked)}
+                                    className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
+                                />
                             </label>
                         ))}
                     </div>
@@ -3907,8 +3915,13 @@ const StoreManagementView = ({ data }: any) => {
                         {(users || []).filter((u:User) => u && u.active !== false).map((u:User) => {
                             const isAssigned = activeStore.staff?.includes(u.id);
                             return (
-                                <button key={u.id} onClick={() => toggleStaff(u.id)} className={`p-2 rounded-lg text-xs font-bold border transition-all flex items-center justify-between ${isAssigned ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-dark-bg border-white/5 text-dark-text-light hover:bg-white/5'}`}>
-                                    {u.name} {isAssigned && <Icon name="CheckCircle2" size={14} />}
+                                <button 
+                                    key={u.id}
+                                    onClick={() => toggleStaff(u.id)}
+                                    className={`p-2 rounded-lg text-xs font-bold border transition-all flex items-center justify-between ${isAssigned ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-dark-bg border-white/5 text-dark-text-light hover:bg-white/5'}`}
+                                >
+                                    {u.name}
+                                    {isAssigned && <Icon name="CheckCircle2" size={14} />}
                                 </button>
                             );
                         })}
