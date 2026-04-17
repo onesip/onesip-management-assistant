@@ -1742,7 +1742,7 @@ const StaffManagementView = ({ users }: { users: any[] }) => {
 };
 
 // ============================================================================
-// 组件 1: Prep Inventory (前台补料 & 后台管理 - 修复数据不显示问题)
+// 组件 1: Prep Inventory (前台补料 & 后台管理 - 自带一键恢复数据功能)
 // ============================================================================
 const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
     const todayObj = new Date();
@@ -1758,13 +1758,15 @@ const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner,
     const [viewShift, setViewShift] = useState<'morning' | 'evening'>(initialShift);
 
     const [editTargets, setEditTargets] = useState(false);
-    // 【关键修复 1】：初始设为空数组
-    const [localList, setLocalList] = useState<any[]>([]); 
+    
+    // 初始化直接读取传入的列表
+    const [localList, setLocalList] = useState<any[]>(inventoryList ? JSON.parse(JSON.stringify(inventoryList)) : []);
+    
     const [isAddingItem, setIsAddingItem] = useState(false);
     const [newItemData, setNewItemData] = useState({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // 【关键修复 2】：监听云端数据和分店切换，只要数据一变，立马刷新界面显示
+    // 监听云端数据变化
     useEffect(() => {
         if (!editTargets) {
             setLocalList(JSON.parse(JSON.stringify(inventoryList || [])));
@@ -1880,6 +1882,27 @@ const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner,
         setEditTargets(false);
     };
 
+    // --- 一键恢复您图表里的初始数据 ---
+    const restoreDefaultData = () => {
+        const defaultItems = [
+            { id: `p_${Date.now()}_1`, name: { zh: "奶精", en: "Creamer" }, unit: "L", category: "tea base", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 10 }, fri: { morning: 10, evening: 20 }, sat: { morning: 0, evening: 12.5 }, sun: { morning: 0, evening: 10 } } },
+            { id: `p_${Date.now()}_2`, name: { zh: "茉莉绿茶", en: "Jasmine Tea" }, unit: "L", category: "tea base", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 15 }, fri: { morning: 20, evening: 20 }, sat: { morning: 12, evening: 16 }, sun: { morning: 0, evening: 15 } } },
+            { id: `p_${Date.now()}_3`, name: { zh: "红茶", en: "Black Tea" }, unit: "L", category: "tea base", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 12 }, fri: { morning: 0, evening: 16 }, sat: { morning: 4, evening: 12 }, sun: { morning: 0, evening: 12 } } },
+            { id: `p_${Date.now()}_4`, name: { zh: "桂花乌龙", en: "Osmanthus Tea" }, unit: "L", category: "tea base", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 8 }, fri: { morning: 0, evening: 10 }, sat: { morning: 4, evening: 8 }, sun: { morning: 0, evening: 8 } } },
+            { id: `p_${Date.now()}_5`, name: { zh: "山茶花乌龙", en: "Camellia Tea" }, unit: "L", category: "tea base", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 6 }, fri: { morning: 4, evening: 8 }, sat: { morning: 0, evening: 6 }, sun: { morning: 0, evening: 6 } } },
+            { id: `p_${Date.now()}_6`, name: { zh: "芝士奶盖", en: "Cheese Foam" }, unit: "bucket", category: "foam toppings", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 1.5 }, fri: { morning: 1, evening: 2 }, sat: { morning: 0, evening: 1.5 }, sun: { morning: 0, evening: 1.5 } } },
+            { id: `p_${Date.now()}_7`, name: { zh: "抹茶云顶", en: "Matcha Cloud" }, unit: "bucket", category: "foam toppings", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 1 }, fri: { morning: 0, evening: 1 }, sat: { morning: 0, evening: 1 }, sun: { morning: 0, evening: 1 } } },
+            { id: `p_${Date.now()}_8`, name: { zh: "芋泥奶盖", en: "Taro Foam" }, unit: "bucket", category: "foam toppings", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 1 }, fri: { morning: 1, evening: 1 }, sat: { morning: 1, evening: 1 }, sun: { morning: 0, evening: 1 } } },
+            { id: `p_${Date.now()}_9`, name: { zh: "火龙果预拌液", en: "Dragon Fruit" }, unit: "L", category: "premix", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 3 }, fri: { morning: 3, evening: 6 }, sat: { morning: 0, evening: 3 }, sun: { morning: 0, evening: 3 } } },
+            { id: `p_${Date.now()}_10`, name: { zh: "香芋预拌液", en: "Taro" }, unit: "L", category: "premix", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 3 }, fri: { morning: 3, evening: 6 }, sat: { morning: 0, evening: 3 }, sun: { morning: 0, evening: 3 } } },
+            { id: `p_${Date.now()}_11`, name: { zh: "泰奶预拌液", en: "Thai" }, unit: "L", category: "premix", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 3 }, fri: { morning: 3, evening: 6 }, sat: { morning: 0, evening: 3 }, sun: { morning: 0, evening: 3 } } },
+            { id: `p_${Date.now()}_12`, name: { zh: "椰子预拌液", en: "Coconut" }, unit: "L", category: "premix", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 3 }, fri: { morning: 3, evening: 6 }, sat: { morning: 0, evening: 3 }, sun: { morning: 0, evening: 3 } } }
+        ];
+        setLocalList(defaultItems);
+        if (onUpdateInventoryList) onUpdateInventoryList(defaultItems);
+        alert("✅ Data restored successfully! 数据已完美恢复！");
+    };
+
     const handleStaffSubmit = () => {
         const visibleItems = inventoryList.filter((item: any) => !item.hidden);
         const incompleteItem = visibleItems.find((item: any) => {
@@ -1940,10 +1963,20 @@ const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner,
                             ))}
                         </div>
                     ))}
+                    
+                    {/* 一键恢复按钮 */}
                     {localList.length === 0 && (
-                        <div className="text-center text-dark-text-light py-10">
-                            <p>No prep targets configured for this branch.</p>
-                            <p className="text-xs mt-2 opacity-60">Click "Import" to upload your CSV file.</p>
+                        <div className="text-center py-16 px-4">
+                            <Icon name="Database" size={40} className="mx-auto mb-4 text-dark-text-light opacity-50" />
+                            <p className="text-dark-text mb-2 font-bold">No prep targets configured for this branch.</p>
+                            <p className="text-sm text-dark-text-light mb-6">当前分店还没有配置补料目标哦</p>
+                            <button 
+                                onClick={restoreDefaultData} 
+                                className="mx-auto bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl flex items-center gap-2 shadow-lg transition-transform active:scale-95"
+                            >
+                                <Icon name="RotateCcw" size={18} />
+                                Restore Default Data (一键恢复数据)
+                            </button>
                         </div>
                     )}
                 </div>
