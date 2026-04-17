@@ -1742,7 +1742,7 @@ const StaffManagementView = ({ users }: { users: any[] }) => {
 };
 
 // ============================================================================
-// 组件 1: Prep Inventory (前台补料 & 后台管理 - 智能显隐 AM/PM)
+// 组件 1: Prep Inventory (前台补料 & 后台管理 - 早班补货 + 自动暂存版)
 // ============================================================================
 const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
     const todayObj = new Date();
@@ -1752,11 +1752,8 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     if (todayIndex === 6) dayGroup = 'sat';
     if (todayIndex === 0) dayGroup = 'sun';
 
-    // 【新增逻辑】判断今天是否需要早班 (只有周五=5 和 周六=6 需要)
+    // 只有周五和周六需要早班
     const isAmNeeded = (todayIndex === 5 || todayIndex === 6);
-
-    // 如果今天是周五/周六，且当前时间早于 16:00，默认显示 morning，否则显示 evening
-    // 如果今天不是周五/周六，强制显示 evening
     const initialShift = (isAmNeeded && todayObj.getHours() < 16) ? 'morning' : 'evening';
 
     const [viewShift, setViewShift] = useState<'morning' | 'evening'>(initialShift);
@@ -1767,11 +1764,32 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
     const [newItemData, setNewItemData] = useState({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Staff 输入状态
     const [inputData, setInputData] = useState<Record<string, { end: string, isChecked?: boolean }>>({});
-    
-    // 冰箱温度检查状态
     const [fridgeChecked, setFridgeChecked] = useState(false);
+
+    // --- 【新增】本地草稿/自动暂存逻辑 ---
+    const draftKey = `onesip_prep_draft_${currentUser?.id}_${dayGroup}_${viewShift}`;
+
+    useEffect(() => {
+        if (isOwner) return; // 店长后台模式不需要暂存
+        const saved = localStorage.getItem(draftKey);
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                setInputData(parsed.inputData || {});
+                setFridgeChecked(!!parsed.fridgeChecked);
+            } catch(e) {}
+        } else {
+            setInputData({});
+            setFridgeChecked(false);
+        }
+    }, [draftKey, isOwner, viewShift]); // 切换早晚班时，加载不同的草稿
+
+    useEffect(() => {
+        if (isOwner) return;
+        localStorage.setItem(draftKey, JSON.stringify({ inputData, fridgeChecked }));
+    }, [inputData, fridgeChecked, draftKey, isOwner]);
+    // ------------------------------------
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
@@ -1928,7 +1946,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
         setEditTargets(false);
     };
 
-    // --- Staff 提交逻辑 ---
     const handleStaffSubmit = () => {
         const visibleItems = inventoryList.filter((item: any) => !item.hidden);
         
@@ -1965,9 +1982,13 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
             date: new Date().toISOString(),
             fridgeChecked: fridgeChecked 
         });
+
+        // 提交成功后清空草稿
+        localStorage.removeItem(draftKey);
+        setInputData({});
+        setFridgeChecked(false);
     };
 
-    // ---------------- OWNER VIEW ----------------
     if (isOwner) {
         return (
             <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
@@ -2015,7 +2036,6 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                                 <div key={shift} className="grid grid-cols-5 gap-2 items-center mb-2">
                                     <div className={`text-[10px] uppercase font-bold text-right pr-2 ${shift==='morning'?'text-yellow-400':'text-indigo-400'}`}>{shift}</div>
                                     {['mon_thu', 'fri', 'sat', 'sun'].map(group => {
-                                        // @ts-ignore
                                         const val = item.dailyTargets?.[group]?.[shift] || 0;
                                         return editTargets ? (
                                             <input key={group} type="number" className="w-full bg-dark-bg border border-white/20 rounded p-2 text-center text-white text-sm font-bold focus:border-blue-500 outline-none" value={val} onChange={e => handleTargetChange(item.id, group, shift, e.target.value)} />
@@ -2028,40 +2048,23 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                         </div>
                     ))}
                 </div>
-                {/* Add Item Modal */}
-                {isAddingItem && (
-                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
-                        <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl space-y-4">
-                            <h3 className="text-lg font-bold text-white">Add New Prep Item</h3>
-                            <div><label className="text-xs text-gray-400">Name (ZH)</label><input className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.nameZH} onChange={e => setNewItemData({...newItemData, nameZH: e.target.value})} /></div>
-                            <div><label className="text-xs text-gray-400">Name (EN)</label><input className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.nameEN} onChange={e => setNewItemData({...newItemData, nameEN: e.target.value})} /></div>
-                            <div className="flex gap-2">
-                                <div className="flex-1"><label className="text-xs text-gray-400">Unit</label><select className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.unit} onChange={e => setNewItemData({...newItemData, unit: e.target.value})}><option value="L">L</option><option value="ml">ml</option><option value="g">g</option><option value="kg">kg</option><option value="pcs">pcs</option><option value="box">box</option></select></div>
-                                <div className="flex-1"><label className="text-xs text-gray-400">Category</label><select className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.category} onChange={e => setNewItemData({...newItemData, category: e.target.value})}><option value="premix">Premix</option><option value="dairy">Dairy</option><option value="topping">Topping</option><option value="fruit">Fruit</option><option value="other">Other</option></select></div>
-                            </div>
-                            <div className="flex gap-2 mt-4"><button onClick={() => setIsAddingItem(false)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button><button onClick={handleAddItem} className="flex-1 py-3 rounded-xl bg-purple-600 text-white font-bold">Add Item</button></div>
-                        </div>
-                    </div>
-                )}
             </div>
         );
     }
 
-    // ---------------- STAFF VIEW (Daily Prep Check) ----------------
     return (
         <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm">
                  <div className="flex justify-between items-center mb-2">
                     <h2 className="text-xl font-black flex items-center gap-2">
                         {viewShift === 'morning' 
-                            ? <span className="text-orange-500">{lang === 'zh' ? '☀️ 早班盘点 (AM)' : '☀️ Morning Prep (AM)'}</span>
+                            ? <span className="text-orange-500">{lang === 'zh' ? '☀️ 早班补货 (AM)' : '☀️ Morning Refill (AM)'}</span>
                             : <span className="text-indigo-500">{lang === 'zh' ? '🌙 晚班盘点 (PM)' : '🌙 Evening Prep (PM)'}</span>
                         }
                     </h2>
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
                     <span>{lang === 'zh' ? '目标周期:' : 'Target Day:'} <strong className="uppercase text-gray-800">{dayGroup.replace('_', '-')}</strong></span>
-                    {/* 【智能显示】只有周五和周六才显示切换按钮 */}
                     {isAmNeeded && (
                         <div className="flex gap-2">
                             <button onClick={()=>setViewShift('morning')} className={`px-2 py-1 rounded ${viewShift==='morning'?'bg-white shadow text-orange-500 font-bold':'text-gray-400'}`}>AM</button>
@@ -2133,8 +2136,8 @@ const InventoryView = ({ lang, t, inventoryList, setInventoryList, isOwner, onSu
                 <button onClick={handleStaffSubmit} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark">
                     <Icon name="Save" size={20} /> 
                     {lang === 'zh' 
-                        ? (viewShift === 'morning' ? '提交早班盘点报告' : '提交晚班盘点报告') 
-                        : (viewShift === 'morning' ? 'Submit AM Report' : 'Submit PM Report')
+                        ? (viewShift === 'morning' ? '提交早班补货记录' : '提交晚班盘点报告') 
+                        : (viewShift === 'morning' ? 'Submit AM Refill' : 'Submit PM Report')
                     }
                 </button>
             </div>
