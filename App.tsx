@@ -3708,12 +3708,92 @@ const LastRefillCard = ({ inventoryHistory, inventoryList, lang, t }: any) => {
 };
 
 // ============================================================================
-// 新增组件: 今日盘点结果卡片 (提取到外部以防止加载顺序报错)
+// 新增组件: 物料报损单 (Waste Report View)
+// ============================================================================
+const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser }: any) => {
+    const [wasteData, setWasteData] = useState<Record<string, { loss: string, reason: string }>>({});
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+
+    const handleSubmit = () => {
+        const dataToSubmit: Record<string, { loss: string, reason: string }> = {};
+        let hasData = false;
+        
+        Object.keys(wasteData).forEach(id => {
+            if (wasteData[id].loss && parseFloat(wasteData[id].loss) > 0) {
+                dataToSubmit[id] = wasteData[id];
+                hasData = true;
+            }
+        });
+
+        if (!hasData) {
+            alert(lang === 'zh' ? "请至少输入一项浪费/损耗的数量。" : "Please enter at least one waste amount.");
+            return;
+        }
+
+        onSubmit({
+            submittedBy: currentUser?.name,
+            userId: currentUser?.id,
+            data: dataToSubmit,
+            shift: 'waste', 
+            date: new Date().toISOString()
+        });
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
+            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3">
+                <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
+                <h2 className="text-xl font-black text-red-500 flex items-center gap-2">
+                    <Icon name="Trash" size={20} /> {lang === 'zh' ? '物料报损记录' : 'Waste Report'}
+                </h2>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-xs font-bold border border-red-100 mb-4">
+                    {lang === 'zh' 
+                        ? '💡 提示：仅填写今天有额外损耗/浪费的物料，正常使用的无需填写。' 
+                        : '💡 Tip: Only fill in items with extra waste/loss. Leave others blank.'}
+                </div>
+                {inventoryList.filter((i:any)=>!i.hidden).map((item: any) => (
+                    <div key={item.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                            <div className="font-bold text-gray-800 text-sm truncate">{getLoc(item.name)}</div>
+                            <div className="text-[10px] text-gray-400">{item.unit}</div>
+                        </div>
+                        <div className="flex gap-2">
+                            <input
+                                type="number"
+                                placeholder="Qty"
+                                value={wasteData[item.id]?.loss || ''}
+                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], loss: e.target.value}}))}
+                                className="w-16 p-2 rounded-lg border border-red-200 text-center text-red-500 font-bold bg-red-50 focus:bg-white outline-none placeholder-red-300 text-sm"
+                            />
+                            <input
+                                type="text"
+                                placeholder={lang === 'zh' ? '原因' : 'Reason'}
+                                value={wasteData[item.id]?.reason || ''}
+                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], reason: e.target.value}}))}
+                                className="w-20 p-2 rounded-lg border border-gray-200 text-xs bg-gray-50 focus:bg-white outline-none"
+                            />
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+                <button onClick={handleSubmit} className="w-full bg-red-500 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-red-600">
+                    <Icon name="Save" size={20} /> {lang === 'zh' ? '提交报损' : 'Submit Waste'}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
+// 新增组件: 今日盘点结果卡片 (双语支持)
 // ============================================================================
 const TodaysPrepReports = ({ inventoryHistory, inventoryList, lang }: { inventoryHistory: any[], inventoryList: any[], lang: string }) => {
     const today = new Date();
     const todaysReports = (inventoryHistory || []).filter((r: any) => 
-        new Date(r.date).toDateString() === today.toDateString()
+        new Date(r.date).toDateString() === today.toDateString() && r.shift !== 'waste'
     );
 
     return (
@@ -3768,7 +3848,6 @@ const TodaysPrepReports = ({ inventoryHistory, inventoryList, lang }: { inventor
 // 组件 4: 员工端 (Staff App)
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
-    // 完整解构所需变量
     const { 
         lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, 
         directMessages, setDirectMessages, users, recipes, scheduleCycles, setScheduleCycles, 
@@ -3781,7 +3860,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
-    const [deviationData, setDeviationData] = useState<any | null>(null);
     
     // Recipe States
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
@@ -3803,7 +3881,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
-    // 【关键修复】显式定义 today，防止 ReferenceError
     const today = new Date();
     
     const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
@@ -3836,12 +3913,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const hasSubmittedToday = (inventoryHistory || []).some((r: any) =>
         r.submittedBy === currentUser.name &&
-        new Date(r.date).toDateString() === today.toDateString()
+        new Date(r.date).toDateString() === today.toDateString() &&
+        r.shift !== 'waste'
     );
 
     const needsToSubmitPrep = hasShiftToday && !hasSubmittedToday;
 
-    // --- 强力盘点弹窗提醒 (距离下班不到 30 分钟时不断提醒) ---
+    // --- 强力盘点弹窗提醒 ---
     useEffect(() => {
         if (!needsToSubmitPrep) return;
 
@@ -3890,7 +3968,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         recipeReminderCheckDone.current = true;
     }, [recipes, currentUser]);
 
-    // --- 智能班次提醒 (无打卡版) ---
+    // --- 智能班次提醒 ---
     useEffect(() => {
         if (!schedule?.days) return;
         const timer = setInterval(() => {
@@ -3979,10 +4057,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         const now = new Date();
         const nm = now.getMonth() + 1;
         const nd = now.getDate();
-        const tDateKeys = [
-            `${nm}-${nd}`,
-            `${nm.toString().padStart(2, '0')}-${nd.toString().padStart(2, '0')}`
-        ];
+        const tDateKeys = [`${nm}-${nd}`, `${nm.toString().padStart(2, '0')}-${nd.toString().padStart(2, '0')}`];
 
         const allShifts = schedule.days.flatMap((day: any) => {
             let date = new Date(day.date);
@@ -4021,19 +4096,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return null;
     }, [schedule, currentUser, t]);
 
-    // --- 盘点提交逻辑 ---
-    const handleInventorySubmit = (report: any) => {
-        const completeReport = {
-            ...report,
-            id: Date.now().toString(),
-            date: new Date().toISOString(),
-        };
-        Cloud.saveInventoryReport(completeReport);
-        showNotification({ type: 'message', title: 'Inventory Saved', message: lang === 'zh' ? '盘点数据已成功保存。' : 'Inventory saved successfully.' });
-        setView('home');
-    };
-
-    // --- Swap & Schedule Actions ---
+    // --- Swap & Schedule Confirm Actions ---
     const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
         const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
         if(!req) return;
@@ -4067,7 +4130,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     };
 
     // ========================================================================
-    // Render Functions
+    // SUB-VIEWS (Render Functions)
     // ========================================================================
     const ConfirmationBanner = () => {
         if (!currentCycle || !userConfirmation || userConfirmation.status !== 'pending') return null;
@@ -4147,12 +4210,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
         
         if (view === 'recipes') {
+             // ... 保持原有 recipes 逻辑 ...
              const filteredRecipes = recipes
                 .filter((r: DrinkRecipe) => r.isPublished !== false)
                 .filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType)))
                 .filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
              
-             // --- 【修复】智能视频渲染函数 (支持 YouTube 和 直链 MP4) ---
              const renderVideo = (url: string) => {
                  if (url.includes('youtube.com') || url.includes('youtu.be')) {
                      const yId = getYouTubeId(url);
@@ -4171,12 +4234,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                         <h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2>
                         <div className="relative mb-4">
                             <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-                            <input 
-                                value={recipeSearchQuery} 
-                                onChange={e => setRecipeSearchQuery(e.target.value)} 
-                                placeholder="Search recipes..." 
-                                className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm"
-                            />
+                            <input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm" />
                         </div>
                          <div className="flex gap-2">
                             <button onClick={() => setRecipeTypeFilter('product')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'product' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Product</button>
@@ -4237,7 +4295,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     t={t} 
                     inventoryList={inventoryList} 
                     setInventoryList={setInventoryList} 
-                    onSubmit={handleInventorySubmit} 
+                    onSubmit={(report: any) => {
+                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
+                        Cloud.saveInventoryReport(completeReport); 
+                        showNotification({ type: 'message', title: 'Saved', message: '盘点记录已提交。' });
+                        setView('home');
+                    }}
                     currentUser={currentUser} 
                     isForced={false} 
                     onCancel={() => setView('home')} 
@@ -4265,25 +4328,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
         
         if (view === 'chat') { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={false} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={users} />; }
-        if (view === 'checklist') {
-            const checklist = CHECKLIST_TEMPLATES[currentShift];
-            return <div className="h-full flex flex-col bg-surface"><div className="p-4 border-b flex items-center gap-3"><button onClick={() => setView('sop')}><Icon name="ArrowLeft"/></button><div><h2 className="font-bold text-lg">{checklist.title?.[lang] || checklist.title?.['zh']}</h2><p className="text-xs text-text-light">{checklist.subtitle?.[lang] || checklist.subtitle?.['zh']}</p></div></div><div className="flex-1 overflow-y-auto p-4 space-y-3">{checklist.items.map(item => (<div key={item.id} className="bg-secondary p-4 rounded-xl flex items-start gap-3"><input type="checkbox" className="w-5 h-5 mt-0.5 rounded text-primary focus:ring-primary"/><div><label className="font-bold text-sm text-text">{item.text?.[lang] || item.text?.['zh']}</label><p className="text-xs text-text-light">{item.desc?.[lang] || item.desc?.['zh']}</p></div></div>))}</div></div>;
-        }
-        if (view === 'swapRequests') {
-            const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
-            const incomingRequests = swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
-            return (
-                <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
-                    <h2 className="text-2xl font-black mb-4">Shift Swap Center</h2>
-                    <div className="mb-6"><h3 className="font-bold mb-2 text-text">Incoming Requests</h3>{incomingRequests.length > 0 ? incomingRequests.map((req: SwapRequest) => (<div key={req.id} className="bg-surface p-4 rounded-xl border mb-2"><p className="text-sm mb-2"><strong className="text-primary">{req.requesterName}</strong> wants to swap:</p><div className="bg-secondary p-2 rounded-lg text-center font-mono text-sm mb-3">{req.requesterDate} ({req.requesterShift})</div><div className="flex gap-2"><button onClick={() => handleSwapAction(req.id, 'rejected')} className="flex-1 bg-red-100 text-red-600 font-bold py-2 rounded-lg text-sm">Reject</button><button onClick={() => handleSwapAction(req.id, 'accepted_by_peer')} className="flex-1 bg-green-100 text-green-700 font-bold py-2 rounded-lg text-sm">Accept</button></div></div>)) : <p className="text-sm text-text-light italic">No incoming requests.</p>}</div>
-                    <div><h3 className="font-bold mb-2 text-text">My Sent Requests</h3>{myRequests.length > 0 ? myRequests.map((req: SwapRequest) => (<div key={req.id} className="bg-surface p-3 rounded-xl border mb-2 text-sm"><p>To <strong className="text-primary">{req.targetName}</strong> for <span className="font-mono">{req.requesterDate} ({req.requesterShift})</span></p><p>Status: <strong className="capitalize text-gray-500">{req.status.replace(/_/g, ' ')}</strong></p></div>)) : <p className="text-sm text-text-light italic">No sent requests.</p>}</div>
-                </div>
-            );
-        }
+        if (view === 'swapRequests') { return (<div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text"><h2 className="text-2xl font-black mb-4">Shift Swap Center</h2><div className="mb-6"><h3 className="font-bold mb-2 text-text">Incoming Requests</h3>{swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending').length > 0 ? swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending').map((req: SwapRequest) => (<div key={req.id} className="bg-surface p-4 rounded-xl border mb-2"><p className="text-sm mb-2"><strong className="text-primary">{req.requesterName}</strong> wants to swap:</p><div className="bg-secondary p-2 rounded-lg text-center font-mono text-sm mb-3">{req.requesterDate} ({req.requesterShift})</div><div className="flex gap-2"><button onClick={() => handleSwapAction(req.id, 'rejected')} className="flex-1 bg-red-100 text-red-600 font-bold py-2 rounded-lg text-sm">Reject</button><button onClick={() => handleSwapAction(req.id, 'accepted_by_peer')} className="flex-1 bg-green-100 text-green-700 font-bold py-2 rounded-lg text-sm">Accept</button></div></div>)) : <p className="text-sm text-text-light italic">No incoming requests.</p>}</div><div><h3 className="font-bold mb-2 text-text">My Sent Requests</h3>{swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id).length > 0 ? swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id).map((req: SwapRequest) => (<div key={req.id} className="bg-surface p-3 rounded-xl border mb-2 text-sm"><p>To <strong className="text-primary">{req.targetName}</strong> for <span className="font-mono">{req.requesterDate} ({req.requesterShift})</span></p><p>Status: <strong className="capitalize text-gray-500">{req.status.replace(/_/g, ' ')}</strong></p></div>)) : <p className="text-sm text-text-light italic">No sent requests.</p>}</div></div>); }
         return null;
     };
 
-    // --- HOME VIEW 拆分为独立函数以防止加载错误 ---
+    // --- HOME VIEW 分离 ---
     const renderHomeView = () => (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
@@ -4362,7 +4411,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 {myNextShift ? (<p className="font-bold text-text text-lg">{myNextShift.date} <span className="text-primary">{myNextShift.shift}</span></p>) : <p className="text-sm text-text-light italic">{t.no_shift}</p>}
             </div>
             
-            {/* 安全加载独立组件 */}
+            {/* --- 安全加载独立组件 --- */}
             <TodaysPrepReports inventoryHistory={inventoryHistory} inventoryList={inventoryList} lang={lang} />
 
             <div className="mt-4">
@@ -4372,7 +4421,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                         <Icon name="Trash" className="mb-1 text-red-500"/> 
                         <p className="font-bold text-red-700">{lang === 'zh' ? '物料报损' : 'Waste Report'}</p>
                     </button>
-                    
                     <button onClick={() => setView('team')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Users" className="mb-1 text-primary"/> <p className="font-bold">My Schedule</p></button>
                     <button onClick={() => setView('swapRequests')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Refresh" className="mb-1 text-primary"/> <p className="font-bold">Shift Swaps</p></button>
                     <button onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Calendar" className="mb-1 text-primary"/> <p className="font-bold">Availability</p></button>
@@ -4456,7 +4504,6 @@ const App = () => {
     const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
     const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
     
-    // 云端数据
     const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
 
     const t = TRANSLATIONS[lang];
