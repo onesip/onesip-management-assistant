@@ -2906,4 +2906,140 @@ const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => 
     );
 };
 
+// ============================================================================
+// MAIN APP COMPONENT (程序核心入口)
+// ============================================================================
+const App = () => {
+    const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('onesip_lang') as Lang) || 'zh');
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [adminMode, setAdminMode] = useState<'manager' | 'owner' | 'editor' | null>(null);
+    const [adminModalOpen, setAdminModalOpen] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [showCloudSetup, setShowCloudSetup] = useState(false);
+    const [storeAuthInput, setStoreAuthInput] = useState('');
+    const [isStoreAuthModalOpen, setIsStoreAuthModalOpen] = useState(false);
+    
+    // --- Data States ---
+    const [users, setUsers] = useState<User[]>(STATIC_USERS);
+    const [inventoryList, setInventoryList] = useState<InventoryItem[]>(INVENTORY_ITEMS);
+    const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
+    const [schedule, setSchedule] = useState<any>({ days: [] });
+    const [notices, setNotices] = useState<Notice[]>([]);
+    const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
+    const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
+    const [sales, setSales] = useState<SalesRecord[]>([]);
+    const [smartInventory, setSmartInventory] = useState<any[]>([]);
+    const [sopList, setSopList] = useState<SopItem[]>(SOP_DATABASE);
+    const [trainingLevels, setTrainingLevels] = useState<TrainingLevel[]>(TRAINING_LEVELS);
+    const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
+    const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
+    const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
+    const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
+
+    const [stores, setStores] = useState<any[]>(() => {
+        const saved = localStorage.getItem('onesip_stores_v1');
+        if (saved) return JSON.parse(saved);
+        return [{ id: 'default_store', name: 'Main Store', staff: STATIC_USERS.map((u:User)=>u.id), features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true } }];
+    });
+
+    useEffect(() => { localStorage.setItem('onesip_stores_v1', JSON.stringify(stores)); }, [stores]);
+
+    const t = TRANSLATIONS[lang];
+
+    const appData = {
+        lang, setLang, users, inventoryList, setInventoryList, inventoryHistory, 
+        schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
+        setDirectMessages, swapRequests, setSwapRequests, sales, sopList, 
+        setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
+        confirmations, scheduleCycles, setScheduleCycles, 
+        smartInventory, setSmartInventory, 
+        smartInventoryReports, setSmartInventoryReports,
+        smartReports: smartInventoryReports, 
+        setSmartReports: setSmartInventoryReports,
+        stores, setStores
+    };
+
+    useEffect(() => {
+        Cloud.seedInitialData();
+        const unsubs = [
+            Cloud.subscribeToUsers(setUsers),
+            Cloud.subscribeToInventory(setInventoryList),
+            Cloud.subscribeToSmartInventory(setSmartInventory),
+            Cloud.subscribeToSchedule((week) => setSchedule({ days: week?.days || [] })),
+            Cloud.subscribeToLogs(setLogs),
+            Cloud.subscribeToChat((msgs, nts) => { setDirectMessages(msgs); setNotices(nts); }),
+            Cloud.subscribeToSwaps(setSwapRequests),
+            Cloud.subscribeToSales(setSales),
+            Cloud.subscribeToInventoryHistory(setInventoryHistory),
+            Cloud.subscribeToScheduleConfirmations(setConfirmations),
+            Cloud.subscribeToScheduleCycles(setScheduleCycles),
+            Cloud.subscribeToContent((data) => {
+                if (data?.sops) setSopList(data.sops);
+                if (data?.training) setTrainingLevels(data.training);
+                if (data?.recipes) setRecipes(data.recipes);
+            }),
+            Cloud.subscribeToSmartInventoryReports(setSmartInventoryReports)
+        ];
+
+        setTimeout(() => setIsLoading(false), 800);
+        return () => { unsubs.forEach(unsub => unsub && unsub()); };
+    }, []);
+
+    useEffect(() => { localStorage.setItem('onesip_lang', lang); }, [lang]);
+
+    const handleLogin = (user: User, keepLoggedIn: boolean) => { setCurrentUser(user); };
+    const handleLogout = () => { setCurrentUser(null); setAdminMode(null); };
+
+    if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-secondary text-primary font-bold animate-pulse">Loading ONESIP...</div>;
+    if (adminMode === 'editor') return <EditorDashboard data={appData} onExit={() => setAdminMode(null)} />;
+    
+    if (adminMode === 'owner' || adminMode === 'manager') {
+        return (
+            <>
+                <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />
+                {isStoreAuthModalOpen && (
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-dark-surface rounded-3xl p-6 w-full max-w-xs shadow-2xl animate-pop-in border border-white/10 text-center">
+                            <Icon name="Lock" size={24} className="mx-auto mb-2 text-white" />
+                            <h3 className="font-black text-xl text-white mb-4">Branch Control</h3>
+                            <input 
+                                type="password" value={storeAuthInput} onChange={e => setStoreAuthInput(e.target.value)} 
+                                className="w-full text-center text-2xl tracking-[0.5em] p-4 bg-dark-bg border border-white/20 rounded-xl mb-4 font-black text-white outline-none focus:border-dark-accent" 
+                                placeholder="PIN" autoFocus maxLength={4} 
+                                onKeyDown={e => {
+                                    if(e.key === 'Enter') {
+                                        if (storeAuthInput === '0117') { setIsStoreAuthModalOpen(false); } 
+                                        else { alert("Invalid PIN"); setStoreAuthInput(''); }
+                                    }
+                                }}
+                            />
+                            <div className="grid grid-cols-2 gap-3">
+                                <button onClick={() => {setIsStoreAuthModalOpen(false); setStoreAuthInput('');}} className="p-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
+                                <button onClick={() => { if(storeAuthInput === '0117') { setIsStoreAuthModalOpen(false); setStoreAuthInput('__success__'); } else { alert("Invalid PIN"); setStoreAuthInput(''); } }} className="p-3 rounded-xl bg-dark-accent text-dark-bg font-bold">Enter</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </>
+        );
+    }
+
+    return (
+        <>
+            {!currentUser && <LoginScreen users={users} onLogin={handleLogin} t={t} lang={lang} setLang={setLang} />}
+            {currentUser && <StaffApp onSwitchMode={() => {}} data={appData} onLogout={handleLogout} currentUser={currentUser} openAdmin={() => setAdminModalOpen(true)} />}
+            {!currentUser && !adminMode && (
+                <div className="fixed bottom-6 right-6 z-50">
+                    <button onClick={() => setAdminModalOpen(true)} className="w-10 h-10 bg-gray-200/50 hover:bg-gray-200 text-gray-500 hover:text-gray-800 rounded-full flex items-center justify-center transition-all backdrop-blur-sm">
+                        <Icon name="Shield" size={18} />
+                    </button>
+                </div>
+            )}
+            <AdminLoginModal isOpen={adminModalOpen} onClose={() => setAdminModalOpen(false)} onLogin={(role) => { setAdminModalOpen(false); setAdminMode(role); }} />
+            {showCloudSetup && <CloudSetupModal isOpen={showCloudSetup} onClose={() => setShowCloudSetup(false)} />}
+        </>
+    );
+};
+
 export default App;
