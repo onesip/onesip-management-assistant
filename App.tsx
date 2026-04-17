@@ -2505,41 +2505,6 @@ const ManualLogModal = ({ isOpen, onClose, onSave, users }: any) => {
     );
 };
 
-const AdjustHoursModal = ({ isOpen, onClose, inLog, outLog, onSave }: any) => {
-    const [inTime, setInTime] = useState('');
-    const [outTime, setOutTime] = useState('');
-
-    useEffect(() => {
-        if(inLog) { const d = new Date(inLog.time); setInTime(`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`); }
-        if(outLog) { const d = new Date(outLog.time); setOutTime(`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`); }
-    }, [inLog, outLog]);
-
-    if (!isOpen) return null;
-
-    const handleSave = () => {
-        const updateTime = (log:any, newTime:string) => {
-            const d = new Date(log.time);
-            const [h,m] = newTime.split(':').map(Number);
-            d.setHours(h, m, 0);
-            return { ...log, time: d.toISOString(), isManual: true, reason: 'Manager adjusted' };
-        };
-        onSave(updateTime(inLog, inTime), updateTime(outLog, outTime));
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 animate-fade-in">
-            <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 w-full max-w-sm shadow-2xl space-y-4">
-                <h3 className="text-lg font-bold text-white mb-2">Adjust Hours</h3>
-                <p className="text-sm text-dark-text-light mb-2">{inLog?.name}</p>
-                <div className="flex gap-2">
-                    <div className="flex-1"><label className="text-xs text-dark-text-light mb-1 block">In Time</label><input type="time" className="w-full bg-dark-bg border border-white/20 p-2 rounded text-white" value={inTime} onChange={e=>setInTime(e.target.value)}/></div>
-                    <div className="flex-1"><label className="text-xs text-dark-text-light mb-1 block">Out Time</label><input type="time" className="w-full bg-dark-bg border border-white/20 p-2 rounded text-white" value={outTime} onChange={e=>setOutTime(e.target.value)}/></div>
-                </div>
-                <div className="flex gap-3 mt-4"><button onClick={onClose} className="flex-1 py-2 bg-white/10 rounded-xl text-white font-bold hover:bg-white/20 transition-all">Cancel</button><button onClick={handleSave} className="flex-1 py-2 bg-dark-accent text-dark-bg rounded-xl font-bold hover:opacity-90 transition-all">Save Changes</button></div>
-            </div>
-        </div>
-    );
-};
 
 // ============================================================================
 // 组件 5: 经理后台 (Manager Dashboard) - [全功能保留 + 分店隔离防崩版]
