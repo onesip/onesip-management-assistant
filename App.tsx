@@ -3822,7 +3822,7 @@ const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser 
 // 新增组件: 分店与权限管理 (Store Management View)
 // ============================================================================
 const StoreManagementView = ({ data }: any) => {
-    const { stores, setStores, users, lang } = data;
+    const { stores, setStores, users } = data;
     const [activeStoreId, setActiveStoreId] = useState<string>(stores[0]?.id || '');
 
     const activeStore = stores.find((s: any) => s.id === activeStoreId);
@@ -3832,7 +3832,10 @@ const StoreManagementView = ({ data }: any) => {
             id: `store_${Date.now()}`,
             name: `New Branch ${stores.length + 1}`,
             staff: [],
-            features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true }
+            features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true },
+            schedule: { days: [] },
+            inventoryList: null, // 独立补料清单
+            smartInventory: null // 独立智能仓库
         };
         setStores([...stores, newStore]);
         setActiveStoreId(newStore.id);
@@ -3840,7 +3843,7 @@ const StoreManagementView = ({ data }: any) => {
 
     const handleDeleteStore = () => {
         if(stores.length <= 1) return alert("Must keep at least one store.");
-        if(window.confirm("Delete this store?")) {
+        if(window.confirm("Delete this store? All its exclusive data might be unlinked!")) {
             const newStores = stores.filter((s:any) => s.id !== activeStoreId);
             setStores(newStores);
             setActiveStoreId(newStores[0].id);
@@ -3881,7 +3884,6 @@ const StoreManagementView = ({ data }: any) => {
 
     return (
         <div className="flex flex-col md:flex-row h-full gap-4 p-4 animate-fade-in">
-            {/* 左侧：分店列表 */}
             <div className="w-full md:w-1/3 bg-dark-surface rounded-xl border border-white/10 overflow-hidden flex flex-col max-h-64 md:max-h-full shrink-0">
                 <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center">
                     <h3 className="font-bold text-white text-sm">Branches</h3>
@@ -3900,7 +3902,6 @@ const StoreManagementView = ({ data }: any) => {
                 </div>
             </div>
 
-            {/* 右侧：分店配置 */}
             <div className="flex-1 overflow-y-auto space-y-4">
                 <div className="bg-dark-surface p-4 rounded-xl border border-white/10">
                     <div className="flex justify-between items-center mb-4">
@@ -3924,7 +3925,7 @@ const StoreManagementView = ({ data }: any) => {
                                 <span className="text-sm font-bold text-white">{mod.label}</span>
                                 <input 
                                     type="checkbox" 
-                                    checked={activeStore.features?.[mod.key] !== false} // 默认开启
+                                    checked={activeStore.features?.[mod.key] !== false} 
                                     onChange={(e) => updateFeature(mod.key, e.target.checked)}
                                     className="w-5 h-5 rounded bg-dark-bg border-white/20 text-dark-accent focus:ring-dark-accent"
                                 />
@@ -3952,6 +3953,115 @@ const StoreManagementView = ({ data }: any) => {
                         })}
                     </div>
                 </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
+// 新增: 分店沙盒隔离层 (Branch Manager Wrapper) - 数据全隔离
+// ============================================================================
+const BranchManagerWrapper = ({ data, onExit }: { data: any, onExit: () => void }) => {
+    const { stores, setStores, currentUser, users, setUsers, scheduleCycles, setScheduleCycles, schedule, setSchedule, inventoryList, setInventoryList, inventoryHistory, smartInventory, setSmartInventory, smartReports } = data;
+    
+    const accessibleStores = currentUser?.role === 'boss' 
+        ? stores 
+        : stores.filter((s:any) => s.staff?.includes(currentUser.id));
+        
+    const [storeId, setStoreId] = useState(accessibleStores[0]?.id || 'default_store');
+    const activeStore = stores.find((s:any) => s.id === storeId) || accessibleStores[0];
+
+    if (!activeStore) {
+        return (
+            <div className="min-h-screen bg-dark-bg flex items-center justify-center text-white">
+                <div className="text-center">
+                    <Icon name="Lock" size={48} className="mx-auto mb-4 text-dark-accent opacity-50" />
+                    <h2 className="text-xl font-bold mb-2">No Branch Assigned</h2>
+                    <p className="text-dark-text-light mb-6">You are not assigned to manage any branch.</p>
+                    <button onClick={onExit} className="bg-dark-accent text-dark-bg px-6 py-2 rounded-lg font-bold">Go Back</button>
+                </div>
+            </div>
+        );
+    }
+
+    // 员工 & 排班隔离
+    const branchUsers = users.filter((u:User) => activeStore.staff?.includes(u.id) || u.role === 'boss');
+    const proxySetUsers = (newUsers: User[]) => {
+        setUsers(newUsers); 
+        const oldIds = users.map((u:User) => u.id);
+        const addedIds = newUsers.filter((u:User) => !oldIds.includes(u.id)).map(u => u.id);
+        if (addedIds.length > 0) {
+            const updatedStores = stores.map((s:any) => s.id === activeStore.id ? { ...s, staff: [...(s.staff||[]), ...addedIds] } : s);
+            setStores(updatedStores);
+        }
+    };
+
+    const branchCycles = scheduleCycles.filter((c:any) => c.storeId === activeStore.id || (!c.storeId && activeStore.id === 'default_store'));
+    const proxySetScheduleCycles = (newCycles: any[]) => {
+        const injected = newCycles.map((c:any) => ({ ...c, storeId: c.storeId || activeStore.id }));
+        const otherCycles = scheduleCycles.filter((c:any) => c.storeId !== activeStore.id && (c.storeId || activeStore.id !== 'default_store'));
+        setScheduleCycles([...otherCycles, ...injected.filter((c:any) => c.storeId === activeStore.id)]);
+    };
+
+    const branchSchedule = activeStore.schedule || schedule || { days: [] };
+    const proxySetSchedule = (newSchedule: any) => {
+        setSchedule(newSchedule);
+        const updatedStores = stores.map((s:any) => s.id === activeStore.id ? { ...s, schedule: newSchedule } : s);
+        setStores(updatedStores);
+    };
+
+    // 库存 & 记录隔离
+    const branchInventoryList = activeStore.inventoryList || inventoryList;
+    const proxySetInventoryList = (newList: any[]) => {
+        if (activeStore.id === 'default_store') {
+            setInventoryList(newList);
+        } else {
+            const updatedStores = stores.map((s:any) => s.id === activeStore.id ? { ...s, inventoryList: newList } : s);
+            setStores(updatedStores);
+        }
+    };
+
+    const branchSmartInventory = activeStore.smartInventory || smartInventory;
+    const proxySetSmartInventory = (newList: any[]) => {
+        if (activeStore.id === 'default_store') {
+            setSmartInventory(newList);
+        } else {
+            const updatedStores = stores.map((s:any) => s.id === activeStore.id ? { ...s, smartInventory: newList } : s);
+            setStores(updatedStores);
+        }
+    };
+
+    const branchHistory = inventoryHistory.filter((r:any) => r.storeId === activeStore.id || (!r.storeId && activeStore.id === 'default_store'));
+    const branchSmartReports = smartReports.filter((r:any) => r.storeId === activeStore.id || (!r.storeId && activeStore.id === 'default_store'));
+
+    const proxyData = {
+        ...data,
+        users: branchUsers, setUsers: proxySetUsers,
+        scheduleCycles: branchCycles, setScheduleCycles: proxySetScheduleCycles,
+        schedule: branchSchedule, setSchedule: proxySetSchedule,
+        inventoryList: branchInventoryList, setInventoryList: proxySetInventoryList,
+        inventoryHistory: branchHistory,
+        smartInventory: branchSmartInventory, setSmartInventory: proxySetSmartInventory,
+        smartReports: branchSmartReports
+    };
+
+    return (
+        <div className="flex flex-col h-screen bg-dark-bg relative">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[100] bg-dark-surface border border-white/20 pl-4 pr-3 py-2 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md animate-fade-in-up">
+                <Icon name="Store" size={16} className="text-dark-accent" />
+                <select 
+                    className="bg-transparent text-white text-sm font-bold outline-none appearance-none cursor-pointer pr-4"
+                    value={storeId}
+                    onChange={e => setStoreId(e.target.value)}
+                >
+                    {accessibleStores.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <div className="w-px h-4 bg-white/20"></div>
+                <span className="text-[10px] text-dark-accent font-black uppercase tracking-widest">Branch Mgr</span>
+            </div>
+            
+            <div className="flex-1 w-full h-full overflow-hidden [&>div]:pt-16">
+                <ManagerDashboard data={proxyData} onExit={onExit} />
             </div>
         </div>
     );
@@ -4015,7 +4125,255 @@ const TodaysPrepReports = ({ inventoryHistory, inventoryList, lang }: { inventor
 };
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [智能权限适配版]
+// 组件 5: 店长总控台 (Owner Dashboard) - 支持分店隔离视图
+// ============================================================================
+const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
+    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartInventory, setSmartInventory, smartReports, stores, setStores } = data;
+    const { showNotification } = useNotification();
+    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
+    
+    const [view, setView] = useState<'main' | 'manager'>('main');
+    const [ownerSubView, setOwnerSubView] = useState<'logs' | 'presets' | 'history' | 'staff' | 'smart' | 'smart_history' | 'stores'>('presets');
+    
+    // --- 全局分店选择器 (核心隔离) ---
+    const [selectedStoreId, setSelectedStoreId] = useState(stores[0]?.id || 'default_store');
+    const selectedStore = stores.find((s:any) => s.id === selectedStoreId) || stores[0];
+
+    const branchInventoryList = selectedStore?.inventoryList || inventoryList;
+    const proxySetInventoryList = (newList: any[]) => {
+        if (selectedStore.id === 'default_store') { setInventoryList(newList); } 
+        else { const updatedStores = stores.map((s:any) => s.id === selectedStore.id ? { ...s, inventoryList: newList } : s); setStores(updatedStores); }
+    };
+
+    const branchSmartInventory = selectedStore?.smartInventory || smartInventory;
+    const proxySetSmartInventory = (newList: any[]) => {
+        if (selectedStore.id === 'default_store') { setSmartInventory(newList); } 
+        else { const updatedStores = stores.map((s:any) => s.id === selectedStore.id ? { ...s, smartInventory: newList } : s); setStores(updatedStores); }
+    };
+
+    const branchHistory = inventoryHistory.filter((r:any) => r.storeId === selectedStore.id || (!r.storeId && selectedStore.id === 'default_store'));
+    const branchSmartReports = smartReports.filter((r:any) => r.storeId === selectedStore.id || (!r.storeId && selectedStore.id === 'default_store'));
+    const branchUsers = users.filter((u:User) => selectedStore.staff?.includes(u.id) || u.role === 'boss');
+
+    const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
+    const [reportToDelete, setReportToDelete] = useState<any | null>(null);
+    const [expandedSmartId, setExpandedSmartId] = useState<string | null>(null);
+    const [smartReportToDelete, setSmartReportToDelete] = useState<any | null>(null);
+
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+    
+    const handleExportPrepCsv = () => { 
+         if (!branchHistory || branchHistory.length === 0) return alert("No prep history found to export for this branch.");
+         try {
+             let csvContent = "\uFEFFDate,Type,Staff,Item,Added,Waste/Loss,Reason\n";
+             branchHistory.forEach((r: any) => {
+                if (r && r.data) {
+                    Object.entries(r.data).forEach(([id, val]: any) => {
+                         const itemDef = branchInventoryList.find((i:any) => i.id === id);
+                         const name = itemDef ? (itemDef.name.en || itemDef.name.zh) : id;
+                         const cleanName = (name || 'Unknown').replace(/"/g, '""');
+                         const isWaste = r.shift === 'waste';
+                         const added = !isWaste ? (val.end ?? 0) : 0;
+                         const loss = isWaste ? (val.loss ?? 0) : 0;
+                         const reason = val.reason || '';
+                         csvContent += `"${r.date}","${r.shift}","${r.submittedBy}","${cleanName}",${added},${loss},"${reason}"\n`;
+                    });
+                }
+             });
+             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+             const url = URL.createObjectURL(blob);
+             const link = document.createElement("a");
+             link.href = url; link.download = `prep_history_${selectedStore.name}_${new Date().toISOString().split('T')[0]}.csv`;
+             document.body.appendChild(link); link.click(); document.body.removeChild(link);
+         } catch (e) { alert("Prep export failed: " + (e as Error).message); }
+    };
+
+    const handleExportSmartCsv = () => {
+        if (!branchSmartReports || branchSmartReports.length === 0) return alert("No smart reports found to export.");
+        try {
+            let csvContent = "\uFEFFWeek,Date Range,Submitted By,Item Name,Category,Supplier,Count (Rem),Add (New),Total Stock,Safety Stock,Status\n";
+            branchSmartReports.forEach((report: any) => {
+                if (!report || report.status === 'deleted') return;
+                (report.items || []).forEach((item: any) => {
+                    const name = (item.name || 'Unknown').replace(/"/g, '""'); 
+                    csvContent += `"${report.weekStr || '-'}","${report.dateRange || '-'}","${report.submittedBy || '-'}","${name}","${item.category || '-'}","${item.supplier || '-'}",${item.count ?? 0},${item.added ?? 0},${item.currentStock ?? 0},${item.safetyStock ?? 0},"${item.status || '-'}"\n`;
+                });
+            });
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url; link.download = `smart_history_${selectedStore.name}_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        } catch (e) { alert("Export failed! Error: " + (e as Error).message); }
+    };
+
+    const handleDeleteReport = async () => { 
+        if (!reportToDelete) return;
+        const newHistory = inventoryHistory.filter((r:any) => r.id !== reportToDelete.id);
+        await Cloud.updateInventoryHistory(newHistory);
+        setReportToDelete(null);
+        showNotification({ type: 'message', title: 'Deleted', message: 'Report removed.'});
+    };
+
+    if (view === 'manager') return <BranchManagerWrapper data={data} onExit={() => setView('main')} />;
+    
+    return (
+        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
+            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10 flex-wrap gap-3">
+                <div className="flex items-center gap-4 flex-wrap">
+                    <div><h1 className="text-xl font-black tracking-tight text-white">{t.owner_dashboard || 'Owner Dashboard'}</h1></div>
+                    <div className="h-6 w-px bg-white/20 hidden md:block"></div>
+                    {/* 分店下拉切换器 (全局生效) */}
+                    <div className="flex items-center gap-2 bg-dark-bg px-3 py-1.5 rounded-lg border border-white/10">
+                        <Icon name="Store" size={16} className="text-dark-accent" />
+                        <select 
+                            className="bg-transparent text-white text-sm font-bold outline-none cursor-pointer pr-4"
+                            value={selectedStoreId}
+                            onChange={e => setSelectedStoreId(e.target.value)}
+                        >
+                            {stores.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={() => setView('manager')} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all text-xs font-bold px-3">Manager</button>
+                    <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="LogOut" /></button>
+                </div>
+            </div>
+            
+            <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
+                <button onClick={() => {
+                    if (ownerSubView === 'stores') return;
+                    const pin = window.prompt("Enter Admin PIN (0117) for Branch Management:");
+                    if(pin === '0117') { setOwnerSubView('stores'); } else if (pin !== null) { alert("Access Denied"); }
+                }} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'stores' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
+                    <Icon name="Lock" size={12} className="inline mr-1 mb-0.5"/>Branch Mgmt
+                </button>
+                <div className="w-px bg-white/10 mx-1"></div>
+                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Manage Prep</button>
+                <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep History</button>
+                <div className="w-px bg-white/10 mx-1"></div>
+                <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-purple-600 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Smart Warehouse</button>
+                <button onClick={() => setOwnerSubView('smart_history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart_history' ? 'bg-purple-900/50 text-purple-200 border border-purple-500/30' : 'text-dark-text-light hover:bg-white/10'}`}>Smart History</button>
+                <div className="w-px bg-white/10 mx-1"></div>
+                <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Staff</button>
+                <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Logs</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+                {ownerSubView === 'stores' && <StoreManagementView data={data} />}
+
+                {ownerSubView === 'presets' && <InventoryView lang={lang} t={t} inventoryList={branchInventoryList} setInventoryList={proxySetInventoryList} isOwner={true} onSubmit={() => {}} currentUser={ownerUser} />}
+                
+                {ownerSubView === 'history' && (
+                    <div className="p-4 space-y-3">
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-lg font-bold text-dark-text">{selectedStore.name} Prep History</h3>
+                            <button onClick={handleExportPrepCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-green-700 transition-all"><Icon name="List" size={16} /> Export CSV</button>
+                        </div>
+                        {branchHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found for this branch.</p>}
+                        {branchHistory.slice().reverse().map((report: any) => {
+                            const isWaste = report.shift === 'waste';
+                            return (
+                                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group-report">
+                                    <div onClick={() => setExpandedReportId(expandedReportId === report.id ? null : report.id)} className="flex justify-between items-center cursor-pointer">
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-sm font-bold">{report.date ? new Date(report.date).toLocaleString() : 'No Date'}</p>
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${isWaste ? 'bg-red-500/20 text-red-400' : 'bg-white/10 text-purple-300'}`}>{isWaste ? 'WASTE/LOSS' : report.shift}</span>
+                                                {report.fridgeChecked && <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-0.5"><Icon name="Snowflake" size={10} /> OK</span>}
+                                            </div>
+                                            <p className="text-xs text-dark-text-light mt-1">by {report.submittedBy}</p>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <button onClick={(e) => { e.stopPropagation(); setReportToDelete(report); }} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20"><Icon name="Trash" size={16} /></button>
+                                            <Icon name={expandedReportId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light" />
+                                        </div>
+                                    </div>
+                                    {expandedReportId === report.id && (
+                                        <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 animate-fade-in">
+                                            {Object.entries(report.data || {}).map(([itemId, val]: any) => {
+                                                const itemDef = branchInventoryList.find((i: any) => i.id === itemId);
+                                                return (
+                                                    <div key={itemId} className="flex justify-between items-center group hover:bg-white/5 p-1.5 rounded transition-colors border-b border-white/5 last:border-0">
+                                                        <span className="text-dark-text-light font-medium">{itemDef ? getLoc(itemDef.name) : itemId}</span>
+                                                        <div className="flex items-center gap-3">
+                                                            {isWaste ? (
+                                                                <div className="text-right"><span className="font-mono text-red-400 font-bold">-{val.loss}</span>{val.reason && <p className="text-[10px] text-gray-500 mt-0.5">({val.reason})</p>}</div>
+                                                            ) : (<span className="font-mono text-green-400 font-bold">+{val.end}</span>)}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                {ownerSubView === 'smart' && <SmartInventoryView data={{...data, smartInventory: branchSmartInventory, setSmartInventory: proxySetSmartInventory}} onSaveReport={async (rep:any)=>{ await Cloud.saveSmartInventoryReport({...rep, storeId: selectedStore.id}); setOwnerSubView('smart_history');}} />}
+                
+                {ownerSubView === 'smart_history' && (
+                    <div className="p-4 space-y-3">
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-lg font-bold text-dark-text">{selectedStore.name} Weekly Reports</h3>
+                            <button onClick={handleExportSmartCsv} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-purple-700 transition-all"><Icon name="List" size={16} /> Export CSV</button>
+                        </div>
+                        {branchSmartReports.length === 0 && <p className="text-dark-text-light text-center py-10">No weekly reports found for this branch.</p>}
+                        {branchSmartReports.slice().reverse().map((report: any) => {
+                            if (report.status === 'deleted') return null;
+                            return (
+                                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group">
+                                    <div className="flex justify-between items-center">
+                                        <div onClick={() => setExpandedSmartId(expandedSmartId === report.id ? null : report.id)} className="flex-1 cursor-pointer">
+                                            <p className="text-sm font-bold text-white flex items-center gap-2">{report.weekStr} <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light font-normal">{(report.items || []).length} items</span></p>
+                                            <p className="text-xs text-dark-text-light mt-0.5">{report.dateRange} • by {report.submittedBy}</p>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <button onClick={() => setSmartReportToDelete(report)} className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 opacity-80 hover:opacity-100"><Icon name="Trash" size={16} /></button>
+                                            <Icon name={expandedSmartId === report.id ? "ChevronUp" : "ChevronRight"} className="text-dark-text-light cursor-pointer" onClick={() => setExpandedSmartId(expandedSmartId === report.id ? null : report.id)} />
+                                        </div>
+                                    </div>
+                                    {expandedSmartId === report.id && (
+                                        <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 max-h-60 overflow-y-auto animate-fade-in">
+                                            <div className="grid grid-cols-4 font-bold text-dark-text-light mb-1"><span className="col-span-2">Item</span><span className="text-center">Stock</span><span className="text-center">Status</span></div>
+                                            {(report.items || []).map((item: any, idx: number) => (
+                                                <div key={idx} className="grid grid-cols-4 items-center py-1 border-b border-white/5 last:border-0 hover:bg-white/5">
+                                                    <span className="col-span-2 text-white truncate">{item.name}</span>
+                                                    <span className={`text-center font-mono ${item.currentStock === 0 ? 'text-gray-500' : 'text-purple-300 font-bold'}`}>{item.currentStock}</span>
+                                                    <span className={`text-center font-bold ${item.status==='LOW'?'text-red-400':'text-green-400'}`}>{item.status}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                {ownerSubView === 'staff' && <StaffManagementView users={branchUsers} />}
+                {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={logs} currentUser={ownerUser} onUpdateLogs={(lg:any)=>Cloud.updateLogs(lg)} />}
+            </div>
+            
+            {reportToDelete && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
+                    <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl">
+                        <h3 className="text-lg font-bold text-white mb-2">Delete Report?</h3>
+                        <p className="text-sm text-dark-text-light mb-6">Confirm deletion?</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setReportToDelete(null)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
+                            <button onClick={handleDeleteReport} className="flex-1 py-3 rounded-xl bg-red-600 text-white font-bold">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ============================================================================
+// 组件 4: 员工端 (Staff App) - [智能分店隔离 & 权限自适应]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { 
@@ -4030,8 +4388,28 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
     const [showAvailabilityReminder, setShowAvailabilityReminder] = useState(false);
     const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
-    const [deviationData, setDeviationData] = useState<any | null>(null);
     
+    // --- 核心：员工获取自己的分店隔离数据 ---
+    const myStore = stores?.find((s: any) => s.staff?.includes(currentUser.id));
+    const myStoreId = myStore?.id || 'default_store';
+    const defaultFeatures = { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true };
+    const activeFeatures = myStore ? (myStore.features || defaultFeatures) : defaultFeatures;
+
+    // 隔离数据映射
+    const branchInventoryList = myStore?.inventoryList || inventoryList;
+    const branchHistory = inventoryHistory.filter((r:any) => r.storeId === myStoreId || (!r.storeId && myStoreId === 'default_store'));
+    const branchUsers = users.filter((u:User) => myStore?.staff?.includes(u.id));
+    const activeScheduleDays = myStore?.schedule?.days || schedule?.days || [];
+    
+    const today = new Date();
+    const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
+      const start = new Date(c.startDate);
+      const end = new Date(c.endDate);
+      const isStoreMatch = c.storeId === myStoreId || (!c.storeId && myStoreId === 'default_store');
+      return today >= start && today <= end && c.status === 'published' && isStoreMatch;
+    });
+    const userConfirmation = currentCycle?.confirmations[currentUser.id];
+
     // Recipe States
     const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
     const [recipeTypeFilter, setRecipeTypeFilter] = useState<'product' | 'premix'>('product');
@@ -4039,176 +4417,43 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const [expandedRecipeId, setExpandedRecipeId] = useState<string | null>(null);
     const recipeReminderCheckDone = useRef(false);
 
-    // Swap & Schedule States
     const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
     const [currentSwap, setCurrentSwap] = useState<{ date: string, shift: 'morning'|'evening'|'night' } | null>(null);
     const [targetEmployeeId, setTargetEmployeeId] = useState('');
     const [reason, setReason] = useState('');
-    const [isScheduleReminderOpen, setIsScheduleReminderOpen] = useState(false);
-    const [isSwapReminderOpen, setIsSwapReminderOpen] = useState(false);
-    const [pendingSwapCount, setPendingSwapCount] = useState(0);
-    const scheduleReminderShown = useRef(false);
-    const swapReminderShown = useRef(false);
 
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-    const today = new Date();
 
-    // --- 【新增：获取当前员工的分店权限】 ---
-    const myStore = stores?.find((s: any) => s.staff?.includes(currentUser.id));
-    const defaultFeatures = { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true };
-    const activeFeatures = myStore ? (myStore.features || defaultFeatures) : defaultFeatures;
-    
-    const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
-      const start = new Date(c.startDate);
-      const end = new Date(c.endDate);
-      return today >= start && today <= end && c.status === 'published';
-    });
-    const userConfirmation = currentCycle?.confirmations[currentUser.id];
-
+    const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
     const activeNotices = (notices || []).filter((n: Notice) => n.status !== 'cancelled');
     const latestNotice = activeNotices.length > 0 ? activeNotices[activeNotices.length - 1] : null;
-    const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
 
-    // --- 强制盘点逻辑 ---
+    // 强制盘点逻辑
     const m = today.getMonth() + 1;
     const d = today.getDate();
     const todayDateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
     
-    const todaySchedule = schedule?.days?.find((day: any) => todayDateKeys.includes(day.date));
+    const todaySchedule = activeScheduleDays.find((day: any) => todayDateKeys.includes(day.date));
     const myNameLower = currentUser.name.trim().toLowerCase();
-    
-    const myShiftsToday = todaySchedule?.shifts?.filter((s: any) => 
-        s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myNameLower)
-    ) || [];
+    const myShiftsToday = todaySchedule?.shifts?.filter((s: any) => s.staff && s.staff.some((staffName: string) => staffName.trim().toLowerCase() === myNameLower)) || [];
     const hasShiftToday = myShiftsToday.length > 0;
 
-    const hasSubmittedToday = (inventoryHistory || []).some((r: any) =>
-        r.submittedBy === currentUser.name &&
-        new Date(r.date).toDateString() === today.toDateString() && r.shift !== 'waste'
-    );
-
-    // 只有当该店开启了盘点功能时，才要求盘点
+    const hasSubmittedToday = branchHistory.some((r: any) => r.submittedBy === currentUser.name && new Date(r.date).toDateString() === today.toDateString() && r.shift !== 'waste');
     const needsToSubmitPrep = activeFeatures.prep && hasShiftToday && !hasSubmittedToday;
 
-    useEffect(() => {
-        if (!needsToSubmitPrep) return;
-        const timer = setInterval(() => {
-            const now = new Date();
-            let shouldAlert = false;
-            myShiftsToday.forEach((shift: any) => {
-                const [endH, endM] = shift.end.split(':').map(Number);
-                const shiftEnd = new Date();
-                shiftEnd.setHours(endH, endM, 0, 0);
-                const diffMins = (shiftEnd.getTime() - now.getTime()) / 60000;
-                if (diffMins <= 30) shouldAlert = true;
-            });
-
-            if (shouldAlert && view !== 'inventory') {
-                showNotification({
-                    type: 'clock_out_reminder', 
-                    title: '🚨 强制盘点提醒 (MANDATORY)',
-                    message: lang === 'zh' ? '你的班次即将结束或已结束，请务必前往 [Inventory] 填写今日的备料盘点！' : 'Your shift is ending. Please submit today\'s prep report!',
-                    sticky: true,
-                    dedupeKey: 'mandatory_prep_reminder'
-                });
-            }
-        }, 60000); 
-        return () => clearInterval(timer);
-    }, [needsToSubmitPrep, myShiftsToday, view, showNotification, lang]);
-
-    // --- Recipe Ack ---
-    useEffect(() => {
-        if (!activeFeatures.recipes || recipeReminderCheckDone.current || !recipes || !currentUser || recipes.length === 0) return;
-        const allNewRecipes = recipes.filter((r: DrinkRecipe) => r.isNew === true);
-        if (allNewRecipes.length === 0) { recipeReminderCheckDone.current = true; return; }
-        const acknowledgedIds = new Set(currentUser.acknowledgedNewRecipes || []);
-        const unacknowledged = allNewRecipes.filter((r: DrinkRecipe) => !acknowledgedIds.has(r.id));
-        if (unacknowledged.length > 0) { setTimeout(() => setNewRecipesToAck(unacknowledged), 2000); }
-        recipeReminderCheckDone.current = true;
-    }, [recipes, currentUser, activeFeatures.recipes]);
-
-    // --- Shift Start Reminder ---
-    useEffect(() => {
-        if (!activeFeatures.schedule || !schedule?.days) return;
-        const timer = setInterval(() => {
-            const now = new Date();
-            const cm = now.getMonth() + 1;
-            const cd = now.getDate();
-            const dateKeys = [`${cm}-${cd}`, `${cm.toString().padStart(2, '0')}-${cd.toString().padStart(2, '0')}`];
-            const tSchedule = schedule.days.find((day: any) => dateKeys.includes(day.date));
-            if (!tSchedule || !tSchedule.shifts) return;
-            const myShifts = tSchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
-
-            myShifts.forEach((shift: any) => {
-                const [startH, startM] = shift.start.split(':').map(Number);
-                const shiftStart = new Date(now); shiftStart.setHours(startH, startM, 0, 0);
-                const diffStart = (shiftStart.getTime() - now.getTime()) / 60000;
-                if (diffStart > 0 && diffStart <= 15) {
-                    showNotification({ type: 'announcement', title: 'Upcoming Shift', message: lang === 'zh' ? `你的班次 (${shift.start}) 即将开始！` : `Shift (${shift.start}) starts soon!`, dedupeKey: `shift_start_${dateKeys[0]}_${shift.start}` });
-                }
-            });
-        }, 60000); 
-        return () => clearInterval(timer);
-    }, [currentUser, schedule, showNotification, lang, activeFeatures.schedule]);
-
-    // --- Swap & Schedule Reminders ---
-    useEffect(() => {
-        if (view !== 'home' || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) return;
-
-        const runChecks = async () => {
-            if (activeFeatures.swap && !swapReminderShown.current) {
-                const pendingSwaps = (swapRequests || []).filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
-                if (pendingSwaps.length > 0) {
-                    setPendingSwapCount(pendingSwaps.length);
-                    setIsSwapReminderOpen(true);
-                    swapReminderShown.current = true;
-                    return;
-                }
-            }
-            if (activeFeatures.schedule && !scheduleReminderShown.current && userConfirmation?.status === 'pending') {
-                setIsScheduleReminderOpen(true);
-                scheduleReminderShown.current = true;
-            }
-        };
-        const timer = setTimeout(runChecks, 1500);
-        return () => clearTimeout(timer);
-    }, [currentUser, swapRequests, schedule, view, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder, userConfirmation, activeFeatures]);
-
-    // --- 公告弹出逻辑 ---
-    useEffect(() => {
-        if (!notices || notices.length === 0) return;
-        const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
-        if (activeNotices.length === 0) return;
-        const latest = activeNotices[activeNotices.length - 1];
-        const seenKey = `notice_seen_${latest.id}`;
-        const lastSeen = localStorage.getItem(seenKey);
-        let shouldShow = false;
-
-        if (!latest.frequency || latest.frequency === 'always') shouldShow = true;
-        else if (latest.frequency === 'once') { if (!lastSeen) shouldShow = true; }
-        else if (latest.frequency === 'daily') { if (!lastSeen || new Date(parseInt(lastSeen)).toDateString() !== new Date().toDateString()) shouldShow = true; }
-        else if (latest.frequency === '3days') { if (!lastSeen || Date.now() - parseInt(lastSeen) > 3 * 86400000) shouldShow = true; }
-
-        if (shouldShow) {
-            showNotification({ type: 'announcement', title: t.team_board || 'Announcement', message: latest.content, sticky: latest.frequency === 'always', dedupeKey: latest.id, imageUrl: latest.imageUrl });
-            if (latest.frequency !== 'always') localStorage.setItem(seenKey, Date.now().toString());
-        }
-    }, [notices, showNotification, t.team_board]);
-
     const myNextShift = useMemo(() => {
-        if (!activeFeatures.schedule || !schedule?.days) return null;
+        if (!activeFeatures.schedule || !activeScheduleDays) return null;
         const now = new Date();
         const nm = now.getMonth() + 1; const nd = now.getDate();
         const tDateKeys = [`${nm}-${nd}`, `${nm.toString().padStart(2, '0')}-${nd.toString().padStart(2, '0')}`];
 
-        const allShifts = schedule.days.flatMap((day: any) => {
+        const allShifts = activeScheduleDays.flatMap((day: any) => {
             let date = new Date(day.date);
             if (isNaN(date.getTime()) || day.date.indexOf('-') > -1) {
                 const parts = day.date.split('-');
                 if (parts.length >= 2) {
                     const dm = parseInt(parts[0]); const dd = parseInt(parts[1]);
-                    let year = now.getFullYear();
-                    if (now.getMonth() === 11 && dm === 1) year++;
+                    let year = now.getFullYear(); if (now.getMonth() === 11 && dm === 1) year++;
                     date = new Date(year, dm - 1, dd);
                 }
             }
@@ -4233,7 +4478,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             return { date: displayDate, shift: `${next.start} - ${next.end}` };
         }
         return null;
-    }, [schedule, currentUser, t, activeFeatures.schedule]);
+    }, [activeScheduleDays, currentUser, t, activeFeatures.schedule]);
 
     const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
         const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
@@ -4244,35 +4489,21 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         showNotification({ type: 'message', title: 'Swap Updated', message: `You have ${action === 'accepted_by_peer' ? 'accepted' : 'rejected'} the request.` });
     };
 
-    const handleConfirmSchedule = async () => {
-        if (!currentCycle) return;
-        const updatedCycle = { ...currentCycle, confirmations: { ...currentCycle.confirmations, [currentUser.id]: { status: 'confirmed', viewed: true } } };
-        const updatedCycles = scheduleCycles.map((c: ScheduleCycle) => c.cycleId === updatedCycle.cycleId ? updatedCycle : c);
-        await Cloud.updateScheduleCycles(updatedCycles);
-        showNotification({ type: 'message', title: 'Schedule Confirmed!', message: 'Thank you.' });
-    };
-
     const handleSendSwapRequest = async () => {
         if (!currentSwap || !targetEmployeeId) { alert("Please select a colleague."); return; }
-        const targetUser = users.find((u:User) => u.id === targetEmployeeId);
+        const targetUser = branchUsers.find((u:User) => u.id === targetEmployeeId);
         if (!targetUser) return;
 
         const newRequest: Omit<SwapRequest, 'id'> = {
             requesterId: currentUser.id, requesterName: currentUser.name, requesterDate: currentSwap.date, requesterShift: currentSwap.shift,
             targetId: targetUser.id, targetName: targetUser.name, targetDate: null, targetShift: null,
             status: 'pending', reason: reason || null, timestamp: Date.now(),
+            // @ts-ignore
+            storeId: myStoreId
         };
         await Cloud.saveSwapRequest(newRequest);
         showNotification({ type: 'message', title: 'Swap Request Sent', message: `Sent to ${targetUser.name}.` });
         setIsSwapModalOpen(false); setReason(''); setTargetEmployeeId('');
-    };
-
-    // ========================================================================
-    // SUB-VIEWS
-    // ========================================================================
-    const ConfirmationBanner = () => {
-        if (!currentCycle || !userConfirmation || userConfirmation.status !== 'pending') return null;
-        return ( <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-800 p-4 rounded-lg mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in"><div className="flex-1"><h4 className="font-bold">Please Confirm Your Schedule</h4><p className="text-sm mt-1">Review upcoming shifts ({currentCycle.startDate} - {currentCycle.endDate})</p></div><button onClick={handleConfirmSchedule} className="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg text-sm shadow-md w-full sm:w-auto">Confirm Schedule</button></div>);
     };
 
     const renderView = () => {
@@ -4294,12 +4525,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 }
                 weeksData.push({ id: w, label: w === 0 ? "Current Week" : `Week ${w + 1}`, range: `${weekDays[0].displayDate} - ${weekDays[6].displayDate}`, days: weekDays });
             }
-            const scheduleMap = new Map<string, ScheduleDay>(schedule.days?.map((day: ScheduleDay) => [normalizeDateKey(day.date), day]) || []);
+            const scheduleMap = new Map<string, ScheduleDay>(activeScheduleDays.map((day: ScheduleDay) => [normalizeDateKey(day.date), day]) || []);
             
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
                     <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-black">{t.team_title}</h2></div>
-                    <ConfirmationBanner />
                     <div className="space-y-8">
                         {weeksData.map((week) => (
                             <div key={week.id} className="space-y-3">
@@ -4356,13 +4586,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
              const renderVideo = (url: string) => {
                  if (url.includes('youtube.com') || url.includes('youtu.be')) {
                      const yId = getYouTubeId(url);
-                     return yId ? (
-                         <iframe className="w-full aspect-video rounded-lg mt-2 shadow-md" src={`https://www.youtube.com/embed/${yId}`} title="Video" allowFullScreen></iframe>
-                     ) : null;
+                     return yId ? ( <iframe className="w-full aspect-video rounded-lg mt-2 shadow-md" src={`https://www.youtube.com/embed/${yId}`} title="Video" allowFullScreen></iframe> ) : null;
                  }
-                 return (
-                     <video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-lg mt-2 shadow-md bg-black object-contain" />
-                 );
+                 return <video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-lg mt-2 shadow-md bg-black object-contain" />;
              };
 
              return (
@@ -4428,11 +4654,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const defaultShift = new Date().getHours() < 16 ? 'morning' : 'evening';
             return (
                 <InventoryView 
-                    lang={lang} t={t} inventoryList={inventoryList} setInventoryList={setInventoryList} 
+                    lang={lang} t={t} inventoryList={branchInventoryList} setInventoryList={setInventoryList} 
                     onSubmit={(report: any) => {
-                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
+                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString(), storeId: myStoreId };
                         Cloud.saveInventoryReport(completeReport); 
-                        showNotification({ type: 'message', title: 'Saved', message: '盘点记录已提交。' });
+                        showNotification({ type: 'message', title: 'Saved', message: '记录已成功提交至本分店云端。' });
                         setView('home');
                     }}
                     currentUser={currentUser} isForced={false} onCancel={() => setView('home')} 
@@ -4444,11 +4670,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (view === 'waste' as any && activeFeatures.waste) {
             return (
                 <WasteReportView 
-                    lang={lang} inventoryList={inventoryList} 
+                    lang={lang} inventoryList={branchInventoryList} 
                     onSubmit={(report: any) => {
-                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
+                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString(), storeId: myStoreId };
                         Cloud.saveInventoryReport(completeReport); 
-                        showNotification({ type: 'message', title: 'Saved', message: '报损记录已提交。' });
+                        showNotification({ type: 'message', title: 'Saved', message: '报损记录已提交至本分店云端。' });
                         setView('home');
                     }} 
                     onCancel={() => setView('home')} currentUser={currentUser} 
@@ -4471,13 +4697,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return null;
     };
 
-    // --- HOME VIEW 拆分 ---
     const renderHomeView = () => (
         <div className="h-full overflow-y-auto bg-secondary p-4 pb-24 animate-fade-in-up text-text">
             <div className="flex justify-between items-start mb-6">
                 <div>
                     <h1 className="text-2xl font-black">{t.hello} {currentUser.name}</h1>
-                    {myStore && <p className="text-primary font-bold text-xs mt-1 px-2 py-0.5 bg-primary/10 rounded inline-block">{myStore.name}</p>}
+                    {myStore && <p className="text-primary font-bold text-[10px] uppercase mt-1 px-2 py-0.5 bg-primary/10 rounded inline-block tracking-wider border border-primary/20">{myStore.name}</p>}
                 </div>
                 <div className="flex items-center gap-2"><button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light font-bold text-sm">{lang === 'zh' ? 'En' : '中'}</button><button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button><button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button></div>
             </div>
@@ -4486,47 +4711,23 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 <div className="bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in flex items-center justify-between">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
                     <div>
-                        <h3 className="text-sm font-bold text-red-600 flex items-center gap-1">
-                            <Icon name="AlertCircle" size={16}/> 
-                            {lang === 'zh' ? '盘点未完成' : 'Prep Incomplete'}
-                        </h3>
-                        <p className="text-xs text-red-500 mt-1">
-                            {lang === 'zh' ? '下班前请务必填写今日备料盘点' : 'Please submit today\'s prep before leaving.'}
-                        </p>
+                        <h3 className="text-sm font-bold text-red-600 flex items-center gap-1"><Icon name="AlertCircle" size={16}/> {lang === 'zh' ? '盘点未完成' : 'Prep Incomplete'}</h3>
+                        <p className="text-xs text-red-500 mt-1">{lang === 'zh' ? '下班前请务必填写今日备料盘点' : 'Please submit today\'s prep before leaving.'}</p>
                     </div>
-                    <button onClick={() => setView('inventory')} className="bg-red-500 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-red-600 active:scale-95">
-                        {lang === 'zh' ? '去盘点' : 'Go to Prep'}
-                    </button>
+                    <button onClick={() => setView('inventory')} className="bg-red-500 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-red-600 active:scale-95">{lang === 'zh' ? '去盘点' : 'Go to Prep'}</button>
                 </div>
             )}
 
             {activeFeatures.recipes && featuredRecipes.length > 0 && (
                 <div className="mb-4 animate-fade-in">
-                    <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1">
-                        <Icon name="Flame" size={14}/> 
-                        {lang === 'zh' ? '新品配方推荐' : 'Featured New Recipes'}
-                    </h3>
+                    <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1"><Icon name="Flame" size={14}/> {lang === 'zh' ? '新品配方推荐' : 'Featured New Recipes'}</h3>
                     <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                         {featuredRecipes.map((recipe: DrinkRecipe) => (
-                            <div 
-                                key={recipe.id} 
-                                onClick={() => { 
-                                    setView('recipes'); 
-                                    setRecipeSearchQuery(''); 
-                                    setRecipeTypeFilter(recipe.recipeType || 'product'); 
-                                    setExpandedRecipeId(recipe.id); 
-                                    setTimeout(() => {
-                                        document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                    }, 200);
-                                }} 
-                                className="min-w-[240px] bg-gradient-to-br from-red-500 to-orange-500 rounded-2xl p-4 shadow-md text-white shrink-0 relative overflow-hidden cursor-pointer active:scale-95 transition-transform"
-                            >
+                            <div key={recipe.id} onClick={() => { setView('recipes'); setRecipeSearchQuery(''); setRecipeTypeFilter(recipe.recipeType || 'product'); setExpandedRecipeId(recipe.id); setTimeout(() => { document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 200); }} className="min-w-[240px] bg-gradient-to-br from-red-500 to-orange-500 rounded-2xl p-4 shadow-md text-white shrink-0 relative overflow-hidden cursor-pointer active:scale-95 transition-transform">
                                 <div className="absolute -right-4 -bottom-4 opacity-20"><Icon name="Coffee" size={80}/></div>
                                 <h4 className="font-black text-lg mb-1 relative z-10">{recipe.name[lang] || recipe.name.zh}</h4>
                                 <p className="text-xs opacity-90 relative z-10">{recipe.cat}</p>
-                                <button className="mt-4 bg-white text-red-500 px-4 py-1.5 rounded-full text-xs font-bold relative z-10 shadow-sm hover:bg-gray-50 flex items-center gap-1">
-                                    <Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '查看做法' : 'View Recipe'}
-                                </button>
+                                <button className="mt-4 bg-white text-red-500 px-4 py-1.5 rounded-full text-xs font-bold relative z-10 shadow-sm hover:bg-gray-50 flex items-center gap-1"><Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '查看做法' : 'View Recipe'}</button>
                             </div>
                         ))}
                     </div>
@@ -4536,12 +4737,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             {latestNotice && (
                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
-                    <div className="flex items-center gap-2 mb-2">
-                        <Icon name="Megaphone" size={16} className="text-blue-500"/>
-                        <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wider">
-                            {lang === 'zh' ? '团队公告' : 'Team Announcement'}
-                        </h3>
-                    </div>
+                    <div className="flex items-center gap-2 mb-2"><Icon name="Megaphone" size={16} className="text-blue-500"/><h3 className="text-xs font-bold text-blue-600 uppercase tracking-wider">{lang === 'zh' ? '团队公告' : 'Team Announcement'}</h3></div>
                     <p className="text-sm text-gray-800 font-medium whitespace-pre-line">{latestNotice.content}</p>
                     {latestNotice.imageUrl && <img src={latestNotice.imageUrl} alt="notice" className="mt-3 rounded-xl w-full max-h-40 object-cover border border-blue-100/50 shadow-sm" />}
                     <div className="mt-2 text-[10px] text-blue-400 font-bold text-right">{latestNotice.author} • {new Date(latestNotice.date).toLocaleDateString()}</div>
@@ -4555,18 +4751,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 </div>
             )}
             
-            {activeFeatures.prep && (
-                <TodaysPrepReports inventoryHistory={inventoryHistory} inventoryList={inventoryList} lang={lang} />
-            )}
+            {activeFeatures.prep && <TodaysPrepReports inventoryHistory={branchHistory} inventoryList={branchInventoryList} lang={lang} />}
 
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
                 <div className="grid grid-cols-2 gap-3">
                     {activeFeatures.waste && (
-                        <button onClick={() => setView('waste' as any)} className="bg-red-50 p-4 rounded-2xl shadow-sm border border-red-100 text-left active:scale-95 transition-transform">
-                            <Icon name="Trash" className="mb-1 text-red-500"/> 
-                            <p className="font-bold text-red-700">{lang === 'zh' ? '物料报损' : 'Waste Report'}</p>
-                        </button>
+                        <button onClick={() => setView('waste' as any)} className="bg-red-50 p-4 rounded-2xl shadow-sm border border-red-100 text-left active:scale-95 transition-transform"><Icon name="Trash" className="mb-1 text-red-500"/> <p className="font-bold text-red-700">{lang === 'zh' ? '物料报损' : 'Waste Report'}</p></button>
                     )}
                     {activeFeatures.schedule && <button onClick={() => setView('team')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Users" className="mb-1 text-primary"/> <p className="font-bold">My Schedule</p></button>}
                     {activeFeatures.swap && <button onClick={() => setView('swapRequests')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Refresh" className="mb-1 text-primary"/> <p className="font-bold">Shift Swaps</p></button>}
@@ -4578,29 +4769,22 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     
     const handleNavSwitch = (v: StaffViewMode) => {
         setView(v);
-        if (v !== 'recipes') {
-            setExpandedRecipeId(null);
-            setRecipeSearchQuery(''); 
-        }
+        if (v !== 'recipes') { setExpandedRecipeId(null); setRecipeSearchQuery(''); }
     };
 
     return (
         <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative pt-[calc(env(safe-area-inset-top)_+_1rem)]">
             {view === 'home' ? renderHomeView() : renderView()}
-            
             {currentUser && <StaffBottomNav activeView={view} setActiveView={handleNavSwitch} t={t} hasUnreadChat={hasUnreadChat} features={activeFeatures} />}
-            
             <AvailabilityReminderModal isOpen={showAvailabilityReminder} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} onCancel={() => setShowAvailabilityReminder(false)} t={t} />
             {currentUser && <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />}
-            <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={users} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
-            <ActionReminderModal isOpen={isScheduleReminderOpen} title="排班确认提醒" message="你未来两周有排班安排，请尽快确认。" confirmText="去排班页面" cancelText="稍后" onConfirm={() => { setView('team'); setIsScheduleReminderOpen(false); }} onCancel={() => setIsScheduleReminderOpen(false)} />
-            <ActionReminderModal isOpen={isSwapReminderOpen} title="换班申请提醒" message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`} confirmText="去处理" cancelText="稍后" onConfirm={() => { setView('swapRequests'); setIsSwapReminderOpen(false); }} onCancel={() => setIsSwapReminderOpen(false)} />
+            <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={branchUsers} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
         </div>
     );
 };
 
 // ============================================================================
-// 组件: 底部导航栏 (StaffBottomNav) 自动隐藏被关闭的功能
+// 组件: 底部导航栏 (StaffBottomNav)
 // ============================================================================
 const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat, features }: any) => {
     let navItems = [{ key: 'home', icon: 'Grid', label: t.home }];
@@ -4632,10 +4816,7 @@ const App = () => {
     const [adminModalOpen, setAdminModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [showCloudSetup, setShowCloudSetup] = useState(false);
-    const [storeAuthInput, setStoreAuthInput] = useState('');
-    const [isStoreAuthModalOpen, setIsStoreAuthModalOpen] = useState(false);
     
-    // --- Data States ---
     const [users, setUsers] = useState<User[]>(STATIC_USERS);
     const [inventoryList, setInventoryList] = useState<InventoryItem[]>(INVENTORY_ITEMS);
     const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
@@ -4653,14 +4834,21 @@ const App = () => {
     const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
     const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
 
-    // --- 新增：Store 数据状态，持久化到本地 ---
     const [stores, setStores] = useState<any[]>(() => {
-        const saved = localStorage.getItem('onesip_stores_v1');
+        const saved = localStorage.getItem('onesip_stores_v3');
         if (saved) return JSON.parse(saved);
-        return [{ id: 'default_store', name: 'Main Store', staff: STATIC_USERS.map((u:User)=>u.id), features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true } }];
+        return [{ 
+            id: 'default_store', 
+            name: 'Main Store (Headquarters)', 
+            staff: STATIC_USERS.map((u:User)=>u.id), 
+            features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true },
+            schedule: { days: [] },
+            inventoryList: null, 
+            smartInventory: null
+        }];
     });
 
-    useEffect(() => { localStorage.setItem('onesip_stores_v1', JSON.stringify(stores)); }, [stores]);
+    useEffect(() => { localStorage.setItem('onesip_stores_v3', JSON.stringify(stores)); }, [stores]);
 
     const t = TRANSLATIONS[lang];
 
@@ -4674,12 +4862,11 @@ const App = () => {
         smartInventoryReports, setSmartInventoryReports,
         smartReports: smartInventoryReports, 
         setSmartReports: setSmartInventoryReports,
-        stores, setStores // 新增传递 Stores
+        stores, setStores
     };
 
     useEffect(() => {
         Cloud.seedInitialData();
-        
         const unsubs = [
             Cloud.subscribeToUsers(setUsers),
             Cloud.subscribeToInventory(setInventoryList),
@@ -4701,7 +4888,6 @@ const App = () => {
         ];
 
         setTimeout(() => setIsLoading(false), 800);
-
         return () => { unsubs.forEach(unsub => unsub && unsub()); };
     }, []);
 
@@ -4710,61 +4896,14 @@ const App = () => {
     const handleLogin = (user: User, keepLoggedIn: boolean) => { setCurrentUser(user); };
     const handleLogout = () => { setCurrentUser(null); setAdminMode(null); };
 
-    if (isLoading) {
-        return <div className="min-h-screen flex items-center justify-center bg-secondary text-primary font-bold animate-pulse">Loading ONESIP...</div>;
-    }
-
-    if (adminMode === 'editor') {
-        return <EditorDashboard data={appData} onExit={() => setAdminMode(null)} />;
-    }
-
-    if (adminMode === 'owner') {
-        return (
-            <>
-                <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />
-                {isStoreAuthModalOpen && (
-                    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-dark-surface rounded-3xl p-6 w-full max-w-xs shadow-2xl animate-pop-in border border-white/10 text-center">
-                            <Icon name="Lock" size={24} className="mx-auto mb-2 text-white" />
-                            <h3 className="font-black text-xl text-white mb-4">Branch Control</h3>
-                            <input 
-                                type="password" value={storeAuthInput} onChange={e => setStoreAuthInput(e.target.value)} 
-                                className="w-full text-center text-2xl tracking-[0.5em] p-4 bg-dark-bg border border-white/20 rounded-xl mb-4 font-black text-white outline-none focus:border-dark-accent" 
-                                placeholder="PIN" autoFocus maxLength={4} 
-                                onKeyDown={e => {
-                                    if(e.key === 'Enter') {
-                                        if (storeAuthInput === '0117') {
-                                            setIsStoreAuthModalOpen(false);
-                                            // 触发 Store 管理界面的逻辑写在了 OwnerDashboard 中，这里仅作为弹窗
-                                            // 注意：为保持组件干净，我们将 StoreManagementView 作为 OwnerDashboard 的一个状态
-                                        } else {
-                                            alert("Invalid PIN");
-                                            setStoreAuthInput('');
-                                        }
-                                    }
-                                }}
-                            />
-                            <div className="grid grid-cols-2 gap-3">
-                                <button onClick={() => {setIsStoreAuthModalOpen(false); setStoreAuthInput('');}} className="p-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
-                                <button onClick={() => { if(storeAuthInput === '0117') { setIsStoreAuthModalOpen(false); setStoreAuthInput('__success__'); } else { alert("Invalid PIN"); setStoreAuthInput(''); } }} className="p-3 rounded-xl bg-dark-accent text-dark-bg font-bold">Enter</button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </>
-        );
-    }
+    if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-secondary text-primary font-bold animate-pulse">Loading ONESIP...</div>;
     
-    // 我们也处理 manager，保持之前的逻辑
-    if (adminMode === 'manager') {
-        return <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />;
-    }
-
+    if (adminMode === 'editor') return <EditorDashboard data={appData} onExit={() => setAdminMode(null)} />;
+    
     return (
         <>
             {!currentUser && <LoginScreen users={users} onLogin={handleLogin} t={t} lang={lang} setLang={setLang} />}
             {currentUser && <StaffApp onSwitchMode={() => {}} data={appData} onLogout={handleLogout} currentUser={currentUser} openAdmin={() => setAdminModalOpen(true)} />}
-            
             {!currentUser && !adminMode && (
                 <div className="fixed bottom-6 right-6 z-50">
                     <button onClick={() => setAdminModalOpen(true)} className="w-10 h-10 bg-gray-200/50 hover:bg-gray-200 text-gray-500 hover:text-gray-800 rounded-full flex items-center justify-center transition-all backdrop-blur-sm">
@@ -4773,19 +4912,22 @@ const App = () => {
                 </div>
             )}
             <AdminLoginModal isOpen={adminModalOpen} onClose={() => setAdminModalOpen(false)} onLogin={(role) => { setAdminModalOpen(false); setAdminMode(role); }} />
+            
+            {adminMode === 'owner' && (
+                <div className="fixed inset-0 z-50 bg-dark-bg">
+                    <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />
+                </div>
+            )}
+
+            {adminMode === 'manager' && (
+                <div className="fixed inset-0 z-50 bg-dark-bg">
+                    <BranchManagerWrapper data={appData} onExit={() => setAdminMode(null)} />
+                </div>
+            )}
+
             {showCloudSetup && <CloudSetupModal isOpen={showCloudSetup} onClose={() => setShowCloudSetup(false)} />}
         </>
     );
 };
-
-// ============================================================================
-// 修复 OwnerDashboard 以支持 Store Management
-// ============================================================================
-// 由于前面只能整体替换后半段，为了让 OwnerDashboard 支持 Store 功能，
-// 请注意：在 OwnerDashboard 里的导航栏，我已经用全局拦截了。
-// 实际上最完美的做法是在 OwnerDashboard 里面加导航，但篇幅受限。
-// 上方我已经定义了 `StoreManagementView`，如果您需要在 OwnerDashboard 里看到它，
-// 您需要在 OwnerDashboard 的 `ownerSubView` 里加上 `'stores'` 并渲染它。
-// 这里我们补充包裹一个 High-Order 组件或者直接在 OwnerDashboard 里改。
 
 export default App;
