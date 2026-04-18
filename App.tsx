@@ -3342,7 +3342,7 @@ const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser 
 };
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [支持门店无缝切换与彻底数据隔离]
+// 组件 4: 员工端 (Staff App) - [支持门店无缝切换彻底数据隔离]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { 
