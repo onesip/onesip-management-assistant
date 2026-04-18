@@ -3013,181 +3013,6 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
 };
 
 // ============================================================================
-// 组件 5: 店长总控台 (Owner Dashboard) - 满血多门店集成版
-// ============================================================================
-const OwnerDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, stores, setStores, schedule, setSchedule } = data;
-    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
-    const [view, setView] = useState<'main' | 'manager'>('main');
-    const [ownerSubView, setOwnerSubView] = useState<'stores' | 'presets' | 'history' | 'smart' | 'smart_history' | 'staff' | 'logs'>('stores');
-    
-    const safeStores = Array.isArray(stores) && stores.length > 0 ? stores : [{ id: 'default_store', name: 'Main Store', staff: [], features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true } }];
-    const [adminStoreId, setAdminStoreId] = useState(safeStores[0].id);
-
-    const scopedInventoryList = inventoryList.filter((i:any) => i.storeId === adminStoreId || !i.storeId);
-    const scopedHistory = inventoryHistory.filter((h:any) => h.storeId === adminStoreId || !h.storeId);
-    const scopedSmartReports = smartReports.filter((r:any) => r.storeId === adminStoreId || !r.storeId);
-    const scopedLogs = logs.filter((l:any) => l.storeId === adminStoreId || !l.storeId);
-    
-    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-
-    const handleUpdateInventoryList = (newList: any[]) => {
-        const others = inventoryList.filter((i:any) => i.storeId !== adminStoreId && i.storeId);
-        const mapped = newList.map(i => ({ ...i, storeId: adminStoreId }));
-        const merged = [...others, ...mapped];
-        setInventoryList(merged);
-        Cloud.saveInventoryList(merged);
-    };
-
-    const handleSaveSmartReport = async (report: any) => {
-        try {
-            const scopedReport = { ...report, storeId: adminStoreId };
-            await Cloud.saveSmartInventoryReport(scopedReport);
-            setOwnerSubView('smart_history'); 
-        } catch (error) { alert("Error uploading report."); }
-    };
-
-    const handleExportPrepCsv = () => { 
-         if (scopedHistory.length === 0) return alert("No prep history found to export.");
-         let csvContent = "\uFEFFDate,Type,Staff,Item,Added,Waste/Loss,Reason\n";
-         scopedHistory.forEach((r: any) => {
-            if (r && r.data) {
-                Object.entries(r.data).forEach(([id, val]: any) => {
-                     const itemDef = inventoryList.find((i:any) => i.id === id);
-                     const cleanName = (itemDef ? getLoc(itemDef.name) : id).replace(/"/g, '""');
-                     const isWaste = r.shift === 'waste';
-                     csvContent += `"${r.date}","${r.shift}","${r.submittedBy}","${cleanName}",${!isWaste ? (val.end ?? 0) : 0},${isWaste ? (val.loss ?? 0) : 0},"${val.reason || ''}"\n`;
-                });
-            }
-         });
-         const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })); link.download = `prep_history_${adminStoreId}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    };
-
-    const handleExportSmartCsv = () => {
-        if (scopedSmartReports.length === 0) return alert("No reports found to export.");
-        let csvContent = "\uFEFFWeek,Date Range,Submitted By,Item Name,Category,Supplier,Count (Rem),Add (New),Total Stock,Safety Stock,Status\n";
-        scopedSmartReports.forEach((report: any) => {
-            if (!report || report.status === 'deleted') return;
-            (report.items || []).forEach((item: any) => {
-                if (!item) return;
-                const name = (item.name || 'Unknown').replace(/"/g, '""'); 
-                csvContent += `"${report.weekStr || '-'}","${report.dateRange || '-'}","${report.submittedBy || '-'}","${name}","${item.category || '-'}","${item.supplier || '-'}",${item.count ?? 0},${item.added ?? 0},${item.currentStock ?? 0},${item.safetyStock ?? 0},"${item.status || '-'}"\n`;
-            });
-        });
-        const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })); link.download = `smart_warehouse_${adminStoreId}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    };
-
-    if (view === 'manager') return (
-        <div className="flex flex-col h-[100dvh] bg-dark-bg">
-            <div className="p-4 bg-dark-surface flex justify-between items-center border-b border-white/10">
-                <h2 className="font-black text-white text-lg">Branch Manager: {safeStores.find((s:any)=>s.id===adminStoreId)?.name}</h2>
-                <button onClick={() => setView('main')} className="bg-white/10 px-4 py-2 rounded-lg text-white font-bold text-xs">Back to Admin</button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-                <ManagerDashboard data={data} adminStoreId={adminStoreId} onExit={() => setView('main')} />
-            </div>
-        </div>
-    );
-    
-    return (
-        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
-            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
-                <div className="flex items-center gap-4">
-                    <h1 className="text-xl font-black tracking-tight text-white hidden md:block">Owner Dashboard</h1>
-                    <select 
-                        value={adminStoreId} 
-                        onChange={e => setAdminStoreId(e.target.value)}
-                        className="bg-dark-bg border border-white/20 rounded-lg px-3 py-2 text-white font-bold outline-none focus:border-dark-accent text-sm shadow-inner"
-                    >
-                        {safeStores.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                </div>
-                <div className="flex gap-2">
-                    <button onClick={() => setView('manager')} className="bg-blue-600/20 text-blue-400 p-2 rounded hover:bg-blue-600/30 transition-all text-xs font-bold px-3">Manager Mode</button>
-                    <button onClick={onExit} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20 transition-all"><Icon name="LogOut" /></button>
-                </div>
-            </div>
-            
-            <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
-                <button onClick={() => setOwnerSubView('stores')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'stores' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Branch Mgmt</button>
-                <div className="w-px bg-white/10 mx-1"></div>
-                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep Target</button>
-                <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep History</button>
-                <div className="w-px bg-white/10 mx-1"></div>
-                <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-purple-600 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Smart WH</button>
-                <button onClick={() => setOwnerSubView('smart_history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart_history' ? 'bg-purple-900/50 text-purple-200 border border-purple-500/30' : 'text-dark-text-light hover:bg-white/10'}`}>WH History</button>
-                <div className="w-px bg-white/10 mx-1"></div>
-                <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Global Staff</button>
-                <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Branch Logs</button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-                {ownerSubView === 'stores' && <StoreManagementView data={data} />}
-                {ownerSubView === 'presets' && <InventoryView lang={lang} t={t} inventoryList={scopedInventoryList} onUpdateInventoryList={handleUpdateInventoryList} isOwner={true} currentUser={ownerUser} />}
-                
-                {ownerSubView === 'history' && (
-                    <div className="p-4 space-y-3">
-                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Prep & Waste History</h3><button onClick={handleExportPrepCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16} /> Export</button></div>
-                        {scopedHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found for this branch.</p>}
-                        {scopedHistory.slice().reverse().map((report: any) => (
-                            <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 mb-3">
-                                <div className="flex justify-between items-center mb-2">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-bold text-sm text-white">{new Date(report.date).toLocaleString()}</span>
-                                        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${report.shift === 'waste' ? 'bg-red-500/20 text-red-400' : 'bg-white/10 text-purple-300'}`}>{report.shift === 'waste' ? 'WASTE/LOSS' : report.shift}</span>
-                                    </div>
-                                </div>
-                                <div className="text-xs text-dark-text-light mt-2 pt-2 border-t border-white/5 space-y-1">
-                                    {Object.entries(report.data || {}).map(([itemId, val]: any) => {
-                                        const itemDef = inventoryList.find((i: any) => i.id === itemId);
-                                        return (
-                                            <div key={itemId} className="flex justify-between">
-                                                <span>{itemDef ? getLoc(itemDef.name) : itemId}</span>
-                                                {report.shift === 'waste' ? <span className="text-red-400">-{val.loss} ({val.reason})</span> : <span className="text-green-400">+{val.end}</span>}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {ownerSubView === 'smart' && <SmartInventoryView data={data} onSaveReport={handleSaveSmartReport} />}
-                
-                {ownerSubView === 'smart_history' && (
-                    <div className="p-4 space-y-3">
-                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Warehouse Weekly Reports</h3><button onClick={handleExportSmartCsv} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16} /> Export CSV</button></div>
-                        {scopedSmartReports.length === 0 && <p className="text-dark-text-light text-center py-10">No warehouse reports for this branch.</p>}
-                        {scopedSmartReports.slice().reverse().map((report: any) => {
-                            if (report.status === 'deleted') return null;
-                            return (
-                                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group mb-3">
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex-1">
-                                            <p className="text-sm font-bold text-white flex items-center gap-2">{report.weekStr} <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light font-normal">{(report.items || []).length} items</span></p>
-                                            <p className="text-xs text-dark-text-light mt-0.5">{report.dateRange} • by {report.submittedBy}</p>
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 max-h-60 overflow-y-auto animate-fade-in">
-                                        <div className="grid grid-cols-4 font-bold text-dark-text-light mb-1"><span className="col-span-2">Item</span><span className="text-center">Stock</span><span className="text-center">Status</span></div>
-                                        {(report.items || []).map((item: any, idx: number) => (
-                                            <div key={idx} className="grid grid-cols-4 items-center py-1 border-b border-white/5 last:border-0 hover:bg-white/5"><span className="col-span-2 text-white truncate">{item.name}</span><span className={`text-center font-mono ${item.currentStock === 0 ? 'text-gray-500' : 'text-purple-300 font-bold'}`}>{item.currentStock}</span><span className={`text-center font-bold ${item.status==='LOW'?'text-red-400':'text-green-400'}`}>{item.status}</span></div>
-                                        ))}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-                
-                {ownerSubView === 'staff' && <StaffManagementView users={users} />}
-                
-                {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={scopedLogs} currentUser={ownerUser} onUpdateLogs={(l:any) => Cloud.updateLogs(l)} />}
-            </div>
-        </div>
-    );
-};
 
 // ============================================================================
 // 组件: 今日盘点结果卡片
@@ -3959,6 +3784,224 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat, features 
 };
 
 // ============================================================================
+// 组件 5: 店长总控台 (Owner Dashboard) - [自动分店识别 + 0117密码锁]
+// ============================================================================
+const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, onExit: () => void, currentUser?: any, adminMode?: string }) => {
+    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, stores, setStores, schedule, setSchedule } = data;
+    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
+    const [view, setView] = useState<'main' | 'manager'>('main');
+    const [ownerSubView, setOwnerSubView] = useState<'stores' | 'presets' | 'history' | 'smart' | 'smart_history' | 'staff' | 'logs'>('presets');
+    
+    // ==========================================
+    // 🔐 分店管理模块密码锁
+    // ==========================================
+    const [isStoreUnlocked, setIsStoreUnlocked] = useState(false);
+    const [pinInput, setPinInput] = useState('');
+
+    // ==========================================
+    // 🛡️ 智能权限与分店识别
+    // ==========================================
+    const safeStores = Array.isArray(stores) && stores.length > 0 ? stores : [{ id: 'default_store', name: 'Main Store', staff: [], features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true } }];
+    
+    // 识别当前登录员工属于哪个门店
+    const myStore = currentUser ? safeStores.find((s:any) => s.staff?.includes(currentUser.id)) : null;
+    const initialStoreId = myStore ? myStore.id : safeStores[0].id;
+    
+    const [adminStoreId, setAdminStoreId] = useState(initialStoreId);
+
+    // 判断是否为大老板 (可以切换任意门店)
+    const isBoss = adminMode === 'owner' || currentUser?.role === 'boss';
+
+    const scopedInventoryList = inventoryList.filter((i:any) => (i.storeId || 'default_store') === adminStoreId);
+    const scopedHistory = inventoryHistory.filter((h:any) => (h.storeId || 'default_store') === adminStoreId);
+    const scopedSmartReports = smartReports.filter((r:any) => (r.storeId || 'default_store') === adminStoreId);
+    const scopedLogs = logs.filter((l:any) => (l.storeId || 'default_store') === adminStoreId);
+    
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+
+    const handleUpdateInventoryList = (newList: any[]) => {
+        const others = inventoryList.filter((i:any) => (i.storeId || 'default_store') !== adminStoreId);
+        const mapped = newList.map(i => ({ ...i, storeId: adminStoreId }));
+        const merged = [...others, ...mapped];
+        setInventoryList(merged);
+        Cloud.saveInventoryList(merged);
+    };
+
+    const handleSaveSmartReport = async (report: any) => {
+        try {
+            const scopedReport = { ...report, storeId: adminStoreId };
+            await Cloud.saveSmartInventoryReport(scopedReport);
+            setOwnerSubView('smart_history'); 
+        } catch (error) { alert("Error uploading report."); }
+    };
+
+    const handleExportPrepCsv = () => { 
+         if (scopedHistory.length === 0) return alert("No prep history found to export.");
+         let csvContent = "\uFEFFDate,Type,Staff,Item,Added,Waste/Loss,Reason\n";
+         scopedHistory.forEach((r: any) => {
+            if (r && r.data) {
+                Object.entries(r.data).forEach(([id, val]: any) => {
+                     const itemDef = inventoryList.find((i:any) => i.id === id);
+                     const cleanName = (itemDef ? getLoc(itemDef.name) : id).replace(/"/g, '""');
+                     const isWaste = r.shift === 'waste';
+                     csvContent += `"${r.date}","${r.shift}","${r.submittedBy}","${cleanName}",${!isWaste ? (val.end ?? 0) : 0},${isWaste ? (val.loss ?? 0) : 0},"${val.reason || ''}"\n`;
+                });
+            }
+         });
+         const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })); link.download = `prep_history_${adminStoreId}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    };
+
+    const handleExportSmartCsv = () => {
+        if (scopedSmartReports.length === 0) return alert("No reports found to export.");
+        let csvContent = "\uFEFFWeek,Date Range,Submitted By,Item Name,Category,Supplier,Count (Rem),Add (New),Total Stock,Safety Stock,Status\n";
+        scopedSmartReports.forEach((report: any) => {
+            if (!report || report.status === 'deleted') return;
+            (report.items || []).forEach((item: any) => {
+                if (!item) return;
+                const name = (item.name || 'Unknown').replace(/"/g, '""'); 
+                csvContent += `"${report.weekStr || '-'}","${report.dateRange || '-'}","${report.submittedBy || '-'}","${name}","${item.category || '-'}","${item.supplier || '-'}",${item.count ?? 0},${item.added ?? 0},${item.currentStock ?? 0},${item.safetyStock ?? 0},"${item.status || '-'}"\n`;
+            });
+        });
+        const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })); link.download = `smart_warehouse_${adminStoreId}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    };
+
+    if (view === 'manager') return (
+        <div className="flex flex-col h-[100dvh] bg-dark-bg">
+            <div className="p-4 bg-dark-surface flex justify-between items-center border-b border-white/10">
+                <h2 className="font-black text-white text-lg">Branch Manager: {safeStores.find((s:any)=>s.id===adminStoreId)?.name}</h2>
+                <button onClick={() => setView('main')} className="bg-white/10 px-4 py-2 rounded-lg text-white font-bold text-xs">Back to Admin</button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+                <ManagerDashboard data={data} adminStoreId={adminStoreId} onExit={() => setView('main')} />
+            </div>
+        </div>
+    );
+    
+    return (
+        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
+            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
+                <div className="flex items-center gap-4">
+                    <h1 className="text-xl font-black tracking-tight text-white hidden md:block">Admin Panel</h1>
+                    <select 
+                        value={adminStoreId} 
+                        onChange={e => setAdminStoreId(e.target.value)}
+                        disabled={!isBoss}
+                        className={`bg-dark-bg border border-white/20 rounded-lg px-3 py-2 text-white font-bold outline-none focus:border-dark-accent text-sm shadow-inner ${!isBoss ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                        {safeStores.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={() => setView('manager')} className="bg-blue-600/20 text-blue-400 p-2 rounded hover:bg-blue-600/30 transition-all text-xs font-bold px-3">Manager Mode</button>
+                    <button onClick={onExit} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20 transition-all"><Icon name="LogOut" /></button>
+                </div>
+            </div>
+            
+            <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
+                <button onClick={() => setOwnerSubView('stores')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'stores' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Branch Mgmt</button>
+                <div className="w-px bg-white/10 mx-1"></div>
+                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep Target</button>
+                <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep History</button>
+                <div className="w-px bg-white/10 mx-1"></div>
+                <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-purple-600 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Smart WH</button>
+                <button onClick={() => setOwnerSubView('smart_history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart_history' ? 'bg-purple-900/50 text-purple-200 border border-purple-500/30' : 'text-dark-text-light hover:bg-white/10'}`}>WH History</button>
+                <div className="w-px bg-white/10 mx-1"></div>
+                <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Global Staff</button>
+                <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Branch Logs</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto relative">
+                {/* 分店管理 - 密码锁验证区 */}
+                {ownerSubView === 'stores' && !isStoreUnlocked && (
+                    <div className="absolute inset-0 z-50 bg-dark-bg flex flex-col items-center justify-center p-6 animate-fade-in">
+                        <div className="bg-dark-surface p-8 rounded-3xl border border-white/10 text-center shadow-2xl max-w-sm w-full">
+                            <Icon name="Lock" size={40} className="mx-auto mb-4 text-dark-accent" />
+                            <h3 className="font-black text-xl text-white mb-2">Restricted Area</h3>
+                            <p className="text-xs text-dark-text-light mb-6">Please enter the security PIN to manage branches.</p>
+                            <input 
+                                type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} 
+                                className="w-full text-center text-3xl tracking-[0.5em] p-4 bg-dark-bg border border-white/20 rounded-xl mb-6 font-black text-white outline-none focus:border-dark-accent" 
+                                placeholder="PIN" autoFocus maxLength={4} 
+                                onKeyDown={e => {
+                                    if(e.key === 'Enter') {
+                                        if (pinInput === '0117') { setIsStoreUnlocked(true); setPinInput(''); } 
+                                        else { alert("Incorrect PIN"); setPinInput(''); }
+                                    }
+                                }}
+                            />
+                            <button onClick={() => { if(pinInput === '0117') { setIsStoreUnlocked(true); setPinInput(''); } else { alert("Incorrect PIN"); setPinInput(''); } }} className="w-full py-3 rounded-xl bg-dark-accent text-dark-bg font-bold text-lg active:scale-95 transition-transform">Unlock</button>
+                        </div>
+                    </div>
+                )}
+                {ownerSubView === 'stores' && isStoreUnlocked && <StoreManagementView data={data} />}
+                
+                {ownerSubView === 'presets' && <InventoryView lang={lang} t={t} inventoryList={scopedInventoryList} onUpdateInventoryList={handleUpdateInventoryList} isOwner={true} currentUser={ownerUser} />}
+                
+                {ownerSubView === 'history' && (
+                    <div className="p-4 space-y-3">
+                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Prep & Waste History</h3><button onClick={handleExportPrepCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16} /> Export</button></div>
+                        {scopedHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found for this branch.</p>}
+                        {scopedHistory.slice().reverse().map((report: any) => (
+                            <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 mb-3">
+                                <div className="flex justify-between items-center mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-sm text-white">{new Date(report.date).toLocaleString()}</span>
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${report.shift === 'waste' ? 'bg-red-500/20 text-red-400' : 'bg-white/10 text-purple-300'}`}>{report.shift === 'waste' ? 'WASTE/LOSS' : report.shift}</span>
+                                    </div>
+                                    <span className="text-xs text-dark-text-light font-bold">{report.submittedBy}</span>
+                                </div>
+                                <div className="text-xs text-dark-text-light mt-2 pt-2 border-t border-white/5 space-y-1">
+                                    {Object.entries(report.data || {}).map(([itemId, val]: any) => {
+                                        const itemDef = inventoryList.find((i: any) => i.id === itemId);
+                                        return (
+                                            <div key={itemId} className="flex justify-between">
+                                                <span>{itemDef ? getLoc(itemDef.name) : itemId}</span>
+                                                {report.shift === 'waste' ? <span className="text-red-400">-{val.loss} ({val.reason})</span> : <span className="text-green-400">+{val.end}</span>}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {ownerSubView === 'smart' && <SmartInventoryView data={data} onSaveReport={handleSaveSmartReport} />}
+                
+                {ownerSubView === 'smart_history' && (
+                    <div className="p-4 space-y-3">
+                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Warehouse Weekly Reports</h3><button onClick={handleExportSmartCsv} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16} /> Export CSV</button></div>
+                        {scopedSmartReports.length === 0 && <p className="text-dark-text-light text-center py-10">No warehouse reports for this branch.</p>}
+                        {scopedSmartReports.slice().reverse().map((report: any) => {
+                            if (report.status === 'deleted') return null;
+                            return (
+                                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group mb-3">
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex-1">
+                                            <p className="text-sm font-bold text-white flex items-center gap-2">{report.weekStr} <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light font-normal">{(report.items || []).length} items</span></p>
+                                            <p className="text-xs text-dark-text-light mt-0.5">{report.dateRange} • by {report.submittedBy}</p>
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 max-h-60 overflow-y-auto animate-fade-in">
+                                        <div className="grid grid-cols-4 font-bold text-dark-text-light mb-1"><span className="col-span-2">Item</span><span className="text-center">Stock</span><span className="text-center">Status</span></div>
+                                        {(report.items || []).map((item: any, idx: number) => (
+                                            <div key={idx} className="grid grid-cols-4 items-center py-1 border-b border-white/5 last:border-0 hover:bg-white/5"><span className="col-span-2 text-white truncate">{item.name}</span><span className={`text-center font-mono ${item.currentStock === 0 ? 'text-gray-500' : 'text-purple-300 font-bold'}`}>{item.currentStock}</span><span className={`text-center font-bold ${item.status==='LOW'?'text-red-400':'text-green-400'}`}>{item.status}</span></div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                
+                {ownerSubView === 'staff' && <StaffManagementView users={users} />}
+                {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={scopedLogs} currentUser={ownerUser} onUpdateLogs={(l:any) => Cloud.updateLogs(l)} />}
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
 // MAIN APP COMPONENT
 // ============================================================================
 const App = () => {
@@ -3968,8 +4011,6 @@ const App = () => {
     const [adminModalOpen, setAdminModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [showCloudSetup, setShowCloudSetup] = useState(false);
-    const [storeAuthInput, setStoreAuthInput] = useState('');
-    const [isStoreAuthModalOpen, setIsStoreAuthModalOpen] = useState(false);
     
     // --- Data States ---
     const [users, setUsers] = useState<User[]>(STATIC_USERS);
@@ -4048,32 +4089,7 @@ const App = () => {
     
     if (adminMode === 'owner' || adminMode === 'manager') {
         return (
-            <>
-                <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />
-                {isStoreAuthModalOpen && (
-                    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-dark-surface rounded-3xl p-6 w-full max-w-xs shadow-2xl animate-pop-in border border-white/10 text-center">
-                            <Icon name="Lock" size={24} className="mx-auto mb-2 text-white" />
-                            <h3 className="font-black text-xl text-white mb-4">Branch Control</h3>
-                            <input 
-                                type="password" value={storeAuthInput} onChange={e => setStoreAuthInput(e.target.value)} 
-                                className="w-full text-center text-2xl tracking-[0.5em] p-4 bg-dark-bg border border-white/20 rounded-xl mb-4 font-black text-white outline-none focus:border-dark-accent" 
-                                placeholder="PIN" autoFocus maxLength={4} 
-                                onKeyDown={e => {
-                                    if(e.key === 'Enter') {
-                                        if (storeAuthInput === '0117') { setIsStoreAuthModalOpen(false); } 
-                                        else { alert("Invalid PIN"); setStoreAuthInput(''); }
-                                    }
-                                }}
-                            />
-                            <div className="grid grid-cols-2 gap-3">
-                                <button onClick={() => {setIsStoreAuthModalOpen(false); setStoreAuthInput('');}} className="p-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
-                                <button onClick={() => { if(storeAuthInput === '0117') { setIsStoreAuthModalOpen(false); setStoreAuthInput('__success__'); } else { alert("Invalid PIN"); setStoreAuthInput(''); } }} className="p-3 rounded-xl bg-dark-accent text-dark-bg font-bold">Enter</button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </>
+            <OwnerDashboard data={appData} currentUser={currentUser} adminMode={adminMode} onExit={() => setAdminMode(null)} />
         );
     }
 
