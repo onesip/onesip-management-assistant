@@ -2554,13 +2554,13 @@ const ManualLogModal = ({ isOpen, onClose, onSave, users }: any) => {
 
 
 // ============================================================================
-// 组件 5: 经理后台 (Manager Dashboard) - [全功能保留 + 分店隔离防崩版]
+// 组件 5: 经理后台 (Manager Dashboard) - [100% 数据隔离与防错修复版]
 // ============================================================================
 const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStoreId: string, onExit: () => void }) => {
     const { showNotification } = useNotification();
     const safeUsers = Array.isArray(data.users) ? data.users : [];
     const managerUser = safeUsers.find((u:User) => u && u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
-    const { schedule, setSchedule, logs, setLogs, t, swapRequests, users, scheduleCycles, setScheduleCycles } = data;
+    const { schedule, setSchedule, logs, setLogs, t, swapRequests, users, scheduleCycles, setScheduleCycles, stores, notices } = data;
     
     const today = new Date();
     const [view, setView] = useState<'schedule' | 'logs' | 'financial' | 'requests' | 'confirmations'>('schedule');
@@ -2573,21 +2573,30 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
 
-    // [数据隔离]: 仅加载当前门店的排班、打卡和换班记录
-    const scopedSchedule = { days: (schedule?.days || []).filter((d:any) => d.storeId === adminStoreId || !d.storeId) };
-    const scopedLogs = (logs || []).filter((l:any) => l.storeId === adminStoreId || !l.storeId);
-    const scopedSwapRequests = (swapRequests || []).filter((r:any) => r.storeId === adminStoreId || !r.storeId);
+    // ==========================================
+    // 🛡️ 经理后台严格分店数据隔离
+    // ==========================================
+    const getStoreId = (item: any) => item.storeId || 'default_store';
+    
+    const scopedSchedule = { days: (schedule?.days || []).filter((d:any) => getStoreId(d) === adminStoreId) };
+    const scopedLogs = (logs || []).filter((l:any) => getStoreId(l) === adminStoreId);
+    const scopedSwapRequests = (swapRequests || []).filter((r:any) => getStoreId(r) === adminStoreId);
+    
+    // 只保留被分配到当前门店的员工
+    const activeStore = stores?.find((s:any) => s.id === adminStoreId);
+    const branchStaffIds = activeStore?.staff || [];
+    const scopedUsers = safeUsers.filter((u:User) => branchStaffIds.includes(u.id) || u.role === 'boss');
 
     const [wages, setWages] = useState<Record<string, { type: 'hourly'|'fixed', value: number }>>(() => {
         const saved = localStorage.getItem(`onesip_wages_v3_${adminStoreId}`);
         if (saved) return JSON.parse(saved);
         const def: any = {};
-        safeUsers.forEach((m: User) => { if (m) def[m.name] = { type: 'hourly', value: 12 }; });
+        scopedUsers.forEach((m: User) => { if (m) def[m.name] = { type: 'hourly', value: 12 }; });
         return def;
     });
 
     const saveWages = (newWages: any) => { setWages(newWages); localStorage.setItem(`onesip_wages_v3_${adminStoreId}`, JSON.stringify(newWages)); };
-    const validStaffNames = new Set(safeUsers.filter((u:User)=>u).map((u: User) => u.name));
+    const validStaffNames = new Set(scopedUsers.filter((u:User)=>u).map((u: User) => u.name));
     const normalizeName = (name: string) => name ? name.trim() : "Unknown";
 
     const startOfCurrentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -2606,7 +2615,7 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
     });
 
     const totalWeeks = Math.ceil(displayedDays.length / 7);
-    const activeStaff = safeUsers.filter((u: User) => u && u.active !== false);
+    const activeStaff = scopedUsers.filter((u: User) => u && u.active !== false); // 用于编辑排班和手动补卡
 
     const handleUpdateLogs = async (updatedLogs: LogEntry[]) => {
         try { await Cloud.updateLogs(updatedLogs); } catch (e) { console.error(e); alert("Error saving logs."); }
@@ -2649,7 +2658,8 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
         const { dayIdx } = editingShift; 
         const targetDay = displayedDays[dayIdx];
         
-        const otherStoreDays = (schedule.days || []).filter((d:any) => !(d.date === targetDay.date && (d.storeId === adminStoreId || !d.storeId)));
+        // 隔离保存：过滤掉属于当前门店的同一天，用新的覆盖，保持其他门店数据不动
+        const otherStoreDays = (schedule.days || []).filter((d:any) => !(d.date === targetDay.date && getStoreId(d) === adminStoreId));
         const updatedDay = { ...targetDay, shifts: updatedShifts, storeId: adminStoreId, morning: [], evening: [], night: [] };
         const newSched = { ...schedule, days: [...otherStoreDays, updatedDay] };
         
@@ -2668,19 +2678,21 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
         const cycleId = `${startISO}_${endISO}_${adminStoreId}`;
         const confirmations: any = {};
         activeStaff.forEach((u: User) => { confirmations[u.id] = { status: 'pending', viewed: false }; });
+        
         const newCycle = { cycleId, storeId: adminStoreId, startDate: startISO, endDate: endISO, publishedAt: new Date().toISOString(), status: 'published', confirmations, snapshot: {} };
         const updatedCycles = (scheduleCycles || []).filter((c: ScheduleCycle) => c && c.cycleId !== cycleId);
         updatedCycles.push(newCycle);
         await Cloud.updateScheduleCycles(updatedCycles);
         if (setScheduleCycles) setScheduleCycles(updatedCycles);
         
-        // 【已修复】：自动发送带有正确日期格式的排班通告
+        // 【修复 Invalid Date 报错】：自动发布包含正确 Date 的排班公告，并绑定当前门店
         const newNotice = { 
             id: Date.now().toString(), 
             type: 'announcement', 
+            storeId: adminStoreId, 
             title: "📅 New Schedule", 
             content: `Schedule ${startDate} to ${endDate} is live. Please confirm.`, 
-            date: new Date().toISOString(), // 这里加上了正确的日期格式
+            date: new Date().toISOString(),
             timestamp: Date.now(), 
             author: managerUser.name || 'Manager', 
             frequency: 'once' 
@@ -2698,7 +2710,7 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
         const dayIndex = newSchedule.days.findIndex((d: ScheduleDay) => {
             const dKey = d.date.split('-').map(n => parseInt(n, 10)).join('-');
             const rKey = req.requesterDate.split('-').map(n => parseInt(n, 10)).join('-');
-            return dKey === rKey && (d as any).storeId === adminStoreId;
+            return dKey === rKey && getStoreId(d) === adminStoreId;
         });
         
         if (dayIndex === -1) return;
@@ -2715,6 +2727,13 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
             await Cloud.updateSwapRequests(updatedReqs);
             showNotification({type: 'message', title: "Success", message: "Swap applied."});
         } catch(e) { console.error(e); }
+    };
+
+    const handleSaveManualLog = (inLog: LogEntry, outLog: LogEntry) => {
+        const scopedInLog = { ...inLog, storeId: adminStoreId };
+        const scopedOutLog = { ...outLog, storeId: adminStoreId };
+        Cloud.saveLog(scopedInLog); Cloud.saveLog(scopedOutLog);
+        setIsAddingManualLog(false); alert('Manual record added.');
     };
 
     const calculateFinancials = () => {
@@ -2874,7 +2893,7 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
     const currentCycle = (scheduleCycles || []).find((c: ScheduleCycle) => {
         if (!c) return false;
         const start = new Date(c.startDate); const end = new Date(c.endDate);
-        return today >= start && today <= end && c.storeId === adminStoreId;
+        return today >= start && today <= end && getStoreId(c) === adminStoreId;
     });
 
     const visibleLogs = scopedLogs.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
@@ -2945,6 +2964,13 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
                             <div><div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-dark-text-light uppercase">Total Budget Used</span><span className={`text-xs font-black ${totalActualCost > budgetMax ? 'text-red-400' : 'text-green-400'}`}>{totalActualCost > budgetMax ? 'OVER BUDGET' : `€${(budgetMax - totalActualCost).toFixed(0)} Left`}</span></div><div className="w-full bg-dark-bg rounded-full h-3 overflow-hidden border border-white/5"><div className={`h-full rounded-full transition-all duration-500 ${totalActualCost > budgetMax ? 'bg-red-500' : 'bg-gradient-to-r from-green-500 to-emerald-400'}`} style={{ width: `${Math.min(100, (totalActualCost/budgetMax)*100)}%` }}></div></div></div>
                             <p className="text-[10px] text-center text-dark-text-light mt-3 border-t border-white/5 pt-2">Includes Fixed Salaries: €{totalFixed.toFixed(0)}</p>
                         </div>
+                        <div className="bg-dark-surface p-5 rounded-2xl shadow-lg border border-white/10 border-l-4 border-l-blue-500">
+                            <h3 className="font-bold mb-4 text-dark-text flex items-center gap-2 uppercase tracking-wider text-sm"><Icon name="Grid" size={16}/> Operational Costs</h3>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5"><p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Proj. Hourly</p><p className="text-xl font-black text-blue-400">€{totalHourlyEst.toFixed(0)}</p></div>
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5"><p className="text-[10px] text-dark-text-light font-bold uppercase mb-1">Act. Hourly</p><p className="text-xl font-black text-green-400">€{totalHourlyAct.toFixed(0)}</p></div>
+                            </div>
+                        </div>
                         <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
                             <div className="p-3 bg-white/5 border-b border-white/10 flex justify-between items-center"><h4 className="font-bold text-sm text-white">Staff Wage Settings</h4></div>
                             <table className="w-full text-xs"><thead className="bg-dark-bg text-dark-text-light uppercase"><tr><th className="p-3 text-left">Staff</th><th className="p-3 text-left">Type</th><th className="p-3 text-right">Value (€)</th><th className="p-3 text-right">Act Cost</th></tr></thead><tbody className="divide-y divide-white/10">{Object.keys(stats).map(name => { const wage = wages[name] || { type: 'hourly', value: 12 }; return (<tr key={name}><td className="p-3 font-bold text-dark-text">{name}</td><td className="p-3"><select className="bg-dark-bg border border-white/20 rounded px-2 py-1 text-white outline-none focus:border-dark-accent text-[10px]" value={wage.type} onChange={(e) => { const newWages = { ...wages, [name]: { ...wage, type: e.target.value as any } }; saveWages(newWages); }}><option value="hourly">Hourly</option><option value="fixed">Monthly</option></select></td><td className="p-3 text-right"><input type="number" step={wage.type === 'hourly' ? "0.5" : "100"} className="w-20 text-right py-1 rounded bg-dark-bg border border-white/20 text-white font-mono focus:border-dark-accent outline-none px-2" value={wage.value || ''} onChange={(e) => { const val = parseFloat(e.target.value); const newWages = { ...wages, [name]: { ...wage, value: isNaN(val) ? 0 : val } }; saveWages(newWages); }} /></td><td className="p-3 text-right font-mono text-dark-text-light">€{stats[name].actualCost.toFixed(0)}</td></tr>)})}</tbody></table>
@@ -2958,7 +2984,7 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
                 {view === 'logs' && (
                     <div className="space-y-2">
                         <div className="flex justify-end mb-4"><button onClick={() => setIsAddingManualLog(true)} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all"><Icon name="Plus" size={16} /> Add Manual Log</button></div>
-                        {visibleLogs.length === 0 && <p className="text-dark-text-light text-center py-10">No logs found.</p>}
+                        {visibleLogs.length === 0 && <p className="text-dark-text-light text-center py-10">No logs found for this branch.</p>}
                         {visibleLogs.map((log: LogEntry) => {
                             if (!log) return null;
                             return (
@@ -3316,7 +3342,7 @@ const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser 
 };
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [修复重复数据显示，严格隔离门店数据]
+// 组件 4: 员工端 (Staff App) - [100% 数据隔离版]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { 
@@ -3351,24 +3377,34 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     const today = new Date();
 
-    // --- 【关键修复：严格获取当前门店 ID，并过滤出专属数据】 ---
+    // ==========================================
+    // 🛡️ 严格分店数据隔离逻辑 (Data Isolation)
+    // ==========================================
     const myStore = stores?.find((s: any) => s.staff?.includes(currentUser.id));
     const myStoreId = myStore?.id || 'default_store';
     const defaultFeatures = { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true };
     const activeFeatures = myStore ? (myStore.features || defaultFeatures) : defaultFeatures;
     
-    // 只保留当前分店的库存清单和历史记录，彻底解决重复问题！
-    const scopedInventoryList = useMemo(() => inventoryList.filter((i:any) => (i.storeId || 'default_store') === myStoreId), [inventoryList, myStoreId]);
-    const scopedInventoryHistory = useMemo(() => inventoryHistory.filter((h:any) => (h.storeId || 'default_store') === myStoreId), [inventoryHistory, myStoreId]);
+    const getStoreId = (item: any) => item.storeId || 'default_store';
+
+    // 仅拉取当前门店的专属数据
+    const scopedInventoryList = useMemo(() => inventoryList.filter((i:any) => getStoreId(i) === myStoreId), [inventoryList, myStoreId]);
+    const scopedInventoryHistory = useMemo(() => inventoryHistory.filter((h:any) => getStoreId(h) === myStoreId), [inventoryHistory, myStoreId]);
+    const scopedSwapRequests = useMemo(() => swapRequests.filter((r:any) => getStoreId(r) === myStoreId), [swapRequests, myStoreId]);
+    const scopedNotices = useMemo(() => notices.filter((n:any) => getStoreId(n) === myStoreId), [notices, myStoreId]);
+    
+    // 只允许和当前门店的同事换班
+    const branchStaffIds = myStore?.staff || [];
+    const scopedUsers = useMemo(() => users.filter((u:any) => branchStaffIds.includes(u.id) || u.role === 'boss'), [users, branchStaffIds]);
 
     const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
       const start = new Date(c.startDate);
       const end = new Date(c.endDate);
-      return today >= start && today <= end && c.status === 'published' && (c.storeId || 'default_store') === myStoreId;
+      return today >= start && today <= end && c.status === 'published' && getStoreId(c) === myStoreId;
     });
     const userConfirmation = currentCycle?.confirmations[currentUser.id];
 
-    const activeNotices = (notices || []).filter((n: Notice) => n.status !== 'cancelled');
+    const activeNotices = scopedNotices.filter((n: Notice) => n.status !== 'cancelled');
     const latestNotice = activeNotices.length > 0 ? activeNotices[activeNotices.length - 1] : null;
     const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
 
@@ -3376,7 +3412,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const d = today.getDate();
     const todayDateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
     
-    const todaySchedule = schedule?.days?.find((day: any) => todayDateKeys.includes(day.date) && (day.storeId || 'default_store') === myStoreId);
+    const todaySchedule = schedule?.days?.find((day: any) => todayDateKeys.includes(day.date) && getStoreId(day) === myStoreId);
     const myNameLower = currentUser.name.trim().toLowerCase();
     
     const myShiftsToday = todaySchedule?.shifts?.filter((s: any) => 
@@ -3384,8 +3420,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     ) || [];
     const hasShiftToday = myShiftsToday.length > 0;
 
-    // 检查今天是否已盘点，使用 scoped 历史记录
-    const hasSubmittedToday = (scopedInventoryHistory || []).some((r: any) =>
+    const hasSubmittedToday = scopedInventoryHistory.some((r: any) =>
         r.submittedBy === currentUser.name &&
         new Date(r.date).toDateString() === today.toDateString() && r.shift !== 'waste'
     );
@@ -3398,7 +3433,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         const nm = now.getMonth() + 1; const nd = now.getDate();
         const tDateKeys = [`${nm}-${nd}`, `${nm.toString().padStart(2, '0')}-${nd.toString().padStart(2, '0')}`];
 
-        const allShifts = schedule.days.filter((d:any) => (d.storeId || 'default_store') === myStoreId).flatMap((day: any) => {
+        const allShifts = schedule.days.filter((d:any) => getStoreId(d) === myStoreId).flatMap((day: any) => {
             let date = new Date(day.date);
             if (isNaN(date.getTime()) || day.date.indexOf('-') > -1) {
                 const parts = day.date.split('-');
@@ -3443,68 +3478,28 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 const diffMins = (shiftEnd.getTime() - now.getTime()) / 60000;
                 if (diffMins <= 30) shouldAlert = true;
             });
-
             if (shouldAlert && view !== 'inventory') {
-                showNotification({ type: 'clock_out_reminder', title: '🚨 强制盘点提醒 (MANDATORY)', message: lang === 'zh' ? '你的班次即将结束或已结束，请务必前往 [Inventory] 填写今日的备料盘点！' : 'Your shift is ending. Please submit today\'s prep report!', sticky: true, dedupeKey: 'mandatory_prep_reminder' });
+                showNotification({ type: 'clock_out_reminder', title: '🚨 强制盘点提醒 (MANDATORY)', message: lang === 'zh' ? '你的班次即将结束，请务必填写盘点！' : 'Please submit prep!', sticky: true, dedupeKey: 'mandatory_prep_reminder' });
             }
         }, 60000); 
         return () => clearInterval(timer);
     }, [needsToSubmitPrep, myShiftsToday, view, showNotification, lang]);
 
     useEffect(() => {
-        if (!activeFeatures.recipes || recipeReminderCheckDone.current || !recipes || !currentUser || recipes.length === 0) return;
-        const allNewRecipes = recipes.filter((r: DrinkRecipe) => r.isNew === true);
-        if (allNewRecipes.length === 0) { recipeReminderCheckDone.current = true; return; }
-        const acknowledgedIds = new Set(currentUser.acknowledgedNewRecipes || []);
-        const unacknowledged = allNewRecipes.filter((r: DrinkRecipe) => !acknowledgedIds.has(r.id));
-        if (unacknowledged.length > 0) { setTimeout(() => setNewRecipesToAck(unacknowledged), 2000); }
-        recipeReminderCheckDone.current = true;
-    }, [recipes, currentUser, activeFeatures.recipes]);
-
-    useEffect(() => {
         if (view !== 'home' || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) return;
-
         const runChecks = async () => {
             if (activeFeatures.swap && !swapReminderShown.current) {
-                const pendingSwaps = (swapRequests || []).filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
-                if (pendingSwaps.length > 0) {
-                    setPendingSwapCount(pendingSwaps.length);
-                    setIsSwapReminderOpen(true);
-                    swapReminderShown.current = true;
-                    return;
-                }
+                const pendingSwaps = scopedSwapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
+                if (pendingSwaps.length > 0) { setPendingSwapCount(pendingSwaps.length); setIsSwapReminderOpen(true); swapReminderShown.current = true; return; }
             }
-            if (activeFeatures.schedule && !scheduleReminderShown.current && userConfirmation?.status === 'pending') {
-                setIsScheduleReminderOpen(true);
-                scheduleReminderShown.current = true;
-            }
+            if (activeFeatures.schedule && !scheduleReminderShown.current && userConfirmation?.status === 'pending') { setIsScheduleReminderOpen(true); scheduleReminderShown.current = true; }
         };
         const timer = setTimeout(runChecks, 1500);
         return () => clearTimeout(timer);
-    }, [currentUser, swapRequests, schedule, view, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder, userConfirmation, activeFeatures]);
-
-    useEffect(() => {
-        if (!notices || notices.length === 0) return;
-        const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
-        if (activeNotices.length === 0) return;
-        const latest = activeNotices[activeNotices.length - 1];
-        const seenKey = `notice_seen_${latest.id}`;
-        const lastSeen = localStorage.getItem(seenKey);
-        let shouldShow = false;
-
-        if (!latest.frequency || latest.frequency === 'always') shouldShow = true;
-        else if (latest.frequency === 'once') { if (!lastSeen) shouldShow = true; }
-        else if (latest.frequency === 'daily') { if (!lastSeen || new Date(parseInt(lastSeen)).toDateString() !== new Date().toDateString()) shouldShow = true; }
-        else if (latest.frequency === '3days') { if (!lastSeen || Date.now() - parseInt(lastSeen) > 3 * 86400000) shouldShow = true; }
-
-        if (shouldShow) {
-            showNotification({ type: 'announcement', title: t.team_board || 'Announcement', message: latest.content, sticky: latest.frequency === 'always', dedupeKey: latest.id, imageUrl: latest.imageUrl });
-            if (latest.frequency !== 'always') localStorage.setItem(seenKey, Date.now().toString());
-        }
-    }, [notices, showNotification, t.team_board]);
+    }, [currentUser, scopedSwapRequests, schedule, view, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder, userConfirmation, activeFeatures]);
 
     const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
-        const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
+        const req = scopedSwapRequests.find((r: SwapRequest) => r.id === reqId);
         if(!req) return;
         const updatedReq = { ...req, status: action, decidedAt: Date.now() };
         const updatedReqs = swapRequests.map((r: SwapRequest) => (r.id === reqId ? updatedReq : r));
@@ -3522,7 +3517,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const handleSendSwapRequest = async () => {
         if (!currentSwap || !targetEmployeeId) { alert("Please select a colleague."); return; }
-        const targetUser = users.find((u:User) => u.id === targetEmployeeId);
+        const targetUser = scopedUsers.find((u:any) => u.id === targetEmployeeId);
         if (!targetUser) return;
 
         const newRequest: Omit<SwapRequest, 'id'> = {
@@ -3550,16 +3545,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 const weekDays = [];
                 for(let d=0; d<7; d++) {
                     const day = new Date(weekStart); day.setDate(day.getDate() + d);
-                    weekDays.push({
-                         dateObj: day, dateStr: `${day.getMonth() + 1}-${day.getDate()}`,
-                         dayName: day.toLocaleDateString('en-US', { weekday: 'long' }),
-                         displayDate: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                         isToday: day.toDateString() === todayDate.toDateString()
-                    });
+                    weekDays.push({ dateObj: day, dateStr: `${day.getMonth() + 1}-${day.getDate()}`, dayName: day.toLocaleDateString('en-US', { weekday: 'long' }), displayDate: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), isToday: day.toDateString() === todayDate.toDateString() });
                 }
                 weeksData.push({ id: w, label: w === 0 ? "Current Week" : `Week ${w + 1}`, range: `${weekDays[0].displayDate} - ${weekDays[6].displayDate}`, days: weekDays });
             }
-            const scheduleMap = new Map<string, ScheduleDay>((schedule.days || []).filter((d:any)=>(d.storeId || 'default_store') === myStoreId).map((day: ScheduleDay) => [normalizeDateKey(day.date), day]));
+            const scheduleMap = new Map<string, ScheduleDay>((schedule.days || []).filter((d:any)=>getStoreId(d) === myStoreId).map((day: ScheduleDay) => [normalizeDateKey(day.date), day]));
 
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
@@ -3586,15 +3576,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                                         const timeDisplay = shift.start && shift.end ? `${shift.start}-${shift.end}` : '';
                                                         return (
                                                             <div key={sIdx} className="flex items-start gap-3">
-                                                                <div className="flex flex-col items-center gap-0.5 w-16 shrink-0">
-                                                                    <span className={`text-[10px] font-black uppercase tracking-wider w-full py-1.5 text-center rounded-md ${sIdx === 0 ? 'bg-orange-50 text-orange-500' : sIdx === 1 ? 'bg-indigo-50 text-indigo-500' : 'bg-purple-50 text-purple-500'}`}>Shift {sIdx + 1}</span>
-                                                                    {timeDisplay && <span className="text-[9px] text-text-light font-mono">{timeDisplay}</span>}
-                                                                </div>
+                                                                <div className="flex flex-col items-center gap-0.5 w-16 shrink-0"><span className={`text-[10px] font-black uppercase tracking-wider w-full py-1.5 text-center rounded-md ${sIdx === 0 ? 'bg-orange-50 text-orange-500' : sIdx === 1 ? 'bg-indigo-50 text-indigo-500' : 'bg-purple-50 text-purple-500'}`}>Shift {sIdx + 1}</span>{timeDisplay && <span className="text-[9px] text-text-light font-mono">{timeDisplay}</span>}</div>
                                                                 <div className="flex-1 flex flex-wrap gap-2 items-center">
-                                                                    {staffList.map((name: string, i: number) => {
-                                                                        const isMe = name === currentUser.name;
-                                                                        return (<div key={i} className={`flex items-center gap-1.5 pl-3 pr-2 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white border-primary shadow-sm' : 'bg-secondary text-text-light border-transparent'}`}>{name}</div>);
-                                                                    })}
+                                                                    {staffList.map((name: string, i: number) => { const isMe = name === currentUser.name; return (<div key={i} className={`flex items-center gap-1.5 pl-3 pr-2 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white border-primary shadow-sm' : 'bg-secondary text-text-light border-transparent'}`}>{name}</div>); })}
                                                                 </div>
                                                             </div>
                                                         );
@@ -3613,79 +3597,28 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
 
         if (view === 'recipes' && activeFeatures.recipes) {
-             const filteredRecipes = recipes
-                .filter((r: DrinkRecipe) => r.isPublished !== false)
-                .filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType)))
-                .filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
-
-             const renderVideo = (url: string) => {
-                 if (url.includes('youtube.com') || url.includes('youtu.be')) {
-                     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?]*).*/;
-                     const match = url.match(regExp);
-                     const yId = (match && match[2].length === 11) ? match[2] : null;
-                     return yId ? (
-                         <iframe className="w-full aspect-video rounded-lg mt-2 shadow-md" src={`https://www.youtube.com/embed/${yId}`} title="Video" allowFullScreen></iframe>
-                     ) : null;
-                 }
-                 return (
-                     <video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-lg mt-2 shadow-md bg-black object-contain" />
-                 );
-             };
+             const filteredRecipes = recipes.filter((r: DrinkRecipe) => r.isPublished !== false).filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType))).filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
+             const renderVideo = (url: string) => { if (url.includes('youtube.com') || url.includes('youtu.be')) { const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?]*).*/; const match = url.match(regExp); const yId = (match && match[2].length === 11) ? match[2] : null; return yId ? (<iframe className="w-full aspect-video rounded-lg mt-2 shadow-md" src={`https://www.youtube.com/embed/${yId}`} title="Video" allowFullScreen></iframe>) : null; } return (<video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-lg mt-2 shadow-md bg-black object-contain" />); };
 
              return (
                 <div className="h-full flex flex-col bg-secondary animate-fade-in-up text-text">
-                    <div className="p-4 sticky top-0 bg-secondary z-10">
-                        <h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2>
-                        <div className="relative mb-4">
-                            <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-                            <input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm" />
-                        </div>
-                         <div className="flex gap-2">
-                            <button onClick={() => setRecipeTypeFilter('product')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'product' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Product</button>
-                            <button onClick={() => setRecipeTypeFilter('premix')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'premix' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Premix</button>
-                        </div>
-                    </div>
+                    <div className="p-4 sticky top-0 bg-secondary z-10"><h2 className="text-2xl font-black text-text mb-4">{t.recipe_title}</h2><div className="relative mb-4"><Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/><input value={recipeSearchQuery} onChange={e => setRecipeSearchQuery(e.target.value)} placeholder="Search recipes..." className="w-full bg-surface border rounded-lg p-3 pl-10 text-sm" /></div><div className="flex gap-2"><button onClick={() => setRecipeTypeFilter('product')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'product' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Product</button><button onClick={() => setRecipeTypeFilter('premix')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-colors ${recipeTypeFilter === 'premix' ? 'bg-primary text-white shadow' : 'bg-surface text-text-light'}`}>Premix</button></div></div>
                     <div className="flex-1 overflow-y-auto p-4 pt-0 pb-24">
                         {filteredRecipes.map((drink: DrinkRecipe) => (
                             <div key={drink.id} id={`recipe-${drink.id}`} className="bg-surface p-4 rounded-xl shadow-sm border border-gray-100 mb-3 cursor-pointer transition-all" onClick={() => setExpandedRecipeId(expandedRecipeId === drink.id ? null : drink.id)}>
-                                <div className="flex justify-between items-center">
-                                    <div>
-                                        <h3 className="font-bold text-text flex items-center gap-2">
-                                            {drink.name?.[lang] || drink.name?.['zh']}
-                                            {drink.isNew && <span className="bg-red-100 text-red-500 text-[10px] px-1.5 py-0.5 rounded uppercase">New</span>}
-                                        </h3>
-                                        <p className="text-xs text-text-light">{drink.cat} • {drink.size}</p>
-                                    </div>
-                                    <Icon name={expandedRecipeId === drink.id ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" />
-                                </div>
+                                <div className="flex justify-between items-center"><div><h3 className="font-bold text-text flex items-center gap-2">{drink.name?.[lang] || drink.name?.['zh']}{drink.isNew && <span className="bg-red-100 text-red-500 text-[10px] px-1.5 py-0.5 rounded uppercase">New</span>}</h3><p className="text-xs text-text-light">{drink.cat} • {drink.size}</p></div><Icon name={expandedRecipeId === drink.id ? "ChevronUp" : "ChevronRight"} size={20} className="text-gray-400" /></div>
                                 {expandedRecipeId === drink.id && (
                                     <div className="mt-3 text-sm text-text-light space-y-2 border-t pt-3 animate-fade-in" onClick={e => e.stopPropagation()}>
-                                        <p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p>
-                                        <p><strong>Sugar:</strong> {drink.sugar}</p>
-                                        <p><strong>Ice:</strong> {drink.ice}</p>
+                                        <p><strong>Toppings:</strong> {drink.toppings?.[lang] || drink.toppings?.['zh']}</p><p><strong>Sugar:</strong> {drink.sugar}</p><p><strong>Ice:</strong> {drink.ice}</p>
                                         {drink.coverImageUrl && (<img src={drink.coverImageUrl} alt={drink.name?.[lang] || drink.name?.['zh']} className="w-full h-auto rounded-lg my-2 object-cover shadow-md" />)}
-                                        {(drink.basePreparation?.en || drink.basePreparation?.zh) && (
-                                            <div className="bg-yellow-500/10 p-3 rounded-lg my-2">
-                                                <p className="font-bold text-yellow-800 mb-1 text-xs uppercase">Base Preparation</p>
-                                                <p className="text-sm text-yellow-900 whitespace-pre-line leading-relaxed">{drink.basePreparation?.[lang] || drink.basePreparation?.['zh']}</p>
-                                            </div>
-                                        )}
+                                        {(drink.basePreparation?.en || drink.basePreparation?.zh) && (<div className="bg-yellow-500/10 p-3 rounded-lg my-2"><p className="font-bold text-yellow-800 mb-1 text-xs uppercase">Base Preparation</p><p className="text-sm text-yellow-900 whitespace-pre-line leading-relaxed">{drink.basePreparation?.[lang] || drink.basePreparation?.['zh']}</p></div>)}
                                         <div className="bg-blue-500/10 p-2 rounded"><p className="font-bold text-blue-800 mb-1">Cold Steps:</p><ol className="list-decimal pl-4">{drink.steps.cold.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
                                         <div className="bg-orange-500/10 p-2 rounded"><p className="font-bold text-orange-800 mb-1">Warm Steps:</p><ol className="list-decimal pl-4">{drink.steps.warm.map((s:any, i:number) => <li key={i}>{s?.[lang]||s?.['zh']}</li>)}</ol></div>
-
-                                        {drink.tutorialVideoUrl && (
-                                            <div className="mt-3 bg-gray-50 p-2 rounded-lg border border-gray-100">
-                                                <p className="font-bold text-gray-700 mb-1 text-xs uppercase flex items-center gap-1">
-                                                    <Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '教学视频' : 'Tutorial Video'}
-                                                </p>
-                                                {renderVideo(drink.tutorialVideoUrl)}
-                                            </div>
-                                        )}
+                                        {drink.tutorialVideoUrl && (<div className="mt-3 bg-gray-50 p-2 rounded-lg border border-gray-100"><p className="font-bold text-gray-700 mb-1 text-xs uppercase flex items-center gap-1"><Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '教学视频' : 'Tutorial Video'}</p>{renderVideo(drink.tutorialVideoUrl)}</div>)}
                                     </div>
                                 )}
                             </div>
                         ))}
-                        {filteredRecipes.length === 0 && <p className="text-center text-text-light py-10 text-sm">没有找到相关配方 / No recipes found.</p>}
                     </div>
                 </div>
             );
@@ -3697,14 +3630,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 <InventoryView
                     lang={lang} t={t} inventoryList={scopedInventoryList} setInventoryList={setInventoryList}
                     onSubmit={(report: any) => {
-                        // 强制绑定当前门店ID
                         const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString(), storeId: myStoreId };
                         Cloud.saveInventoryReport(completeReport);
                         showNotification({ type: 'message', title: 'Saved', message: '盘点记录已提交。' });
                         setView('home');
                     }}
-                    currentUser={currentUser} isForced={false} onCancel={() => setView('home')}
-                    forcedShift={defaultShift} isOwner={false}
+                    currentUser={currentUser} isForced={false} onCancel={() => setView('home')} forcedShift={defaultShift} isOwner={false}
                 />
             );
         }
@@ -3726,12 +3657,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
         if (view === 'chat' && activeFeatures.chat) { 
             const isUserAdmin = currentUser.role === 'manager' || currentUser.role === 'boss';
-            return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={isUserAdmin} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={users} />; 
-        }   
-      
+            return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={scopedNotices} isManager={isUserAdmin} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={scopedUsers} />; 
+        }
+        
         if (view === 'swapRequests' && activeFeatures.swap) {
-            const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
-            const incomingRequests = swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
+            const myRequests = scopedSwapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
+            const incomingRequests = scopedSwapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
                     <h2 className="text-2xl font-black mb-4">Shift Swap Center</h2>
@@ -3756,48 +3687,20 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             {needsToSubmitPrep && (
                 <div className="bg-red-50 border border-red-200 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in flex items-center justify-between">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
-                    <div>
-                        <h3 className="text-sm font-bold text-red-600 flex items-center gap-1">
-                            <Icon name="AlertCircle" size={16}/>
-                            {lang === 'zh' ? '盘点未完成' : 'Prep Incomplete'}
-                        </h3>
-                        <p className="text-xs text-red-500 mt-1">
-                            {lang === 'zh' ? '下班前请务必填写今日备料盘点' : 'Please submit today\'s prep before leaving.'}
-                        </p>
-                    </div>
-                    <button onClick={() => setView('inventory')} className="bg-red-500 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-red-600 active:scale-95">
-                        {lang === 'zh' ? '去盘点' : 'Go to Prep'}
-                    </button>
+                    <div><h3 className="text-sm font-bold text-red-600 flex items-center gap-1"><Icon name="AlertCircle" size={16}/>{lang === 'zh' ? '盘点未完成' : 'Prep Incomplete'}</h3><p className="text-xs text-red-500 mt-1">{lang === 'zh' ? '下班前请务必填写今日备料盘点' : 'Please submit today\'s prep before leaving.'}</p></div>
+                    <button onClick={() => setView('inventory')} className="bg-red-500 text-white px-3 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-red-600 active:scale-95">{lang === 'zh' ? '去盘点' : 'Go to Prep'}</button>
                 </div>
             )}
 
             {activeFeatures.recipes && featuredRecipes.length > 0 && (
                 <div className="mb-4 animate-fade-in">
-                    <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1">
-                        <Icon name="Flame" size={14}/>
-                        {lang === 'zh' ? '新品配方推荐' : 'Featured New Recipes'}
-                    </h3>
+                    <h3 className="text-xs font-bold text-red-500 uppercase mb-2 flex items-center gap-1"><Icon name="Flame" size={14}/>{lang === 'zh' ? '新品配方推荐' : 'Featured New Recipes'}</h3>
                     <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                         {featuredRecipes.map((recipe: DrinkRecipe) => (
-                            <div
-                                key={recipe.id}
-                                onClick={() => {
-                                    setView('recipes');
-                                    setRecipeSearchQuery('');
-                                    setRecipeTypeFilter(recipe.recipeType || 'product');
-                                    setExpandedRecipeId(recipe.id);
-                                    setTimeout(() => {
-                                        document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                    }, 200);
-                                }}
-                                className="min-w-[240px] bg-gradient-to-br from-red-500 to-orange-500 rounded-2xl p-4 shadow-md text-white shrink-0 relative overflow-hidden cursor-pointer active:scale-95 transition-transform"
-                            >
+                            <div key={recipe.id} onClick={() => { setView('recipes'); setRecipeSearchQuery(''); setRecipeTypeFilter(recipe.recipeType || 'product'); setExpandedRecipeId(recipe.id); setTimeout(() => document.getElementById(`recipe-${recipe.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200); }} className="min-w-[240px] bg-gradient-to-br from-red-500 to-orange-500 rounded-2xl p-4 shadow-md text-white shrink-0 relative overflow-hidden cursor-pointer active:scale-95 transition-transform">
                                 <div className="absolute -right-4 -bottom-4 opacity-20"><Icon name="Coffee" size={80}/></div>
-                                <h4 className="font-black text-lg mb-1 relative z-10">{recipe.name[lang] || recipe.name.zh}</h4>
-                                <p className="text-xs opacity-90 relative z-10">{recipe.cat}</p>
-                                <button className="mt-4 bg-white text-red-500 px-4 py-1.5 rounded-full text-xs font-bold relative z-10 shadow-sm hover:bg-gray-50 flex items-center gap-1">
-                                    <Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '查看做法' : 'View Recipe'}
-                                </button>
+                                <h4 className="font-black text-lg mb-1 relative z-10">{recipe.name[lang] || recipe.name.zh}</h4><p className="text-xs opacity-90 relative z-10">{recipe.cat}</p>
+                                <button className="mt-4 bg-white text-red-500 px-4 py-1.5 rounded-full text-xs font-bold relative z-10 shadow-sm hover:bg-gray-50 flex items-center gap-1"><Icon name="PlayCircle" size={14} /> {lang === 'zh' ? '查看做法' : 'View Recipe'}</button>
                             </div>
                         ))}
                     </div>
@@ -3807,12 +3710,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             {latestNotice && (
                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl shadow-sm mb-4 relative overflow-hidden animate-fade-in">
                     <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
-                    <div className="flex items-center gap-2 mb-2">
-                        <Icon name="Megaphone" size={16} className="text-blue-500"/>
-                        <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wider">
-                            {lang === 'zh' ? '团队公告' : 'Team Announcement'}
-                        </h3>
-                    </div>
+                    <div className="flex items-center gap-2 mb-2"><Icon name="Megaphone" size={16} className="text-blue-500"/><h3 className="text-xs font-bold text-blue-600 uppercase tracking-wider">{lang === 'zh' ? '团队公告' : 'Team Announcement'}</h3></div>
                     <p className="text-sm text-gray-800 font-medium whitespace-pre-line">{latestNotice.content}</p>
                     {latestNotice.imageUrl && <img src={latestNotice.imageUrl} alt="notice" className="mt-3 rounded-xl w-full max-h-40 object-cover border border-blue-100/50 shadow-sm" />}
                     <div className="mt-2 text-[10px] text-blue-400 font-bold text-right">{latestNotice.author} • {new Date(latestNotice.date).toLocaleDateString()}</div>
@@ -3833,12 +3731,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
                 <div className="grid grid-cols-2 gap-3">
-                    {activeFeatures.waste && (
-                        <button onClick={() => setView('waste' as any)} className="bg-red-50 p-4 rounded-2xl shadow-sm border border-red-100 text-left active:scale-95 transition-transform">
-                            <Icon name="Trash" className="mb-1 text-red-500"/>
-                            <p className="font-bold text-red-700">{lang === 'zh' ? '物料报损' : 'Waste Report'}</p>
-                        </button>
-                    )}
+                    {activeFeatures.waste && <button onClick={() => setView('waste' as any)} className="bg-red-50 p-4 rounded-2xl shadow-sm border border-red-100 text-left active:scale-95 transition-transform"><Icon name="Trash" className="mb-1 text-red-500"/><p className="font-bold text-red-700">{lang === 'zh' ? '物料报损' : 'Waste Report'}</p></button>}
                     {activeFeatures.schedule && <button onClick={() => setView('team')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Users" className="mb-1 text-primary"/> <p className="font-bold">My Schedule</p></button>}
                     {activeFeatures.swap && <button onClick={() => setView('swapRequests')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Refresh" className="mb-1 text-primary"/> <p className="font-bold">Shift Swaps</p></button>}
                     {activeFeatures.availability && <button onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Calendar" className="mb-1 text-primary"/> <p className="font-bold">Availability</p></button>}
@@ -3847,187 +3740,15 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         </div>
     );
 
-    const handleNavSwitch = (v: StaffViewMode) => {
-        setView(v);
-        if (v !== 'recipes') {
-            setExpandedRecipeId(null);
-            setRecipeSearchQuery('');
-        }
-    };
-
     return (
         <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative pt-[calc(env(safe-area-inset-top)_+_1rem)]">
             {view === 'home' ? renderHomeView() : renderView()}
-
-            {currentUser && <StaffBottomNav activeView={view} setActiveView={handleNavSwitch} t={t} hasUnreadChat={hasUnreadChat} features={activeFeatures} />}
-
+            {currentUser && <StaffBottomNav activeView={view} setActiveView={(v) => { setView(v); if (v !== 'recipes') { setExpandedRecipeId(null); setRecipeSearchQuery(''); } }} t={t} hasUnreadChat={hasUnreadChat} features={activeFeatures} />}
             <AvailabilityReminderModal isOpen={showAvailabilityReminder} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} onCancel={() => setShowAvailabilityReminder(false)} t={t} />
             {currentUser && <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />}
-            <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={users} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
+            <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={scopedUsers} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
             <ActionReminderModal isOpen={isScheduleReminderOpen} title="排班确认提醒" message="你未来两周有排班安排，请尽快确认。" confirmText="去排班页面" cancelText="稍后" onConfirm={() => { setView('team'); setIsScheduleReminderOpen(false); }} onCancel={() => setIsScheduleReminderOpen(false)} />
             <ActionReminderModal isOpen={isSwapReminderOpen} title="换班申请提醒" message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`} confirmText="去处理" cancelText="稍后" onConfirm={() => { setView('swapRequests'); setIsSwapReminderOpen(false); }} onCancel={() => setIsSwapReminderOpen(false)} />
         </div>
     );
 };
-
-// ============================================================================
-// 组件: 底部导航栏 (StaffBottomNav)
-// ============================================================================
-const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat, features }: any) => {
-    let navItems = [{ key: 'home', icon: 'Grid', label: t.home }];
-    if (features?.training) navItems.push({ key: 'training', icon: 'Award', label: t.training });
-    if (features?.recipes) navItems.push({ key: 'recipes', icon: 'Coffee', label: t.recipes });
-    if (features?.prep) navItems.push({ key: 'inventory', icon: 'Package', label: t.stock });
-    if (features?.chat) navItems.push({ key: 'chat', icon: 'MessageSquare', label: t.chat });
-
-    return (
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-surface/80 backdrop-blur-lg border-t border-gray-100 flex justify-around items-center max-w-md mx-auto">
-            {navItems.map(item => (
-                <button key={item.key} onClick={() => setActiveView(item.key as StaffViewMode)} className={`flex flex-col items-center gap-1 w-16 transition-all relative ${activeView === item.key ? 'text-primary' : 'text-text-light hover:text-primary'}`}>
-                    <Icon name={item.icon as any} size={22} />
-                    <span className="text-[10px] font-bold">{item.label}</span>
-                    {item.key === 'chat' && hasUnreadChat && <div className="absolute top-0 right-3.5 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-surface"></div>}
-                </button>
-            ))}
-        </div>
-    );
-};
-
-// ============================================================================
-// MAIN APP COMPONENT
-// ============================================================================
-const App = () => {
-    const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('onesip_lang') as Lang) || 'zh');
-    const [currentUser, setCurrentUser] = useState<User | null>(null);
-    const [adminMode, setAdminMode] = useState<'manager' | 'owner' | 'editor' | null>(null);
-    const [adminModalOpen, setAdminModalOpen] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
-    const [showCloudSetup, setShowCloudSetup] = useState(false);
-    const [storeAuthInput, setStoreAuthInput] = useState('');
-    const [isStoreAuthModalOpen, setIsStoreAuthModalOpen] = useState(false);
-    
-    // --- Data States ---
-    const [users, setUsers] = useState<User[]>(STATIC_USERS);
-    const [inventoryList, setInventoryList] = useState<InventoryItem[]>(INVENTORY_ITEMS);
-    const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
-    const [schedule, setSchedule] = useState<any>({ days: [] });
-    const [notices, setNotices] = useState<Notice[]>([]);
-    const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
-    const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
-    const [sales, setSales] = useState<SalesRecord[]>([]);
-    const [smartInventory, setSmartInventory] = useState<any[]>([]);
-    const [sopList, setSopList] = useState<SopItem[]>(SOP_DATABASE);
-    const [trainingLevels, setTrainingLevels] = useState<TrainingLevel[]>(TRAINING_LEVELS);
-    const [recipes, setRecipes] = useState<DrinkRecipe[]>(DRINK_RECIPES);
-    const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
-    const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
-    const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
-
-    const [stores, setStores] = useState<any[]>(() => {
-        const saved = localStorage.getItem('onesip_stores_v1');
-        if (saved) return JSON.parse(saved);
-        return [{ id: 'default_store', name: 'Main Store', staff: STATIC_USERS.map((u:User)=>u.id), features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true } }];
-    });
-
-    useEffect(() => { localStorage.setItem('onesip_stores_v1', JSON.stringify(stores)); }, [stores]);
-
-    const t = TRANSLATIONS[lang];
-
-    const appData = {
-        lang, setLang, users, inventoryList, setInventoryList, inventoryHistory, 
-        schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
-        setDirectMessages, swapRequests, setSwapRequests, sales, sopList, 
-        setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
-        confirmations, scheduleCycles, setScheduleCycles, 
-        smartInventory, setSmartInventory, 
-        smartInventoryReports, setSmartInventoryReports,
-        smartReports: smartInventoryReports, 
-        setSmartReports: setSmartInventoryReports,
-        stores, setStores
-    };
-
-    useEffect(() => {
-        Cloud.seedInitialData();
-        const unsubs = [
-            Cloud.subscribeToUsers(setUsers),
-            Cloud.subscribeToInventory(setInventoryList),
-            Cloud.subscribeToSmartInventory(setSmartInventory),
-            Cloud.subscribeToSchedule((week) => setSchedule({ days: week?.days || [] })),
-            Cloud.subscribeToLogs(setLogs),
-            Cloud.subscribeToChat((msgs, nts) => { setDirectMessages(msgs); setNotices(nts); }),
-            Cloud.subscribeToSwaps(setSwapRequests),
-            Cloud.subscribeToSales(setSales),
-            Cloud.subscribeToInventoryHistory(setInventoryHistory),
-            Cloud.subscribeToScheduleConfirmations(setConfirmations),
-            Cloud.subscribeToScheduleCycles(setScheduleCycles),
-            Cloud.subscribeToContent((data) => {
-                if (data?.sops) setSopList(data.sops);
-                if (data?.training) setTrainingLevels(data.training);
-                if (data?.recipes) setRecipes(data.recipes);
-            }),
-            Cloud.subscribeToSmartInventoryReports(setSmartInventoryReports)
-        ];
-
-        setTimeout(() => setIsLoading(false), 800);
-        return () => { unsubs.forEach(unsub => unsub && unsub()); };
-    }, []);
-
-    useEffect(() => { localStorage.setItem('onesip_lang', lang); }, [lang]);
-
-    const handleLogin = (user: User, keepLoggedIn: boolean) => { setCurrentUser(user); };
-    const handleLogout = () => { setCurrentUser(null); setAdminMode(null); };
-
-    if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-secondary text-primary font-bold animate-pulse">Loading ONESIP...</div>;
-    if (adminMode === 'editor') return <EditorDashboard data={appData} onExit={() => setAdminMode(null)} />;
-    
-    if (adminMode === 'owner' || adminMode === 'manager') {
-        return (
-            <>
-                <OwnerDashboard data={appData} onExit={() => setAdminMode(null)} />
-                {isStoreAuthModalOpen && (
-                    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-dark-surface rounded-3xl p-6 w-full max-w-xs shadow-2xl animate-pop-in border border-white/10 text-center">
-                            <Icon name="Lock" size={24} className="mx-auto mb-2 text-white" />
-                            <h3 className="font-black text-xl text-white mb-4">Branch Control</h3>
-                            <input 
-                                type="password" value={storeAuthInput} onChange={e => setStoreAuthInput(e.target.value)} 
-                                className="w-full text-center text-2xl tracking-[0.5em] p-4 bg-dark-bg border border-white/20 rounded-xl mb-4 font-black text-white outline-none focus:border-dark-accent" 
-                                placeholder="PIN" autoFocus maxLength={4} 
-                                onKeyDown={e => {
-                                    if(e.key === 'Enter') {
-                                        if (storeAuthInput === '0117') { setIsStoreAuthModalOpen(false); } 
-                                        else { alert("Invalid PIN"); setStoreAuthInput(''); }
-                                    }
-                                }}
-                            />
-                            <div className="grid grid-cols-2 gap-3">
-                                <button onClick={() => {setIsStoreAuthModalOpen(false); setStoreAuthInput('');}} className="p-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button>
-                                <button onClick={() => { if(storeAuthInput === '0117') { setIsStoreAuthModalOpen(false); setStoreAuthInput('__success__'); } else { alert("Invalid PIN"); setStoreAuthInput(''); } }} className="p-3 rounded-xl bg-dark-accent text-dark-bg font-bold">Enter</button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </>
-        );
-    }
-
-    return (
-        <>
-            {!currentUser && <LoginScreen users={users} onLogin={handleLogin} t={t} lang={lang} setLang={setLang} />}
-            {currentUser && <StaffApp onSwitchMode={() => {}} data={appData} onLogout={handleLogout} currentUser={currentUser} openAdmin={() => setAdminModalOpen(true)} />}
-            {!currentUser && !adminMode && (
-                <div className="fixed bottom-6 right-6 z-50">
-                    <button onClick={() => setAdminModalOpen(true)} className="w-10 h-10 bg-gray-200/50 hover:bg-gray-200 text-gray-500 hover:text-gray-800 rounded-full flex items-center justify-center transition-all backdrop-blur-sm">
-                        <Icon name="Shield" size={18} />
-                    </button>
-                </div>
-            )}
-            <AdminLoginModal isOpen={adminModalOpen} onClose={() => setAdminModalOpen(false)} onLogin={(role) => { setAdminModalOpen(false); setAdminMode(role); }} />
-            {showCloudSetup && <CloudSetupModal isOpen={showCloudSetup} onClose={() => setShowCloudSetup(false)} />}
-        </>
-    );
-};
-
-export default App;
-
