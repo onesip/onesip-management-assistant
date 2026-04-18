@@ -2673,6 +2673,20 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
         updatedCycles.push(newCycle);
         await Cloud.updateScheduleCycles(updatedCycles);
         if (setScheduleCycles) setScheduleCycles(updatedCycles);
+        
+        // 【已修复】：自动发送带有正确日期格式的排班通告
+        const newNotice = { 
+            id: Date.now().toString(), 
+            type: 'announcement', 
+            title: "📅 New Schedule", 
+            content: `Schedule ${startDate} to ${endDate} is live. Please confirm.`, 
+            date: new Date().toISOString(), // 这里加上了正确的日期格式
+            timestamp: Date.now(), 
+            author: managerUser.name || 'Manager', 
+            frequency: 'once' 
+        };
+        await Cloud.updateNotices([...(notices || []), newNotice]);
+        
         showNotification({ type: 'message', title: 'Published!', message: `Schedule published for this branch.`});
     };
 
@@ -3207,7 +3221,102 @@ const TodaysPrepReports = ({ inventoryHistory, inventoryList, lang }: { inventor
 };
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App)
+// 新增组件: 物料报损单 (Waste Report View) [含自动暂存]
+// ============================================================================
+const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser }: any) => {
+    const [wasteData, setWasteData] = useState<Record<string, { loss: string, reason: string }>>({});
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+
+    const draftKey = `onesip_waste_draft_${currentUser?.id}`;
+
+    useEffect(() => {
+        const saved = localStorage.getItem(draftKey);
+        if (saved) {
+            try { setWasteData(JSON.parse(saved)); } catch(e) {}
+        }
+    }, [draftKey]);
+
+    useEffect(() => {
+        localStorage.setItem(draftKey, JSON.stringify(wasteData));
+    }, [wasteData, draftKey]);
+
+    const handleSubmit = () => {
+        const dataToSubmit: Record<string, { loss: string, reason: string }> = {};
+        let hasData = false;
+        Object.keys(wasteData).forEach(id => {
+            if (wasteData[id].loss && parseFloat(wasteData[id].loss) > 0) {
+                dataToSubmit[id] = wasteData[id];
+                hasData = true;
+            }
+        });
+
+        if (!hasData) {
+            alert(lang === 'zh' ? "请至少输入一项浪费/损耗的数量。" : "Please enter at least one waste amount.");
+            return;
+        }
+
+        onSubmit({
+            submittedBy: currentUser?.name,
+            userId: currentUser?.id,
+            data: dataToSubmit,
+            shift: 'waste', 
+            date: new Date().toISOString()
+        });
+
+        localStorage.removeItem(draftKey);
+        setWasteData({});
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
+            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3">
+                <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
+                <h2 className="text-xl font-black text-red-500 flex items-center gap-2">
+                    <Icon name="Trash" size={20} /> {lang === 'zh' ? '物料报损记录' : 'Waste Report'}
+                </h2>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-xs font-bold border border-red-100 mb-4">
+                    {lang === 'zh' 
+                        ? '💡 提示：仅填写今天有额外损耗/浪费的物料，正常使用的无需填写。' 
+                        : '💡 Tip: Only fill in items with extra waste/loss. Leave others blank.'}
+                </div>
+                {inventoryList.filter((i:any)=>!i.hidden).map((item: any) => (
+                    <div key={item.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                            <div className="font-bold text-gray-800 text-sm truncate">{getLoc(item.name)}</div>
+                            <div className="text-[10px] text-gray-400">{item.unit}</div>
+                        </div>
+                        <div className="flex gap-2">
+                            <input
+                                type="number"
+                                placeholder="Qty"
+                                value={wasteData[item.id]?.loss || ''}
+                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], loss: e.target.value}}))}
+                                className="w-16 p-2 rounded-lg border border-red-200 text-center text-red-500 font-bold bg-red-50 focus:bg-white outline-none placeholder-red-300 text-sm"
+                            />
+                            <input
+                                type="text"
+                                placeholder={lang === 'zh' ? '原因' : 'Reason'}
+                                value={wasteData[item.id]?.reason || ''}
+                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], reason: e.target.value}}))}
+                                className="w-20 p-2 rounded-lg border border-gray-200 text-xs bg-gray-50 focus:bg-white outline-none"
+                            />
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+                <button onClick={handleSubmit} className="w-full bg-red-500 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-red-600">
+                    <Icon name="Save" size={20} /> {lang === 'zh' ? '提交报损记录' : 'Submit Waste'}
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
+// 组件 4: 员工端 (Staff App) - [修复重复数据显示，严格隔离门店数据]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { 
@@ -3242,14 +3351,20 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     const today = new Date();
 
+    // --- 【关键修复：严格获取当前门店 ID，并过滤出专属数据】 ---
     const myStore = stores?.find((s: any) => s.staff?.includes(currentUser.id));
+    const myStoreId = myStore?.id || 'default_store';
     const defaultFeatures = { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true };
     const activeFeatures = myStore ? (myStore.features || defaultFeatures) : defaultFeatures;
     
+    // 只保留当前分店的库存清单和历史记录，彻底解决重复问题！
+    const scopedInventoryList = useMemo(() => inventoryList.filter((i:any) => (i.storeId || 'default_store') === myStoreId), [inventoryList, myStoreId]);
+    const scopedInventoryHistory = useMemo(() => inventoryHistory.filter((h:any) => (h.storeId || 'default_store') === myStoreId), [inventoryHistory, myStoreId]);
+
     const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
       const start = new Date(c.startDate);
       const end = new Date(c.endDate);
-      return today >= start && today <= end && c.status === 'published';
+      return today >= start && today <= end && c.status === 'published' && (c.storeId || 'default_store') === myStoreId;
     });
     const userConfirmation = currentCycle?.confirmations[currentUser.id];
 
@@ -3261,7 +3376,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const d = today.getDate();
     const todayDateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
     
-    const todaySchedule = schedule?.days?.find((day: any) => todayDateKeys.includes(day.date));
+    const todaySchedule = schedule?.days?.find((day: any) => todayDateKeys.includes(day.date) && (day.storeId || 'default_store') === myStoreId);
     const myNameLower = currentUser.name.trim().toLowerCase();
     
     const myShiftsToday = todaySchedule?.shifts?.filter((s: any) => 
@@ -3269,7 +3384,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     ) || [];
     const hasShiftToday = myShiftsToday.length > 0;
 
-    const hasSubmittedToday = (inventoryHistory || []).some((r: any) =>
+    // 检查今天是否已盘点，使用 scoped 历史记录
+    const hasSubmittedToday = (scopedInventoryHistory || []).some((r: any) =>
         r.submittedBy === currentUser.name &&
         new Date(r.date).toDateString() === today.toDateString() && r.shift !== 'waste'
     );
@@ -3282,7 +3398,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         const nm = now.getMonth() + 1; const nd = now.getDate();
         const tDateKeys = [`${nm}-${nd}`, `${nm.toString().padStart(2, '0')}-${nd.toString().padStart(2, '0')}`];
 
-        const allShifts = schedule.days.flatMap((day: any) => {
+        const allShifts = schedule.days.filter((d:any) => (d.storeId || 'default_store') === myStoreId).flatMap((day: any) => {
             let date = new Date(day.date);
             if (isNaN(date.getTime()) || day.date.indexOf('-') > -1) {
                 const parts = day.date.split('-');
@@ -3314,7 +3430,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             return { date: displayDate, shift: `${next.start} - ${next.end}` };
         }
         return null;
-    }, [schedule, currentUser, t, activeFeatures.schedule]);
+    }, [schedule, currentUser, t, activeFeatures.schedule, myStoreId]);
 
     useEffect(() => {
         if (!needsToSubmitPrep) return;
@@ -3323,20 +3439,13 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             let shouldAlert = false;
             myShiftsToday.forEach((shift: any) => {
                 const [endH, endM] = shift.end.split(':').map(Number);
-                const shiftEnd = new Date();
-                shiftEnd.setHours(endH, endM, 0, 0);
+                const shiftEnd = new Date(); shiftEnd.setHours(endH, endM, 0, 0);
                 const diffMins = (shiftEnd.getTime() - now.getTime()) / 60000;
                 if (diffMins <= 30) shouldAlert = true;
             });
 
             if (shouldAlert && view !== 'inventory') {
-                showNotification({
-                    type: 'clock_out_reminder', 
-                    title: '🚨 强制盘点提醒 (MANDATORY)',
-                    message: lang === 'zh' ? '你的班次即将结束或已结束，请务必前往 [Inventory] 填写今日的备料盘点！' : 'Your shift is ending. Please submit today\'s prep report!',
-                    sticky: true,
-                    dedupeKey: 'mandatory_prep_reminder'
-                });
+                showNotification({ type: 'clock_out_reminder', title: '🚨 强制盘点提醒 (MANDATORY)', message: lang === 'zh' ? '你的班次即将结束或已结束，请务必前往 [Inventory] 填写今日的备料盘点！' : 'Your shift is ending. Please submit today\'s prep report!', sticky: true, dedupeKey: 'mandatory_prep_reminder' });
             }
         }, 60000); 
         return () => clearInterval(timer);
@@ -3351,29 +3460,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (unacknowledged.length > 0) { setTimeout(() => setNewRecipesToAck(unacknowledged), 2000); }
         recipeReminderCheckDone.current = true;
     }, [recipes, currentUser, activeFeatures.recipes]);
-
-    useEffect(() => {
-        if (!activeFeatures.schedule || !schedule?.days) return;
-        const timer = setInterval(() => {
-            const now = new Date();
-            const cm = now.getMonth() + 1;
-            const cd = now.getDate();
-            const dateKeys = [`${cm}-${cd}`, `${cm.toString().padStart(2, '0')}-${cd.toString().padStart(2, '0')}`];
-            const tSchedule = schedule.days.find((day: any) => dateKeys.includes(day.date));
-            if (!tSchedule || !tSchedule.shifts) return;
-            const myShifts = tSchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
-
-            myShifts.forEach((shift: any) => {
-                const [startH, startM] = shift.start.split(':').map(Number);
-                const shiftStart = new Date(now); shiftStart.setHours(startH, startM, 0, 0);
-                const diffStart = (shiftStart.getTime() - now.getTime()) / 60000;
-                if (diffStart > 0 && diffStart <= 15) {
-                    showNotification({ type: 'announcement', title: 'Upcoming Shift', message: lang === 'zh' ? `你的班次 (${shift.start}) 即将开始！` : `Shift (${shift.start}) starts soon!`, dedupeKey: `shift_start_${dateKeys[0]}_${shift.start}` });
-                }
-            });
-        }, 60000); 
-        return () => clearInterval(timer);
-    }, [currentUser, schedule, showNotification, lang, activeFeatures.schedule]);
 
     useEffect(() => {
         if (view !== 'home' || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) return;
@@ -3442,7 +3528,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         const newRequest: Omit<SwapRequest, 'id'> = {
             requesterId: currentUser.id, requesterName: currentUser.name, requesterDate: currentSwap.date, requesterShift: currentSwap.shift,
             targetId: targetUser.id, targetName: targetUser.name, targetDate: null, targetShift: null,
-            status: 'pending', reason: reason || null, timestamp: Date.now(),
+            status: 'pending', reason: reason || null, timestamp: Date.now(), storeId: myStoreId
         };
         await Cloud.saveSwapRequest(newRequest);
         showNotification({ type: 'message', title: 'Swap Request Sent', message: `Sent to ${targetUser.name}.` });
@@ -3473,7 +3559,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 }
                 weeksData.push({ id: w, label: w === 0 ? "Current Week" : `Week ${w + 1}`, range: `${weekDays[0].displayDate} - ${weekDays[6].displayDate}`, days: weekDays });
             }
-            const scheduleMap = new Map<string, ScheduleDay>(schedule.days?.map((day: ScheduleDay) => [normalizeDateKey(day.date), day]) || []);
+            const scheduleMap = new Map<string, ScheduleDay>((schedule.days || []).filter((d:any)=>(d.storeId || 'default_store') === myStoreId).map((day: ScheduleDay) => [normalizeDateKey(day.date), day]));
 
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
@@ -3609,9 +3695,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const defaultShift = new Date().getHours() < 16 ? 'morning' : 'evening';
             return (
                 <InventoryView
-                    lang={lang} t={t} inventoryList={inventoryList} setInventoryList={setInventoryList}
+                    lang={lang} t={t} inventoryList={scopedInventoryList} setInventoryList={setInventoryList}
                     onSubmit={(report: any) => {
-                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
+                        // 强制绑定当前门店ID
+                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString(), storeId: myStoreId };
                         Cloud.saveInventoryReport(completeReport);
                         showNotification({ type: 'message', title: 'Saved', message: '盘点记录已提交。' });
                         setView('home');
@@ -3625,9 +3712,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (view === 'waste' as any && activeFeatures.waste) {
             return (
                 <WasteReportView
-                    lang={lang} inventoryList={inventoryList}
+                    lang={lang} inventoryList={scopedInventoryList}
                     onSubmit={(report: any) => {
-                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString() };
+                        const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString(), storeId: myStoreId };
                         Cloud.saveInventoryReport(completeReport);
                         showNotification({ type: 'message', title: 'Saved', message: '报损记录已提交。' });
                         setView('home');
@@ -3637,7 +3724,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             );
         }
 
-        if (view === 'chat' && activeFeatures.chat) { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={false} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={users} />; }
+        if (view === 'chat' && activeFeatures.chat) { 
+            const isUserAdmin = currentUser.role === 'manager' || currentUser.role === 'boss';
+            return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={isUserAdmin} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={users} />; 
+        }   
+      
         if (view === 'swapRequests' && activeFeatures.swap) {
             const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
             const incomingRequests = swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
@@ -3736,7 +3827,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             )}
 
             {activeFeatures.prep && (
-                <TodaysPrepReports inventoryHistory={inventoryHistory} inventoryList={inventoryList} lang={lang} />
+                <TodaysPrepReports inventoryHistory={scopedInventoryHistory} inventoryList={scopedInventoryList} lang={lang} />
             )}
 
             <div className="mt-4">
@@ -3803,7 +3894,7 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat, features 
 };
 
 // ============================================================================
-// MAIN APP COMPONENT (程序核心入口)
+// MAIN APP COMPONENT
 // ============================================================================
 const App = () => {
     const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('onesip_lang') as Lang) || 'zh');
@@ -3939,3 +4030,4 @@ const App = () => {
 };
 
 export default App;
+
