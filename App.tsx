@@ -3342,7 +3342,7 @@ const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser 
 };
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [修复重复数据显示，严格隔离门店数据]
+// 组件 4: 员工端 (Staff App) - [支持门店无缝切换与彻底数据隔离]
 // ============================================================================
 const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
     const { 
@@ -3377,24 +3377,51 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     const today = new Date();
 
-    // --- 【关键修复：严格获取当前门店 ID，并过滤出专属数据】 ---
-    const myStore = stores?.find((s: any) => s.staff?.includes(currentUser.id));
-    const myStoreId = myStore?.id || 'default_store';
+    // ==========================================
+    // 🛡️ 门店视角切换与 100% 严格数据隔离
+    // ==========================================
+    const userStores = useMemo(() => {
+        // 如果是老板或经理，可以看到所有门店；否则只能看自己被分配的门店
+        if (currentUser.role === 'boss' || currentUser.role === 'manager') return stores || [];
+        return stores?.filter((s:any) => s.staff?.includes(currentUser.id)) || [];
+    }, [stores, currentUser]);
+
+    const [activeStoreId, setActiveStoreId] = useState(() => {
+        const saved = localStorage.getItem('onesip_active_store_id');
+        if (saved && userStores.some((s:any) => s.id === saved)) return saved;
+        return userStores[0]?.id || 'default_store';
+    });
+
+    useEffect(() => {
+        localStorage.setItem('onesip_active_store_id', activeStoreId);
+    }, [activeStoreId]);
+
+    const myStoreId = activeStoreId;
+    const myStore = stores?.find((s: any) => s.id === myStoreId);
     const defaultFeatures = { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true };
     const activeFeatures = myStore ? (myStore.features || defaultFeatures) : defaultFeatures;
     
-    // 只保留当前分店的库存清单和历史记录，彻底解决重复问题！
-    const scopedInventoryList = useMemo(() => inventoryList.filter((i:any) => (i.storeId || 'default_store') === myStoreId), [inventoryList, myStoreId]);
-    const scopedInventoryHistory = useMemo(() => inventoryHistory.filter((h:any) => (h.storeId || 'default_store') === myStoreId), [inventoryHistory, myStoreId]);
+    const getStoreId = (item: any) => item.storeId || 'default_store';
+
+    // 【核心修复】：彻底隔离所有数据！库存、历史、换班、聊天、公告全部分离
+    const scopedInventoryList = useMemo(() => inventoryList.filter((i:any) => getStoreId(i) === myStoreId), [inventoryList, myStoreId]);
+    const scopedInventoryHistory = useMemo(() => inventoryHistory.filter((h:any) => getStoreId(h) === myStoreId), [inventoryHistory, myStoreId]);
+    const scopedSwapRequests = useMemo(() => swapRequests.filter((r:any) => getStoreId(r) === myStoreId), [swapRequests, myStoreId]);
+    const scopedNotices = useMemo(() => notices.filter((n:any) => getStoreId(n) === myStoreId), [notices, myStoreId]);
+    const scopedMessages = useMemo(() => directMessages.filter((m:any) => getStoreId(m) === myStoreId), [directMessages, myStoreId]);
+    
+    // 只保留当前分店的员工，老板查岗时聊天室里不会出现别店的人
+    const branchStaffIds = myStore?.staff || [];
+    const scopedUsers = useMemo(() => users.filter((u:any) => branchStaffIds.includes(u.id) || u.role === 'boss'), [users, branchStaffIds]);
 
     const currentCycle = scheduleCycles.find((c: ScheduleCycle) => {
       const start = new Date(c.startDate);
       const end = new Date(c.endDate);
-      return today >= start && today <= end && c.status === 'published' && (c.storeId || 'default_store') === myStoreId;
+      return today >= start && today <= end && c.status === 'published' && getStoreId(c) === myStoreId;
     });
     const userConfirmation = currentCycle?.confirmations[currentUser.id];
 
-    const activeNotices = (notices || []).filter((n: Notice) => n.status !== 'cancelled');
+    const activeNotices = scopedNotices.filter((n: Notice) => n.status !== 'cancelled');
     const latestNotice = activeNotices.length > 0 ? activeNotices[activeNotices.length - 1] : null;
     const featuredRecipes = (recipes || []).filter((r: DrinkRecipe) => r.isNew && r.isPublished !== false);
 
@@ -3402,7 +3429,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const d = today.getDate();
     const todayDateKeys = [`${m}-${d}`, `${m.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`];
     
-    const todaySchedule = schedule?.days?.find((day: any) => todayDateKeys.includes(day.date) && (day.storeId || 'default_store') === myStoreId);
+    const todaySchedule = schedule?.days?.find((day: any) => todayDateKeys.includes(day.date) && getStoreId(day) === myStoreId);
     const myNameLower = currentUser.name.trim().toLowerCase();
     
     const myShiftsToday = todaySchedule?.shifts?.filter((s: any) => 
@@ -3410,8 +3437,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     ) || [];
     const hasShiftToday = myShiftsToday.length > 0;
 
-    // 检查今天是否已盘点，使用 scoped 历史记录
-    const hasSubmittedToday = (scopedInventoryHistory || []).some((r: any) =>
+    const hasSubmittedToday = scopedInventoryHistory.some((r: any) =>
         r.submittedBy === currentUser.name &&
         new Date(r.date).toDateString() === today.toDateString() && r.shift !== 'waste'
     );
@@ -3424,7 +3450,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         const nm = now.getMonth() + 1; const nd = now.getDate();
         const tDateKeys = [`${nm}-${nd}`, `${nm.toString().padStart(2, '0')}-${nd.toString().padStart(2, '0')}`];
 
-        const allShifts = schedule.days.filter((d:any) => (d.storeId || 'default_store') === myStoreId).flatMap((day: any) => {
+        const allShifts = schedule.days.filter((d:any) => getStoreId(d) === myStoreId).flatMap((day: any) => {
             let date = new Date(day.date);
             if (isNaN(date.getTime()) || day.date.indexOf('-') > -1) {
                 const parts = day.date.split('-');
@@ -3488,32 +3514,46 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     }, [recipes, currentUser, activeFeatures.recipes]);
 
     useEffect(() => {
+        if (!activeFeatures.schedule || !schedule?.days) return;
+        const timer = setInterval(() => {
+            const now = new Date();
+            const cm = now.getMonth() + 1; const cd = now.getDate();
+            const dateKeys = [`${cm}-${cd}`, `${cm.toString().padStart(2, '0')}-${cd.toString().padStart(2, '0')}`];
+            const tSchedule = schedule.days.find((day: any) => dateKeys.includes(day.date) && getStoreId(day) === myStoreId);
+            if (!tSchedule || !tSchedule.shifts) return;
+            const myShifts = tSchedule.shifts.filter((s: any) => s.staff && s.staff.includes(currentUser.name));
+
+            myShifts.forEach((shift: any) => {
+                const [startH, startM] = shift.start.split(':').map(Number);
+                const shiftStart = new Date(now); shiftStart.setHours(startH, startM, 0, 0);
+                const diffStart = (shiftStart.getTime() - now.getTime()) / 60000;
+                if (diffStart > 0 && diffStart <= 15) {
+                    showNotification({ type: 'announcement', title: 'Upcoming Shift', message: lang === 'zh' ? `你的班次 (${shift.start}) 即将开始！` : `Shift (${shift.start}) starts soon!`, dedupeKey: `shift_start_${dateKeys[0]}_${shift.start}` });
+                }
+            });
+        }, 60000); 
+        return () => clearInterval(timer);
+    }, [currentUser, schedule, showNotification, lang, activeFeatures.schedule, myStoreId]);
+
+    useEffect(() => {
         if (view !== 'home' || isSwapModalOpen || showAvailabilityModal || showAvailabilityReminder) return;
 
         const runChecks = async () => {
             if (activeFeatures.swap && !swapReminderShown.current) {
-                const pendingSwaps = (swapRequests || []).filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
-                if (pendingSwaps.length > 0) {
-                    setPendingSwapCount(pendingSwaps.length);
-                    setIsSwapReminderOpen(true);
-                    swapReminderShown.current = true;
-                    return;
-                }
+                const pendingSwaps = scopedSwapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
+                if (pendingSwaps.length > 0) { setPendingSwapCount(pendingSwaps.length); setIsSwapReminderOpen(true); swapReminderShown.current = true; return; }
             }
-            if (activeFeatures.schedule && !scheduleReminderShown.current && userConfirmation?.status === 'pending') {
-                setIsScheduleReminderOpen(true);
-                scheduleReminderShown.current = true;
-            }
+            if (activeFeatures.schedule && !scheduleReminderShown.current && userConfirmation?.status === 'pending') { setIsScheduleReminderOpen(true); scheduleReminderShown.current = true; }
         };
         const timer = setTimeout(runChecks, 1500);
         return () => clearTimeout(timer);
-    }, [currentUser, swapRequests, schedule, view, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder, userConfirmation, activeFeatures]);
+    }, [currentUser, scopedSwapRequests, schedule, view, isSwapModalOpen, showAvailabilityModal, showAvailabilityReminder, userConfirmation, activeFeatures]);
 
     useEffect(() => {
-        if (!notices || notices.length === 0) return;
-        const activeNotices = notices.filter((n: Notice) => n.status !== 'cancelled');
-        if (activeNotices.length === 0) return;
-        const latest = activeNotices[activeNotices.length - 1];
+        if (!scopedNotices || scopedNotices.length === 0) return;
+        const _activeNotices = scopedNotices.filter((n: Notice) => n.status !== 'cancelled');
+        if (_activeNotices.length === 0) return;
+        const latest = _activeNotices[_activeNotices.length - 1];
         const seenKey = `notice_seen_${latest.id}`;
         const lastSeen = localStorage.getItem(seenKey);
         let shouldShow = false;
@@ -3527,10 +3567,10 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             showNotification({ type: 'announcement', title: t.team_board || 'Announcement', message: latest.content, sticky: latest.frequency === 'always', dedupeKey: latest.id, imageUrl: latest.imageUrl });
             if (latest.frequency !== 'always') localStorage.setItem(seenKey, Date.now().toString());
         }
-    }, [notices, showNotification, t.team_board]);
+    }, [scopedNotices, showNotification, t.team_board]);
 
     const handleSwapAction = async (reqId: string, action: 'accepted_by_peer' | 'rejected') => {
-        const req = swapRequests.find((r: SwapRequest) => r.id === reqId);
+        const req = scopedSwapRequests.find((r: SwapRequest) => r.id === reqId);
         if(!req) return;
         const updatedReq = { ...req, status: action, decidedAt: Date.now() };
         const updatedReqs = swapRequests.map((r: SwapRequest) => (r.id === reqId ? updatedReq : r));
@@ -3548,7 +3588,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const handleSendSwapRequest = async () => {
         if (!currentSwap || !targetEmployeeId) { alert("Please select a colleague."); return; }
-        const targetUser = users.find((u:User) => u.id === targetEmployeeId);
+        const targetUser = scopedUsers.find((u:User) => u.id === targetEmployeeId);
         if (!targetUser) return;
 
         const newRequest: Omit<SwapRequest, 'id'> = {
@@ -3576,16 +3616,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 const weekDays = [];
                 for(let d=0; d<7; d++) {
                     const day = new Date(weekStart); day.setDate(day.getDate() + d);
-                    weekDays.push({
-                         dateObj: day, dateStr: `${day.getMonth() + 1}-${day.getDate()}`,
-                         dayName: day.toLocaleDateString('en-US', { weekday: 'long' }),
-                         displayDate: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                         isToday: day.toDateString() === todayDate.toDateString()
-                    });
+                    weekDays.push({ dateObj: day, dateStr: `${day.getMonth() + 1}-${day.getDate()}`, dayName: day.toLocaleDateString('en-US', { weekday: 'long' }), displayDate: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), isToday: day.toDateString() === todayDate.toDateString() });
                 }
                 weeksData.push({ id: w, label: w === 0 ? "Current Week" : `Week ${w + 1}`, range: `${weekDays[0].displayDate} - ${weekDays[6].displayDate}`, days: weekDays });
             }
-            const scheduleMap = new Map<string, ScheduleDay>((schedule.days || []).filter((d:any)=>(d.storeId || 'default_store') === myStoreId).map((day: ScheduleDay) => [normalizeDateKey(day.date), day]));
+            const scheduleMap = new Map<string, ScheduleDay>((schedule.days || []).filter((d:any)=>getStoreId(d) === myStoreId).map((day: ScheduleDay) => [normalizeDateKey(day.date), day]));
 
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
@@ -3617,9 +3652,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                                                     {timeDisplay && <span className="text-[9px] text-text-light font-mono">{timeDisplay}</span>}
                                                                 </div>
                                                                 <div className="flex-1 flex flex-wrap gap-2 items-center">
-                                                                    {staffList.map((name: string, i: number) => {
-                                                                        const isMe = name === currentUser.name;
-                                                                        return (<div key={i} className={`flex items-center gap-1.5 pl-3 pr-2 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white border-primary shadow-sm' : 'bg-secondary text-text-light border-transparent'}`}>{name}</div>);
+                                                                    {staffList.map((name: string, i: number) => { 
+                                                                        const isMe = name === currentUser.name; 
+                                                                        return (<div key={i} className={`flex items-center gap-1.5 pl-3 pr-2 py-1.5 text-xs font-bold rounded-lg border transition-all ${isMe ? 'bg-primary text-white border-primary shadow-sm' : 'bg-secondary text-text-light border-transparent'}`}>{name}</div>); 
                                                                     })}
                                                                 </div>
                                                             </div>
@@ -3649,13 +3684,9 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?]*).*/;
                      const match = url.match(regExp);
                      const yId = (match && match[2].length === 11) ? match[2] : null;
-                     return yId ? (
-                         <iframe className="w-full aspect-video rounded-lg mt-2 shadow-md" src={`https://www.youtube.com/embed/${yId}`} title="Video" allowFullScreen></iframe>
-                     ) : null;
+                     return yId ? (<iframe className="w-full aspect-video rounded-lg mt-2 shadow-md" src={`https://www.youtube.com/embed/${yId}`} title="Video" allowFullScreen></iframe>) : null;
                  }
-                 return (
-                     <video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-lg mt-2 shadow-md bg-black object-contain" />
-                 );
+                 return (<video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-lg mt-2 shadow-md bg-black object-contain" />);
              };
 
              return (
@@ -3723,14 +3754,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 <InventoryView
                     lang={lang} t={t} inventoryList={scopedInventoryList} setInventoryList={setInventoryList}
                     onSubmit={(report: any) => {
-                        // 强制绑定当前门店ID
                         const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString(), storeId: myStoreId };
                         Cloud.saveInventoryReport(completeReport);
                         showNotification({ type: 'message', title: 'Saved', message: '盘点记录已提交。' });
                         setView('home');
                     }}
-                    currentUser={currentUser} isForced={false} onCancel={() => setView('home')}
-                    forcedShift={defaultShift} isOwner={false}
+                    currentUser={currentUser} isForced={false} onCancel={() => setView('home')} forcedShift={defaultShift} isOwner={false}
                 />
             );
         }
@@ -3750,11 +3779,15 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             );
         }
 
-        if (view === 'chat' && activeFeatures.chat) { return <ChatView t={t} currentUser={currentUser} messages={directMessages} setMessages={setDirectMessages} notices={notices} isManager={false} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={users} />; }
+        if (view === 'chat' && activeFeatures.chat) { 
+            // 确保管理员进入聊天时拥有发布公告等高级权限，并且数据完美隔离
+            const isUserAdmin = currentUser.role === 'manager' || currentUser.role === 'boss';
+            return <ChatView t={t} currentUser={currentUser} messages={scopedMessages} setMessages={setDirectMessages} notices={scopedNotices} isManager={isUserAdmin} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={scopedUsers} />; 
+        }
         
         if (view === 'swapRequests' && activeFeatures.swap) {
-            const myRequests = swapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
-            const incomingRequests = swapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
+            const myRequests = scopedSwapRequests.filter((r: SwapRequest) => r.requesterId === currentUser.id);
+            const incomingRequests = scopedSwapRequests.filter((r: SwapRequest) => r.targetId === currentUser.id && r.status === 'pending');
             return (
                 <div className="h-full overflow-y-auto p-4 bg-secondary pb-24 text-text">
                     <h2 className="text-2xl font-black mb-4">Shift Swap Center</h2>
@@ -3771,7 +3804,18 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             <div className="flex justify-between items-start mb-6">
                 <div>
                     <h1 className="text-2xl font-black">{t.hello} {currentUser.name}</h1>
-                    {myStore && <p className="text-primary font-bold text-xs mt-1 px-2 py-0.5 bg-primary/10 rounded inline-block">{myStore.name}</p>}
+                    {/* 给老板和被分配到多家店的员工增加门店切换器 */}
+                    {userStores.length > 1 ? (
+                        <select 
+                            className="text-primary font-bold text-xs mt-1 px-2 py-1 bg-primary/10 rounded inline-block outline-none border border-primary/20 shadow-sm cursor-pointer"
+                            value={activeStoreId}
+                            onChange={(e) => setActiveStoreId(e.target.value)}
+                        >
+                            {userStores.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    ) : (
+                        myStore && <p className="text-primary font-bold text-xs mt-1 px-2 py-0.5 bg-primary/10 rounded inline-block">{myStore.name}</p>
+                    )}
                 </div>
                 <div className="flex items-center gap-2"><button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light font-bold text-sm">{lang === 'zh' ? 'En' : '中'}</button><button onClick={openAdmin} className="bg-gray-200 h-9 w-9 flex items-center justify-center rounded-full text-text-light"><Icon name="Shield" size={16}/></button><button onClick={onLogout} className="bg-destructive-light h-9 w-9 flex items-center justify-center rounded-full text-destructive"><Icon name="LogOut" size={16}/></button></div>
             </div>
@@ -3869,29 +3913,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             </div>
         </div>
     );
-
-    const handleNavSwitch = (v: StaffViewMode) => {
-        setView(v);
-        if (v !== 'recipes') {
-            setExpandedRecipeId(null);
-            setRecipeSearchQuery('');
-        }
-    };
-
-    return (
-        <div className="max-w-md mx-auto bg-surface shadow-lg h-[100dvh] overflow-hidden flex flex-col relative pt-[calc(env(safe-area-inset-top)_+_1rem)]">
-            {view === 'home' ? renderHomeView() : renderView()}
-
-            {currentUser && <StaffBottomNav activeView={view} setActiveView={handleNavSwitch} t={t} hasUnreadChat={hasUnreadChat} features={activeFeatures} />}
-
-            <AvailabilityReminderModal isOpen={showAvailabilityReminder} onConfirm={() => { setShowAvailabilityReminder(false); setShowAvailabilityModal(true); }} onCancel={() => setShowAvailabilityReminder(false)} t={t} />
-            {currentUser && <AvailabilityModal isOpen={showAvailabilityModal} onClose={() => setShowAvailabilityModal(false)} t={t} currentUser={currentUser} />}
-            <SwapRequestModal isOpen={isSwapModalOpen} onClose={() => { setIsSwapModalOpen(false); setTargetEmployeeId(''); setReason(''); }} onSubmit={handleSendSwapRequest} currentSwap={currentSwap} currentUser={currentUser} allUsers={users} targetEmployeeId={targetEmployeeId} setTargetEmployeeId={setTargetEmployeeId} reason={reason} setReason={setReason} />
-            <ActionReminderModal isOpen={isScheduleReminderOpen} title="排班确认提醒" message="你未来两周有排班安排，请尽快确认。" confirmText="去排班页面" cancelText="稍后" onConfirm={() => { setView('team'); setIsScheduleReminderOpen(false); }} onCancel={() => setIsScheduleReminderOpen(false)} />
-            <ActionReminderModal isOpen={isSwapReminderOpen} title="换班申请提醒" message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`} confirmText="去处理" cancelText="稍后" onConfirm={() => { setView('swapRequests'); setIsSwapReminderOpen(false); }} onCancel={() => setIsSwapReminderOpen(false)} />
-        </div>
-    );
-};
 
 // ============================================================================
 // 组件: 底部导航栏 (StaffBottomNav)
