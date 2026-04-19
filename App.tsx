@@ -1294,6 +1294,161 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
 // --- DASHBOARDS ---
 
 // ============================================================================
+// 数据库: 门店报修/异常题库 (可在此处修改增删选项)
+// ============================================================================
+const REPAIR_DATABASE = {
+    machines: {
+        title: '机器类 (Machines)',
+        items: {
+            '奶茶机 (Milk Tea Machine)': ['清洗吸水不好', '漏水：茶桶区1-5', '漏水：中间区6-12', '漏水：下层13-18', '接口接不上/漏液(需备注管路)', '扫码不读码', '部件缺失/损坏', '校准后出料仍不准(需备注管路)', '蚂蚁', '不出料(需备注管路)', '其他'],
+            '泡茶机 (Tea Brewer)': ['部件缺失', '部件损坏', '其他'],
+            '制冰机 (Ice Maker)': ['有积水', '出现 Error', '冰块形状变小', '其他'],
+            '封口机 (Sealer)': ['Error 4 不感应', '封口封不上(纸杯/塑料杯)', '封口切口不齐', '封口膜容易断裂', '其他'],
+            '咖啡机 (Coffee Machine)': ['加热盘不够温度', '沥水盘不感应', '蚂蚁', '其他'],
+            '显示屏 (Displays)': ['左1 无法打开', '左2 无法打开', '左3 无法打开', '左4 无法打开', '其他'],
+            '打印/标签机 (Printers)': ['无法连接', '不打印', '重复打印', '其他'],
+            'Pad/效期机 (Tablets)': ['不连接 Orderpin', '不连接效期系统', '不连接蓝牙', '不能播放音乐', '打不开管理App', '其他'],
+            '水池/冰槽 (Sinks/Ice Sinks)': ['左边不下水', '右边不下水', '水池破损', '下方漏水', '冰槽气味难闻', '有蚂蚁', '其他'],
+            '其他设备 (Other Equipment)': ['蒸汽机达不到压力', '叫号器无声/打不开', '沙冰壶漏水/破损', '洗碗机洗不干净/有积水/断电', '开水机达不到温度/断电', 'Kiosk 不能支付/死机(需检查纸/网/电)']
+        }
+    },
+    recipes: {
+        title: '配方/出品类 (Recipes)',
+        items: {
+            '饮品问题 (Drink Issues)': ['不能直接扫码', '出品奇怪', '颜色不对', '量太多', '量太少', '冰度异常', '糖度异常'] // 具体产品在UI中由员工下拉选择
+        }
+    },
+    facility: {
+        title: '门店设施类 (Facility)',
+        items: {
+            '门窗/桌椅 (Doors/Furniture)': ['前窗户损坏', '后窗户损坏', '门/门锁损坏', '桌椅损坏'],
+            '水电/照明 (Electrical/Lighting)': ['插头没电', '蓝牙连不上', '紫外灯坏了', '照明灯坏了(需备注位置)'],
+            '空间环境 (Spaces)': ['地板破损', '厕所(马桶/水池/门)', '储物间(架子/冰箱/雪柜)', '厨房(微波炉/烤箱/柜子/桌椅)']
+        }
+    },
+    others: {
+        title: '其他状况 (Others)',
+        items: {
+            '突发状况 (Incidents)': ['物件找不到', '物件破碎', '发现老鼠', '发现大面积污渍(地面/机器下/黏脚)', '发现蚂蚁'],
+            '物料短缺 (Shortages)': ['原料不足(已检查楼下库存)', '茶桶不足', '盒子不足']
+        }
+    }
+};
+
+// ============================================================================
+// 新增组件: 员工端 - 报修提交页面 (Repair Submit View)
+// ============================================================================
+const RepairReportView = ({ onCancel, onSubmit, currentUser, myStoreId, recipes, lang }: any) => {
+    const [step, setStep] = useState(1);
+    const [selectedCat, setSelectedCat] = useState('');
+    const [selectedItem, setSelectedItem] = useState('');
+    const [selectedProduct, setSelectedProduct] = useState(''); // 仅配方类用到
+    const [issues, setIssues] = useState<string[]>([]);
+    const [notes, setNotes] = useState('');
+
+    const activeCatData = selectedCat ? (REPAIR_DATABASE as any)[selectedCat] : null;
+    const itemOptions = activeCatData?.items[selectedItem] || [];
+
+    const handleIssueToggle = (issue: string) => {
+        setIssues(prev => prev.includes(issue) ? prev.filter(i => i !== issue) : [...prev, issue]);
+    };
+
+    const handleSubmit = () => {
+        if (issues.length === 0 && !notes) return alert("请至少勾选一个问题或填写备注。");
+        const finalItemName = selectedCat === 'recipes' ? `${selectedItem} - ${selectedProduct}` : selectedItem;
+        
+        onSubmit({
+            id: `repair_${Date.now()}`,
+            storeId: myStoreId,
+            date: new Date().toISOString(),
+            submittedBy: currentUser.name,
+            userId: currentUser.id,
+            category: activeCatData.title,
+            item: finalItemName,
+            issues: issues,
+            notes: notes,
+            status: 'pending' // pending = 待处理, resolved = 已解决
+        });
+        alert("✅ 报修工单已提交！店长将收到通知。");
+        onCancel();
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
+            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3">
+                <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
+                <h2 className="text-xl font-black text-orange-500 flex items-center gap-2"><Icon name="AlertTriangle" size={20} /> Submit Ticket</h2>
+            </div>
+            
+            <div className="p-4 space-y-4 overflow-y-auto flex-1">
+                {step === 1 && (
+                    <div className="space-y-3 animate-fade-in">
+                        <h3 className="font-bold text-gray-500 text-sm mb-2">1. Select Category (选择大类)</h3>
+                        {Object.entries(REPAIR_DATABASE).map(([key, data]) => (
+                            <button key={key} onClick={() => { setSelectedCat(key); setStep(2); }} className="w-full bg-white p-4 rounded-xl border border-gray-100 shadow-sm text-left font-bold text-gray-800 active:scale-95 flex justify-between items-center">
+                                {data.title} <Icon name="ChevronRight" className="text-gray-400"/>
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                {step === 2 && (
+                    <div className="space-y-3 animate-fade-in">
+                        <div className="flex items-center gap-2 mb-4"><button onClick={() => setStep(1)} className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">← Back</button><span className="text-sm font-bold text-gray-500">{activeCatData?.title}</span></div>
+                        <h3 className="font-bold text-gray-500 text-sm mb-2">2. Select Item (选择具体项目)</h3>
+                        {Object.keys(activeCatData?.items || {}).map(item => (
+                            <button key={item} onClick={() => { setSelectedItem(item); setStep(3); }} className="w-full bg-white p-4 rounded-xl border border-gray-100 shadow-sm text-left font-bold text-gray-800 active:scale-95 flex justify-between items-center">
+                                {item} <Icon name="ChevronRight" className="text-gray-400"/>
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                {step === 3 && (
+                    <div className="space-y-4 animate-fade-in">
+                         <div className="flex items-center gap-2 mb-2"><button onClick={() => setStep(2)} className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">← Back</button><span className="text-sm font-bold text-gray-500">{selectedItem}</span></div>
+                         
+                         {selectedCat === 'recipes' && (
+                             <div className="bg-white p-3 rounded-xl border border-orange-200">
+                                 <label className="text-xs font-bold text-orange-600 mb-2 block">Which Product? (具体产品)</label>
+                                 <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)} className="w-full bg-gray-50 border border-gray-200 p-2 rounded-lg text-sm outline-none focus:border-orange-400">
+                                     <option value="">-- Please select --</option>
+                                     {(recipes || []).map((r:any) => <option key={r.id} value={r.name.zh}>{r.name[lang] || r.name.zh}</option>)}
+                                 </select>
+                             </div>
+                         )}
+
+                        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                            <h3 className="font-bold text-gray-800 text-sm mb-3">3. What's wrong? (勾选问题)</h3>
+                            <div className="space-y-2">
+                                {itemOptions.map((issue: string) => {
+                                    const isChecked = issues.includes(issue);
+                                    return (
+                                        <label key={issue} className={`flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer ${isChecked ? 'bg-orange-50 border-orange-300' : 'bg-gray-50 border-transparent hover:bg-gray-100'}`}>
+                                            <input type="checkbox" checked={isChecked} onChange={() => handleIssueToggle(issue)} className="mt-1 w-4 h-4 text-orange-500 rounded focus:ring-orange-500" />
+                                            <span className={`text-sm ${isChecked ? 'text-orange-900 font-bold' : 'text-gray-700'}`}>{issue}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                            <h3 className="font-bold text-gray-800 text-sm mb-2">Remarks (备注详情)</h3>
+                            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="管路编号、损坏程度、或其它补充说明..." className="w-full bg-gray-50 border border-gray-200 p-3 rounded-lg text-sm outline-none focus:border-orange-400 min-h-[80px] resize-none" />
+                        </div>
+
+                        <button onClick={handleSubmit} disabled={selectedCat === 'recipes' && !selectedProduct} className="w-full bg-orange-500 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <Icon name="Send" size={20} /> Submit Ticket
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
 // 组件: 内容编辑器 (Editor Dashboard) - 支持视频直链文案
 // ============================================================================
 const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
@@ -3223,7 +3378,7 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
 
     const myStoreId = activeStoreId;
     const myStore = stores?.find((s: any) => s.id === myStoreId);
-    const defaultFeatures = { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true };
+    const defaultFeatures = { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true, repair: true };
     const activeFeatures = myStore ? (myStore.features || defaultFeatures) : defaultFeatures;
     
     const getStoreId = (item: any) => item.storeId || 'default_store';
@@ -3603,6 +3758,21 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 />
             );
         }
+      
+        if (view === 'repair' as any && activeFeatures.repair) {
+            return (
+                <RepairReportView 
+                    lang={lang} recipes={recipes} myStoreId={myStoreId} currentUser={currentUser} 
+                    onCancel={() => setView('home')} 
+                    onSubmit={(ticket: any) => {
+                        // 保存到系统
+                        setRepairRequests([...repairRequests, ticket]);
+                        // 触发系统弹窗通知 (Boss/Manager)
+                        showNotification({ type: 'message', title: '🚨 新报修工单 (New Ticket)', message: `${ticket.submittedBy} 提交了关于 [${ticket.item}] 的异常。` });
+                     }} 
+                />
+            );
+        }
 
         if (view === 'chat' && activeFeatures.chat) { 
             // 确保管理员进入聊天时拥有发布公告等高级权限，并且数据完美隔离
@@ -3731,6 +3901,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             <p className="font-bold text-red-700">{lang === 'zh' ? '物料报损' : 'Waste Report'}</p>
                         </button>
                     )}
+                    {activeFeatures.repair && (
+                        <button onClick={() => setView('repair' as any)} className="bg-orange-50 p-4 rounded-2xl shadow-sm border border-orange-100 text-left active:scale-95 transition-transform">
+                            <Icon name="Wrench" className="mb-1 text-orange-500"/>
+                            <p className="font-bold text-orange-700">{lang === 'zh' ? '异常提报' : 'Report Issue'}</p>
+                        </button>
+                    )}
                     {activeFeatures.schedule && <button onClick={() => setView('team')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Users" className="mb-1 text-primary"/> <p className="font-bold">My Schedule</p></button>}
                     {activeFeatures.swap && <button onClick={() => setView('swapRequests')} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Refresh" className="mb-1 text-primary"/> <p className="font-bold">Shift Swaps</p></button>}
                     {activeFeatures.availability && <button onClick={() => setShowAvailabilityModal(true)} className="bg-surface p-4 rounded-2xl shadow-sm border border-gray-100 text-left active:scale-95 transition-transform"><Icon name="Calendar" className="mb-1 text-primary"/> <p className="font-bold">Availability</p></button>}
@@ -3816,7 +3992,8 @@ const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, o
     const scopedHistory = inventoryHistory.filter((h:any) => (h.storeId || 'default_store') === adminStoreId);
     const scopedSmartReports = smartReports.filter((r:any) => (r.storeId || 'default_store') === adminStoreId);
     const scopedLogs = logs.filter((l:any) => (l.storeId || 'default_store') === adminStoreId);
-    
+    const scopedRepairs = data.repairRequests.filter((r:any) => (r.storeId || 'default_store') === adminStoreId);
+  
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
     const handleUpdateInventoryList = (newList: any[]) => {
@@ -3908,6 +4085,7 @@ const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, o
                 <div className="w-px bg-white/10 mx-1"></div>
                 <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Global Staff</button>
                 <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Branch Logs</button>
+                <button onClick={() => setOwnerSubView('repair' as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'repair' ? 'bg-orange-500 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Tickets</button>
             </div>
 
             <div className="flex-1 overflow-y-auto relative">
@@ -3996,6 +4174,53 @@ const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, o
                 
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={scopedLogs} currentUser={ownerUser} onUpdateLogs={(l:any) => Cloud.updateLogs(l)} />}
+                {ownerSubView === 'repair' as any && (
+                    <div className="p-4 space-y-3">
+                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Maintenance Tickets</h3></div>
+                        {scopedRepairs.length === 0 && <p className="text-dark-text-light text-center py-10">No pending tickets for this branch.</p>}
+                        
+                        {/* 待处理工单 */}
+                        {scopedRepairs.filter(r => r.status === 'pending').slice().reverse().map((ticket: any) => (
+                            <div key={ticket.id} className="bg-orange-500/10 p-4 rounded-xl border border-orange-500/30 mb-3 animate-fade-in">
+                                <div className="flex justify-between items-start mb-2">
+                                    <div>
+                                        <span className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded font-bold uppercase tracking-wider">{ticket.category}</span>
+                                        <h4 className="font-bold text-orange-400 mt-1">{ticket.item}</h4>
+                                    </div>
+                                    <span className="text-xs text-dark-text-light font-mono">{new Date(ticket.date).toLocaleString()}</span>
+                                </div>
+                                <div className="bg-dark-bg p-3 rounded-lg mt-2">
+                                    <ul className="list-disc pl-4 text-xs text-white space-y-1 mb-2">
+                                        {(ticket.issues || []).map((iss:string, i:number) => <li key={i}>{iss}</li>)}
+                                    </ul>
+                                    {ticket.notes && <p className="text-xs text-gray-400 border-t border-white/10 pt-2 font-mono">备注: {ticket.notes}</p>}
+                                </div>
+                                <div className="flex justify-between items-center mt-3 pt-3 border-t border-orange-500/20">
+                                    <span className="text-xs text-dark-text-light">By: <strong className="text-white">{ticket.submittedBy}</strong></span>
+                                    <button 
+                                        onClick={() => {
+                                            if(!window.confirm("Mark this ticket as RESOLVED?")) return;
+                                            const updated = data.repairRequests.map((r:any) => r.id === ticket.id ? {...r, status: 'resolved', resolvedAt: Date.now()} : r);
+                                            data.setRepairRequests(updated);
+                                        }} 
+                                        className="bg-orange-500 hover:bg-orange-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-md transition-all active:scale-95"
+                                    >
+                                        <Icon name="CheckCircle2" size={14} className="inline mr-1" /> Mark Resolved
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+
+                        {/* 已解决记录 */}
+                        <h4 className="text-sm font-bold text-gray-500 mt-8 mb-2 border-b border-white/10 pb-2">Resolved History</h4>
+                        {scopedRepairs.filter(r => r.status === 'resolved').slice().reverse().map((ticket: any) => (
+                            <div key={ticket.id} className="bg-dark-surface p-3 rounded-xl border border-green-500/20 mb-2 opacity-70">
+                                <div className="flex justify-between items-center"><span className="text-sm font-bold text-gray-400 line-through">{ticket.item}</span><span className="text-[10px] text-green-500 font-bold"><Icon name="Check" size={12} className="inline"/> Resolved</span></div>
+                                <p className="text-[10px] text-dark-text-light mt-1">Reported: {new Date(ticket.date).toLocaleDateString()} | Fixed: {new Date(ticket.resolvedAt).toLocaleDateString()}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -4018,6 +4243,7 @@ const App = () => {
     const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
     const [schedule, setSchedule] = useState<any>({ days: [] });
     const [notices, setNotices] = useState<Notice[]>([]);
+    const [repairRequests, setRepairRequests] = useState<any[]>([]);
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
     const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
@@ -4050,7 +4276,8 @@ const App = () => {
         smartInventoryReports, setSmartInventoryReports,
         smartReports: smartInventoryReports, 
         setSmartReports: setSmartInventoryReports,
-        stores, setStores
+        stores, setStores,
+        repairRequests, setRepairRequests //
     };
 
     useEffect(() => {
