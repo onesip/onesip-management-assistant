@@ -4270,7 +4270,6 @@ const App = () => {
     const [inventoryHistory, setInventoryHistory] = useState<InventoryReport[]>([]);
     const [schedule, setSchedule] = useState<any>({ days: [] });
     const [notices, setNotices] = useState<Notice[]>([]);
-    const [repairRequests, setRepairRequests] = useState<any[]>([]);
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
     const [swapRequests, setSwapRequests] = useState<SwapRequest[]>([]);
