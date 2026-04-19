@@ -3241,7 +3241,7 @@ const TodaysPrepReports = ({ inventoryHistory, inventoryList, lang }: { inventor
 // ============================================================================
 // 新增组件: 物料报损单 (Waste Report View) [含自动暂存]
 // ============================================================================
-const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser }: any) => {
+function WasteReportView({ lang, inventoryList, onSubmit, onCancel, currentUser }: any) {
     const [wasteData, setWasteData] = useState<Record<string, { loss: string, reason: string }>>({});
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
@@ -3331,16 +3331,17 @@ const WasteReportView = ({ lang, inventoryList, onSubmit, onCancel, currentUser 
             </div>
         </div>
     );
-};
+}
 
 // ============================================================================
 // 组件 4: 员工端 (Staff App) - [支持门店无缝切换彻底数据隔离]
 // ============================================================================
-const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) => {
+function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) {
     const { 
         lang, setLang, schedule, notices, t, swapRequests, setSwapRequests, 
         directMessages, setDirectMessages, users, recipes, scheduleCycles, setScheduleCycles, 
-        inventoryHistory, inventoryList, setInventoryList, sopList, trainingLevels, stores 
+        inventoryHistory, inventoryList, setInventoryList, sopList, trainingLevels, stores,
+        repairRequests, setRepairRequests
     } = data;
     const { showNotification } = useNotification();
 
@@ -3373,7 +3374,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     // 🛡️ 门店视角切换与 100% 严格数据隔离
     // ==========================================
     const userStores = useMemo(() => {
-        // 如果是老板或经理，可以看到所有门店；否则只能看自己被分配的门店
         if (currentUser.role === 'boss' || currentUser.role === 'manager') return stores || [];
         return stores?.filter((s:any) => s.staff?.includes(currentUser.id)) || [];
     }, [stores, currentUser]);
@@ -3402,7 +3402,6 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const scopedNotices = useMemo(() => notices.filter((n:any) => getStoreId(n) === myStoreId), [notices, myStoreId]);
     const scopedMessages = useMemo(() => directMessages.filter((m:any) => getStoreId(m) === myStoreId), [directMessages, myStoreId]);
     
-    // 只保留当前分店的员工，老板查岗时聊天室里不会出现别店的人
     const branchStaffIds = myStore?.staff || [];
     const scopedUsers = useMemo(() => users.filter((u:any) => branchStaffIds.includes(u.id) || u.role === 'boss'), [users, branchStaffIds]);
 
@@ -3948,12 +3947,12 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             <ActionReminderModal isOpen={isSwapReminderOpen} title="换班申请提醒" message={`你有 ${pendingSwapCount} 条待处理的换班申请，请尽快处理。`} confirmText="去处理" cancelText="稍后" onConfirm={() => { setView('swapRequests'); setIsSwapReminderOpen(false); }} onCancel={() => setIsSwapReminderOpen(false)} />
         </div>
     );
-};
+}
   
 // ============================================================================
 // 组件: 底部导航栏 (StaffBottomNav)
 // ============================================================================
-const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat, features }: any) => {
+function StaffBottomNav({ activeView, setActiveView, t, hasUnreadChat, features }: any) {
     let navItems = [{ key: 'home', icon: 'Grid', label: t.home }];
     if (features?.training) navItems.push({ key: 'training', icon: 'Award', label: t.training });
     if (features?.recipes) navItems.push({ key: 'recipes', icon: 'Coffee', label: t.recipes });
@@ -3971,17 +3970,17 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat, features 
             ))}
         </div>
     );
-};
+}
 
 // ============================================================================
 // 组件 5: 店长总控台 (Owner Dashboard) - [自动分店识别 + 0117密码锁]
 // ============================================================================
-const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, onExit: () => void, currentUser?: any, adminMode?: string }) => {
+function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, onExit: () => void, currentUser?: any, adminMode?: string }) {
     const { showNotification } = useNotification();
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, stores, setStores, schedule, setSchedule } = data;
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
-    const [ownerSubView, setOwnerSubView] = useState<'stores' | 'presets' | 'history' | 'smart' | 'smart_history' | 'staff' | 'logs'>('presets');
+    const [ownerSubView, setOwnerSubView] = useState<'stores' | 'presets' | 'history' | 'smart' | 'smart_history' | 'staff' | 'logs' | 'repair'>('presets');
     
     // ==========================================
     // 🔐 分店管理模块密码锁
@@ -4004,7 +4003,7 @@ const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, o
     // ==========================================
     // 🛡️ 智能权限与分店识别
     // ==========================================
-    const safeStores = Array.isArray(stores) && stores.length > 0 ? stores : [{ id: 'default_store', name: 'Main Store', staff: [], features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true } }];
+    const safeStores = Array.isArray(stores) && stores.length > 0 ? stores : [{ id: 'default_store', name: 'Main Store', staff: [], features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true, repair: true } }];
     
     // 识别当前登录员工属于哪个门店
     const myStore = currentUser ? safeStores.find((s:any) => s.staff?.includes(currentUser.id)) : null;
@@ -4019,7 +4018,7 @@ const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, o
     const scopedHistory = inventoryHistory.filter((h:any) => (h.storeId || 'default_store') === adminStoreId);
     const scopedSmartReports = smartReports.filter((r:any) => (r.storeId || 'default_store') === adminStoreId);
     const scopedLogs = logs.filter((l:any) => (l.storeId || 'default_store') === adminStoreId);
-    const scopedRepairs = data.repairRequests.filter((r:any) => (r.storeId || 'default_store') === adminStoreId);
+    const scopedRepairs = (data.repairRequests || []).filter((r:any) => (r.storeId || 'default_store') === adminStoreId);
   
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
@@ -4201,13 +4200,14 @@ const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, o
                 
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={scopedLogs} currentUser={ownerUser} onUpdateLogs={(l:any) => Cloud.updateLogs(l)} />}
+                
                 {ownerSubView === 'repair' as any && (
                     <div className="p-4 space-y-3">
                         <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Maintenance Tickets</h3></div>
                         {scopedRepairs.length === 0 && <p className="text-dark-text-light text-center py-10">No pending tickets for this branch.</p>}
                         
                         {/* 待处理工单 */}
-                        {scopedRepairs.filter(r => r.status === 'pending').slice().reverse().map((ticket: any) => (
+                        {scopedRepairs.filter((r:any) => r.status === 'pending').slice().reverse().map((ticket: any) => (
                             <div key={ticket.id} className="bg-orange-500/10 p-4 rounded-xl border border-orange-500/30 mb-3 animate-fade-in">
                                 <div className="flex justify-between items-start mb-2">
                                     <div>
@@ -4240,7 +4240,7 @@ const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, o
 
                         {/* 已解决记录 */}
                         <h4 className="text-sm font-bold text-gray-500 mt-8 mb-2 border-b border-white/10 pb-2">Resolved History</h4>
-                        {scopedRepairs.filter(r => r.status === 'resolved').slice().reverse().map((ticket: any) => (
+                        {scopedRepairs.filter((r:any) => r.status === 'resolved').slice().reverse().map((ticket: any) => (
                             <div key={ticket.id} className="bg-dark-surface p-3 rounded-xl border border-green-500/20 mb-2 opacity-70">
                                 <div className="flex justify-between items-center"><span className="text-sm font-bold text-gray-400 line-through">{ticket.item}</span><span className="text-[10px] text-green-500 font-bold"><Icon name="Check" size={12} className="inline"/> Resolved</span></div>
                                 <p className="text-[10px] text-dark-text-light mt-1">Reported: {new Date(ticket.date).toLocaleDateString()} | Fixed: {new Date(ticket.resolvedAt).toLocaleDateString()}</p>
@@ -4251,12 +4251,12 @@ const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, o
             </div>
         </div>
     );
-};
+}
 
 // ============================================================================
 // MAIN APP COMPONENT
 // ============================================================================
-const App = () => {
+function App() {
     const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('onesip_lang') as Lang) || 'zh');
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [adminMode, setAdminMode] = useState<'manager' | 'owner' | 'editor' | null>(null);
@@ -4327,30 +4327,7 @@ const App = () => {
         return () => window.removeEventListener('storage', handleStorage);
     }, []);
 
-    const [stores, setStores] = useState<any[]>(() => {
-        const saved = localStorage.getItem('onesip_stores_v1');
-        if (saved) return JSON.parse(saved);
-        return [{ id: 'default_store', name: 'Main Store', staff: STATIC_USERS.map((u:User)=>u.id), features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true, repair: true } }];
-    });
-
     useEffect(() => { localStorage.setItem('onesip_stores_v1', JSON.stringify(stores)); }, [stores]);
-
-    const t = TRANSLATIONS[lang];
-
-    // 组装全局数据 (这里包含了上面所有的状态)
-    const appData = {
-        lang, setLang, users, inventoryList, setInventoryList, inventoryHistory, 
-        schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
-        setDirectMessages, swapRequests, setSwapRequests, sales, sopList, 
-        setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
-        confirmations, scheduleCycles, setScheduleCycles, 
-        smartInventory, setSmartInventory, 
-        smartInventoryReports, setSmartInventoryReports,
-        smartReports: smartInventoryReports, 
-        setSmartReports: setSmartInventoryReports,
-        stores, setStores,
-        repairRequests, setRepairRequests
-    };
 
     useEffect(() => {
         Cloud.seedInitialData();
@@ -4407,6 +4384,6 @@ const App = () => {
             {showCloudSetup && <CloudSetupModal isOpen={showCloudSetup} onClose={() => setShowCloudSetup(false)} />}
         </>
     );
-};
+}
 
 export default App;
