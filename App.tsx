@@ -2727,14 +2727,14 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
     const [isAddingManualLog, setIsAddingManualLog] = useState(false);
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
-    // 💡 实时监听新报修工单并弹窗
+    // 💡 监听新报修工单并触发报警弹窗
     const prevRepairsLength = useRef(data.repairRequests?.length || 0);
     useEffect(() => {
         const currentLen = data.repairRequests?.length || 0;
         if (currentLen > prevRepairsLength.current) {
             const newTicket = data.repairRequests[currentLen - 1];
             if ((newTicket.storeId || 'default_store') === adminStoreId) {
-                showNotification({ type: 'announcement', title: '🚨 新异常提报 (New Ticket)', message: `${newTicket.submittedBy} 提交了关于 [${newTicket.item}] 的报修，请处理！`, sticky: true });
+                showNotification({ type: 'announcement', title: '🚨 新异常提报', message: `${newTicket.submittedBy} 提交了关于 [${newTicket.item}] 的报修，请处理！`, sticky: true });
             }
         }
         prevRepairsLength.current = currentLen;
@@ -4263,6 +4263,8 @@ const App = () => {
     const [adminModalOpen, setAdminModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [showCloudSetup, setShowCloudSetup] = useState(false);
+    const [storeAuthInput, setStoreAuthInput] = useState('');
+    const [isStoreAuthModalOpen, setIsStoreAuthModalOpen] = useState(false);
     
     // --- Data States ---
     const [users, setUsers] = useState<User[]>(STATIC_USERS);
@@ -4282,11 +4284,35 @@ const App = () => {
     const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
     const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
 
-    // 💡 报修单持久化存储 (必须放在 appData 之前定义，否则会导致崩溃)
+    // 💡 1. 必须先定义 repairRequests，否则系统会崩溃找不到它！
     const [repairRequests, setRepairRequests] = useState<any[]>(() => {
         const saved = localStorage.getItem('onesip_repair_requests_v1');
         return saved ? JSON.parse(saved) : [];
     });
+
+    // 💡 2. 定义 stores
+    const [stores, setStores] = useState<any[]>(() => {
+        const saved = localStorage.getItem('onesip_stores_v1');
+        if (saved) return JSON.parse(saved);
+        return [{ id: 'default_store', name: 'Main Store', staff: STATIC_USERS.map((u:User)=>u.id), features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true, repair: true } }];
+    });
+
+    const t = TRANSLATIONS[lang];
+
+    // 💡 3. 最后组装 appData。此时上面的所有变量都已经定义完毕，绝对安全！
+    const appData = {
+        lang, setLang, users, inventoryList, setInventoryList, inventoryHistory, 
+        schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
+        setDirectMessages, swapRequests, setSwapRequests, sales, sopList, 
+        setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, 
+        confirmations, scheduleCycles, setScheduleCycles, 
+        smartInventory, setSmartInventory, 
+        smartInventoryReports, setSmartInventoryReports,
+        smartReports: smartInventoryReports, 
+        setSmartReports: setSmartInventoryReports,
+        stores, setStores,
+        repairRequests, setRepairRequests
+    };
 
     useEffect(() => { 
         localStorage.setItem('onesip_repair_requests_v1', JSON.stringify(repairRequests)); 
