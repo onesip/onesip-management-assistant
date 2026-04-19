@@ -4281,7 +4281,8 @@ const App = () => {
     const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
     const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
     const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
-    // 💡 新增：报修单持久化存储与跨端实时同步
+
+    // 💡 报修单持久化存储 (必须放在 appData 之前定义，否则会导致崩溃)
     const [repairRequests, setRepairRequests] = useState<any[]>(() => {
         const saved = localStorage.getItem('onesip_repair_requests_v1');
         return saved ? JSON.parse(saved) : [];
@@ -4303,13 +4304,14 @@ const App = () => {
     const [stores, setStores] = useState<any[]>(() => {
         const saved = localStorage.getItem('onesip_stores_v1');
         if (saved) return JSON.parse(saved);
-        return [{ id: 'default_store', name: 'Main Store', staff: STATIC_USERS.map((u:User)=>u.id), features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true } }];
+        return [{ id: 'default_store', name: 'Main Store', staff: STATIC_USERS.map((u:User)=>u.id), features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true, repair: true } }];
     });
 
     useEffect(() => { localStorage.setItem('onesip_stores_v1', JSON.stringify(stores)); }, [stores]);
 
     const t = TRANSLATIONS[lang];
 
+    // 组装全局数据 (这里包含了上面所有的状态)
     const appData = {
         lang, setLang, users, inventoryList, setInventoryList, inventoryHistory, 
         schedule, setSchedule, notices, logs, setLogs, t, directMessages, 
@@ -4321,7 +4323,7 @@ const App = () => {
         smartReports: smartInventoryReports, 
         setSmartReports: setSmartInventoryReports,
         stores, setStores,
-        repairRequests, setRepairRequests //
+        repairRequests, setRepairRequests
     };
 
     useEffect(() => {
