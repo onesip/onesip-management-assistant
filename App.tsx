@@ -2550,8 +2550,8 @@ const StoreManagementView = ({ data }: any) => {
         updateStoreField('staff', newStaff);
     };
 
-    const modulesList = [ { key: 'recipes', label: '饮品配方 (Recipes)' }, { key: 'prep', label: '日常盘点 (Daily Prep)' }, { key: 'waste', label: '物料报损 (Waste Report)' }, { key: 'schedule', label: '员工排班 (Schedule)' }, { key: 'swap', label: '换班申请 (Shift Swap)' }, { key: 'availability', label: '意向时间 (Availability)' }, { key: 'sop', label: 'SOP知识库 (SOP Library)' }, { key: 'training', label: '员工培训 (Training)' }, { key: 'chat', label: '团队沟通 (Team Chat)' } ];
-
+    const modulesList = [ { key: 'recipes', label: '饮品配方 (Recipes)' }, { key: 'prep', label: '日常盘点 (Daily Prep)' }, { key: 'waste', label: '物料报损 (Waste Report)' }, { key: 'schedule', label: '员工排班 (Schedule)' }, { key: 'swap', label: '换班申请 (Shift Swap)' }, { key: 'availability', label: '意向时间 (Availability)' }, { key: 'sop', label: 'SOP知识库 (SOP Library)' }, { key: 'training', label: '员工培训 (Training)' }, { key: 'chat', label: '团队沟通 (Team Chat)' }, { key: 'repair', label: '异常报修 (Repair Tickets)' } ];
+  
     if(!activeStore) return <div className="p-4 text-white">Loading Stores...</div>;
 
     return (
@@ -3379,8 +3379,8 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     const myStoreId = activeStoreId;
     const myStore = stores?.find((s: any) => s.id === myStoreId);
     const defaultFeatures = { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true, repair: true };
-    const activeFeatures = myStore ? (myStore.features || defaultFeatures) : defaultFeatures;
-    
+    const activeFeatures = { ...defaultFeatures, ...(myStore?.features || {}) };
+  
     const getStoreId = (item: any) => item.storeId || 'default_store';
 
     // 【核心修复】：彻底隔离所有数据！库存、历史、换班、聊天、公告全部分离
