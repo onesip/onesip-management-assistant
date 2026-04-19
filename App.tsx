@@ -3904,6 +3904,49 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             {activeFeatures.prep && (
                 <TodaysPrepReports inventoryHistory={scopedInventoryHistory} inventoryList={scopedInventoryList} lang={lang} />
             )}
+            {/* 💡 管理层专属：常驻报修提醒看板 */}
+            {(currentUser.role === 'manager' || currentUser.role === 'boss') && (
+                <div className="mb-6 space-y-3">
+                    {data.repairRequests?.filter((r: any) => r.status === 'pending' && (r.storeId || 'default_store') === activeStoreId).length > 0 && (
+                        <h3 className="text-xs font-bold text-orange-600 uppercase flex items-center gap-1">
+                            <Icon name="AlertTriangle" size={14}/>
+                            {lang === 'zh' ? '待处理报修任务' : 'Pending Repairs'}
+                        </h3>
+                    )}
+                    {data.repairRequests
+                        ?.filter((r: any) => r.status === 'pending' && (r.storeId || 'default_store') === activeStoreId)
+                        .slice().reverse() // 最新的在最上面
+                        .map((ticket: any) => (
+                            <div key={ticket.id} className="bg-white border-2 border-orange-200 p-4 rounded-2xl shadow-sm relative overflow-hidden animate-pulse-slow">
+                                <div className="absolute top-0 right-0 bg-orange-100 text-orange-600 text-[10px] px-2 py-1 font-black rounded-bl-lg uppercase tracking-wider">Urgent</div>
+                                <div className="flex justify-between items-start mb-2">
+                                    <div>
+                                        <p className="text-[10px] text-gray-400 font-bold uppercase">{ticket.category}</p>
+                                        <h4 className="font-black text-gray-800">{ticket.item}</h4>
+                                    </div>
+                                </div>
+                                <div className="bg-orange-50 p-2 rounded-lg mb-3">
+                                    <p className="text-xs text-orange-800 line-clamp-2 italic">"{ticket.issues?.join('、') || ticket.notes}"</p>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-[10px] text-gray-500 font-bold">From: {ticket.submittedBy} • {new Date(ticket.date).toLocaleDateString()}</span>
+                                    <button 
+                                        onClick={() => {
+                                            if(!window.confirm(lang === 'zh' ? "确认此问题已解决？" : "Mark as resolved?")) return;
+                                            const updated = data.repairRequests.map((r:any) => r.id === ticket.id ? {...r, status: 'resolved', resolvedAt: Date.now()} : r);
+                                            data.setRepairRequests(updated);
+                                            showNotification({ type: 'message', title: 'Task Completed', message: '报修单已归档。' });
+                                        }}
+                                        className="bg-orange-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-md hover:bg-orange-600 active:scale-95 transition-all"
+                                    >
+                                        {lang === 'zh' ? '标记解决' : 'RESOLVE'}
+                                    </button>
+                                </div>
+                            </div>
+                        ))
+                    }
+                </div>
+            )}
 
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
