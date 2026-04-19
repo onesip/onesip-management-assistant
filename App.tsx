@@ -3777,11 +3777,11 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     lang={lang} recipes={recipes} myStoreId={myStoreId} currentUser={currentUser} 
                     onCancel={() => setView('home')} 
                     onSubmit={(ticket: any) => {
-                        // 1. 保存到系统状态 (触发自动同步)
-                        setRepairRequests([...repairRequests, ticket]);
-                        // 2. 弹窗提示员工
+                        // 💡 修复：加上 data. 前缀，确保系统能找到存储函数并避免崩溃
+                        const currentRequests = data.repairRequests || [];
+                        data.setRepairRequests([...currentRequests, ticket]);
+                        
                         showNotification({ type: 'message', title: '✅ 提交成功', message: '工单已发送，店长和经理将收到提醒！' });
-                        // 3. 自动退回主页
                         setView('home'); 
                      }} 
                 />
