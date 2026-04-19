@@ -2727,6 +2727,18 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
     const [isAddingManualLog, setIsAddingManualLog] = useState(false);
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
+    // 💡 实时监听新报修工单并弹窗
+    const prevRepairsLength = useRef(data.repairRequests?.length || 0);
+    useEffect(() => {
+        const currentLen = data.repairRequests?.length || 0;
+        if (currentLen > prevRepairsLength.current) {
+            const newTicket = data.repairRequests[currentLen - 1];
+            if ((newTicket.storeId || 'default_store') === adminStoreId) {
+                showNotification({ type: 'announcement', title: '🚨 新异常提报 (New Ticket)', message: `${newTicket.submittedBy} 提交了关于 [${newTicket.item}] 的报修，请处理！`, sticky: true });
+            }
+        }
+        prevRepairsLength.current = currentLen;
+    }, [data.repairRequests, adminStoreId, showNotification]);
 
     // ==========================================
     // 🛡️ 经理后台严格分店数据隔离
@@ -3765,15 +3777,17 @@ const StaffApp = ({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     lang={lang} recipes={recipes} myStoreId={myStoreId} currentUser={currentUser} 
                     onCancel={() => setView('home')} 
                     onSubmit={(ticket: any) => {
-                        // 保存到系统
+                        // 1. 保存到系统状态 (触发自动同步)
                         setRepairRequests([...repairRequests, ticket]);
-                        // 触发系统弹窗通知 (Boss/Manager)
-                        showNotification({ type: 'message', title: '🚨 新报修工单 (New Ticket)', message: `${ticket.submittedBy} 提交了关于 [${ticket.item}] 的异常。` });
+                        // 2. 弹窗提示员工
+                        showNotification({ type: 'message', title: '✅ 提交成功', message: '工单已发送，店长和经理将收到提醒！' });
+                        // 3. 自动退回主页
+                        setView('home'); 
                      }} 
                 />
             );
         }
-
+      
         if (view === 'chat' && activeFeatures.chat) { 
             // 确保管理员进入聊天时拥有发布公告等高级权限，并且数据完美隔离
             const isUserAdmin = currentUser.role === 'manager' || currentUser.role === 'boss';
@@ -3963,6 +3977,7 @@ const StaffBottomNav = ({ activeView, setActiveView, t, hasUnreadChat, features 
 // 组件 5: 店长总控台 (Owner Dashboard) - [自动分店识别 + 0117密码锁]
 // ============================================================================
 const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, onExit: () => void, currentUser?: any, adminMode?: string }) => {
+    const { showNotification } = useNotification();
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, stores, setStores, schedule, setSchedule } = data;
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
@@ -3973,6 +3988,18 @@ const OwnerDashboard = ({ data, onExit, currentUser, adminMode }: { data: any, o
     // ==========================================
     const [isStoreUnlocked, setIsStoreUnlocked] = useState(false);
     const [pinInput, setPinInput] = useState('');
+    // 💡 实时监听新报修工单并弹窗
+    const prevRepairsLength = useRef(data.repairRequests?.length || 0);
+    useEffect(() => {
+        const currentLen = data.repairRequests?.length || 0;
+        if (currentLen > prevRepairsLength.current) {
+            const newTicket = data.repairRequests[currentLen - 1];
+            if ((newTicket.storeId || 'default_store') === adminStoreId) {
+                showNotification({ type: 'announcement', title: '🚨 新异常提报 (New Ticket)', message: `${newTicket.submittedBy} 提交了关于 [${newTicket.item}] 的报修，请前往 Tickets 查看！`, sticky: true });
+            }
+        }
+        prevRepairsLength.current = currentLen;
+    }, [data.repairRequests, adminStoreId, showNotification]);
 
     // ==========================================
     // 🛡️ 智能权限与分店识别
@@ -4255,6 +4282,24 @@ const App = () => {
     const [confirmations, setConfirmations] = useState<ScheduleConfirmation[]>([]);
     const [scheduleCycles, setScheduleCycles] = useState<ScheduleCycle[]>([]);
     const [smartInventoryReports, setSmartInventoryReports] = useState<SmartInventoryReport[]>([]);
+    // 💡 新增：报修单持久化存储与跨端实时同步
+    const [repairRequests, setRepairRequests] = useState<any[]>(() => {
+        const saved = localStorage.getItem('onesip_repair_requests_v1');
+        return saved ? JSON.parse(saved) : [];
+    });
+
+    useEffect(() => { 
+        localStorage.setItem('onesip_repair_requests_v1', JSON.stringify(repairRequests)); 
+    }, [repairRequests]);
+
+    useEffect(() => {
+        // 监听其他标签页（比如员工端）的数据变化，实现瞬间同步
+        const handleStorage = (e: StorageEvent) => {
+            if (e.key === 'onesip_repair_requests_v1' && e.newValue) setRepairRequests(JSON.parse(e.newValue));
+        };
+        window.addEventListener('storage', handleStorage);
+        return () => window.removeEventListener('storage', handleStorage);
+    }, []);
 
     const [stores, setStores] = useState<any[]>(() => {
         const saved = localStorage.getItem('onesip_stores_v1');
