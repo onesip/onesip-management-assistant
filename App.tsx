@@ -3619,9 +3619,9 @@ const TodaysPrepReports = ({ inventoryHistory, inventoryList, lang }: { inventor
 };
 
 // ============================================================================
-// 新增组件: 物料报损单 (Waste Report View) [含自动暂存]
+// 新增组件: 物料报损单 (Waste Report View) [专属独立数据源版]
 // ============================================================================
-function WasteReportView({ lang, inventoryList, onSubmit, onCancel, currentUser }: any) {
+function WasteReportView({ lang, wasteList, onSubmit, onCancel, currentUser }: any) {
     const [wasteData, setWasteData] = useState<Record<string, { loss: string, reason: string }>>({});
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
 
@@ -3629,14 +3629,10 @@ function WasteReportView({ lang, inventoryList, onSubmit, onCancel, currentUser 
 
     useEffect(() => {
         const saved = localStorage.getItem(draftKey);
-        if (saved) {
-            try { setWasteData(JSON.parse(saved)); } catch(e) {}
-        }
+        if (saved) { try { setWasteData(JSON.parse(saved)); } catch(e) {} }
     }, [draftKey]);
 
-    useEffect(() => {
-        localStorage.setItem(draftKey, JSON.stringify(wasteData));
-    }, [wasteData, draftKey]);
+    useEffect(() => { localStorage.setItem(draftKey, JSON.stringify(wasteData)); }, [wasteData, draftKey]);
 
     const handleSubmit = () => {
         const dataToSubmit: Record<string, { loss: string, reason: string }> = {};
@@ -3648,66 +3644,76 @@ function WasteReportView({ lang, inventoryList, onSubmit, onCancel, currentUser 
             }
         });
 
-        if (!hasData) {
-            alert(lang === 'zh' ? "请至少输入一项浪费/损耗的数量。" : "Please enter at least one waste amount.");
-            return;
-        }
+        if (!hasData) return alert(lang === 'zh' ? "请至少输入一项数量。" : "Please enter at least one amount.");
 
         onSubmit({
-            submittedBy: currentUser?.name,
-            userId: currentUser?.id,
-            data: dataToSubmit,
-            shift: 'waste', 
-            date: new Date().toISOString()
+            submittedBy: currentUser?.name, userId: currentUser?.id,
+            data: dataToSubmit, shift: 'waste', date: new Date().toISOString()
         });
 
-        localStorage.removeItem(draftKey);
-        setWasteData({});
+        localStorage.removeItem(draftKey); setWasteData({});
     };
 
     return (
         <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3">
                 <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
-                <h2 className="text-xl font-black text-red-500 flex items-center gap-2">
-                    <Icon name="Trash" size={20} /> {lang === 'zh' ? '物料报损记录' : 'Waste Report'}
-                </h2>
+                <h2 className="text-xl font-black text-red-500 flex items-center gap-2"><Icon name="Trash" size={20} /> {lang === 'zh' ? '物料报损记录' : 'Waste Report'}</h2>
             </div>
             <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-xs font-bold border border-red-100 mb-4">
-                    {lang === 'zh' 
-                        ? '💡 提示：仅填写今天有额外损耗/浪费的物料，正常使用的无需填写。' 
-                        : '💡 Tip: Only fill in items with extra waste/loss. Leave others blank.'}
-                </div>
-                {inventoryList.filter((i:any)=>!i.hidden).map((item: any) => (
+                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-xs font-bold border border-red-100 mb-4">{lang === 'zh' ? '💡 提示：仅填写今天有额外损耗/浪费的物料。' : '💡 Tip: Only fill in items with extra waste/loss.'}</div>
+                {wasteList.map((item: any) => (
                     <div key={item.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                            <div className="font-bold text-gray-800 text-sm truncate">{getLoc(item.name)}</div>
-                            <div className="text-[10px] text-gray-400">{item.unit}</div>
-                        </div>
+                        <div className="flex-1 min-w-0"><div className="font-bold text-gray-800 text-sm truncate">{getLoc(item.name)}</div><div className="text-[10px] text-gray-400">{item.unit}</div></div>
                         <div className="flex gap-2">
-                            <input
-                                type="number"
-                                placeholder="Qty"
-                                value={wasteData[item.id]?.loss || ''}
-                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], loss: e.target.value}}))}
-                                className="w-16 p-2 rounded-lg border border-red-200 text-center text-red-500 font-bold bg-red-50 focus:bg-white outline-none placeholder-red-300 text-sm"
-                            />
-                            <input
-                                type="text"
-                                placeholder={lang === 'zh' ? '原因' : 'Reason'}
-                                value={wasteData[item.id]?.reason || ''}
-                                onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], reason: e.target.value}}))}
-                                className="w-20 p-2 rounded-lg border border-gray-200 text-xs bg-gray-50 focus:bg-white outline-none"
-                            />
+                            <input type="number" placeholder="Qty" value={wasteData[item.id]?.loss || ''} onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], loss: e.target.value}}))} className="w-16 p-2 rounded-lg border border-red-200 text-center text-red-500 font-bold bg-red-50 focus:bg-white outline-none placeholder-red-300 text-sm" />
+                            <input type="text" placeholder={lang === 'zh' ? '原因' : 'Reason'} value={wasteData[item.id]?.reason || ''} onChange={e => setWasteData(prev => ({...prev, [item.id]: {...prev[item.id], reason: e.target.value}}))} className="w-20 p-2 rounded-lg border border-gray-200 text-xs bg-gray-50 focus:bg-white outline-none" />
                         </div>
                     </div>
                 ))}
+                {wasteList.length === 0 && <p className="text-center text-gray-400 text-sm py-10">{lang === 'zh' ? '后台暂未配置报损物料' : 'No waste items configured in admin.'}</p>}
             </div>
-            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-                <button onClick={handleSubmit} className="w-full bg-red-500 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-red-600">
-                    <Icon name="Save" size={20} /> {lang === 'zh' ? '提交报损记录' : 'Submit Waste'}
-                </button>
+            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]"><button onClick={handleSubmit} className="w-full bg-red-500 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-red-600"><Icon name="Save" size={20} /> {lang === 'zh' ? '提交报损记录' : 'Submit Waste'}</button></div>
+        </div>
+    );
+}
+
+// ============================================================================
+// 新增组件：后台报损物料编辑器 (Waste Config Editor)
+// ============================================================================
+function WasteConfigEditor({ store, onSave, onCancel }: any) {
+    const [items, setItems] = useState<any[]>(() => {
+        // 如果云端有专属的报损数据，就用云端的；如果没有，默认给抹茶和焙茶
+        if (store?.wasteItems && store.wasteItems.length > 0) return JSON.parse(JSON.stringify(store.wasteItems));
+        return [
+            { id: `w_${Date.now()}_1`, name: { zh: '抹茶粉', en: 'Matcha Powder' }, unit: 'g' },
+            { id: `w_${Date.now()}_2`, name: { zh: '焙茶粉', en: 'Hojicha Powder' }, unit: 'g' },
+            { id: `w_${Date.now()}_3`, name: { zh: '塑料杯', en: 'Plastic Cups' }, unit: 'pc' }
+        ];
+    });
+
+    const addItem = () => setItems([...items, { id: `w_${Date.now()}`, name: { zh: '', en: '' }, unit: '' }]);
+    const updateItem = (idx: number, field: string, val: string) => {
+        const n = [...items];
+        if (field === 'zh' || field === 'en') n[idx].name[field] = val;
+        else n[idx][field] = val;
+        setItems(n);
+    };
+    const delItem = (idx: number) => { if(window.confirm("Delete item?")) setItems(items.filter((_, i) => i !== idx)); };
+
+    return (
+        <div className="bg-dark-surface p-4 rounded-xl border border-white/10 space-y-4 animate-fade-in">
+            <div className="flex justify-between items-center"><h3 className="text-white font-bold text-sm">Waste Items Config</h3><div className="flex gap-2"><button onClick={onCancel} className="px-4 py-2 bg-white/10 text-white rounded-lg text-xs font-bold">Cancel</button><button onClick={()=>onSave(items)} className="px-4 py-2 bg-red-500 text-white rounded-lg text-xs font-bold shadow-lg hover:bg-red-400">Save Config</button></div></div>
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+                {items.map((item, idx) => (
+                    <div key={item.id} className="flex gap-2 items-center bg-dark-bg p-2 rounded-lg border border-white/5">
+                        <input value={item.name.zh} onChange={e=>updateItem(idx,'zh',e.target.value)} className="flex-[2] bg-dark-surface text-white p-2 rounded text-xs border border-white/10 focus:border-red-500 outline-none" placeholder="中文名称 (e.g. 抹茶)" />
+                        <input value={item.name.en} onChange={e=>updateItem(idx,'en',e.target.value)} className="flex-[2] bg-dark-surface text-white p-2 rounded text-xs border border-white/10 focus:border-red-500 outline-none" placeholder="EN Name" />
+                        <input value={item.unit} onChange={e=>updateItem(idx,'unit',e.target.value)} className="flex-[1] bg-dark-surface text-white p-2 rounded text-xs border border-white/10 focus:border-red-500 outline-none" placeholder="Unit (g/pc)" />
+                        <button onClick={()=>delItem(idx)} className="p-2 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"><Icon name="Trash" size={16}/></button>
+                    </div>
+                ))}
+                <button onClick={addItem} className="w-full py-3 border-2 border-dashed border-white/10 rounded-lg text-dark-text-light text-xs font-bold hover:text-white hover:border-white/30 transition-all">+ Add New Waste Item</button>
             </div>
         </div>
     );
@@ -4148,9 +4154,13 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
 
         if (view === 'waste' as any && activeFeatures.waste) {
+            // 💡 核心：优先读取后台配置的专属 Waste Items，如果没有，就降级去读日常盘点表(防止刚上线时没数据)
+            const customWasteList = myStore?.wasteItems?.length > 0 ? myStore.wasteItems : scopedInventoryList.filter((i:any)=>!i.hidden);
+            
             return (
                 <WasteReportView
-                    lang={lang} inventoryList={scopedInventoryList}
+                    lang={lang} 
+                    wasteList={customWasteList} // 👈 把上面的数据传给界面
                     onSubmit={(report: any) => {
                         const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString(), storeId: myStoreId };
                         Cloud.saveInventoryReport(completeReport);
@@ -4552,6 +4562,7 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                 <button onClick={() => setOwnerSubView('stores')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'stores' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Branch Mgmt</button>
                 <div className="w-px bg-white/10 mx-1"></div>
                 <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep Target</button>
+                <button onClick={() => setOwnerSubView('waste_config' as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'waste_config' as any ? 'bg-red-500 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Waste Config</button>
                 <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep History</button>
                 <div className="w-px bg-white/10 mx-1"></div>
                 <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-purple-600 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Smart WH</button>
@@ -4588,7 +4599,23 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                 {ownerSubView === 'stores' && isStoreUnlocked && <StoreManagementView data={data} />}
                 
                 {ownerSubView === 'presets' && <InventoryView lang={lang} t={t} inventoryList={scopedInventoryList} onUpdateInventoryList={handleUpdateInventoryList} isOwner={true} currentUser={ownerUser} />}
-                
+
+                {ownerSubView === 'waste_config' as any && (
+                    <div className="p-4 space-y-3">
+                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Waste Report Categories</h3></div>
+                        <WasteConfigEditor 
+                            store={safeStores.find((s:any)=>s.id===adminStoreId)} 
+                            onSave={async (newItems: any[]) => {
+                                const newStores = safeStores.map((s:any) => s.id === adminStoreId ? { ...s, wasteItems: newItems } : s);
+                                data.setStores(newStores);
+                                if (Cloud.updateStores) await Cloud.updateStores(newStores);
+                                alert("✅ Waste items configuration saved for this branch!");
+                            }} 
+                            onCancel={() => setOwnerSubView('presets')} 
+                        />
+                    </div>
+                )}
+              
                 {ownerSubView === 'history' && (
                     <div className="p-4 space-y-3">
                         <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Prep & Waste History</h3><button onClick={handleExportPrepCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16} /> Export</button></div>
