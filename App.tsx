@@ -1458,6 +1458,101 @@ function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes,
 }
 
 // ============================================================================
+// 新增组件: 员工端 - SOP与培训模块 (Training View) [支持双语 & YouTube Shorts]
+// ============================================================================
+function TrainingView({ lang, sopList, onCancel }: any) {
+    const [searchQuery, setSearchQuery] = useState('');
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+
+    // 过滤搜索
+    const filteredSops = (sopList || []).filter((sop: any) => {
+        const titleZh = sop.title?.zh?.toLowerCase() || '';
+        const titleEn = sop.title?.en?.toLowerCase() || '';
+        const query = searchQuery.toLowerCase();
+        return titleZh.includes(query) || titleEn.includes(query);
+    });
+
+    // 核心：全能 YouTube 解析器 (支持普通链接、分享链接、Shorts短视频)
+    const renderVideo = (url: string) => {
+        if (!url) return null;
+        if (url.includes('youtube.com') || url.includes('youtu.be')) {
+            // 这个正则完美兼容各种 YouTube 格式，包括 /shorts/
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?]*).*/;
+            const match = url.match(regExp);
+            const yId = (match && match[2].length === 11) ? match[2] : null;
+            return yId ? (
+                <iframe 
+                    className="w-full aspect-video rounded-xl mt-3 shadow-md border border-gray-100" 
+                    src={`https://www.youtube.com/embed/${yId}`} 
+                    title="SOP Training Video" 
+                    allowFullScreen>
+                </iframe>
+            ) : null;
+        }
+        // 如果是普通的 mp4 或其他链接
+        return (<video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-xl mt-3 shadow-md bg-black object-contain" />);
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
+            <div className="p-4 sticky top-0 bg-secondary z-10 shadow-sm border-b border-gray-100">
+                <div className="flex items-center gap-3 mb-4">
+                    <h2 className="text-2xl font-black text-blue-600 flex items-center gap-2">
+                        <Icon name="Award" size={24} /> {lang === 'zh' ? '培训与 SOP' : 'Training & SOPs'}
+                    </h2>
+                </div>
+                <div className="relative">
+                    <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+                    <input 
+                        value={searchQuery} 
+                        onChange={e => setSearchQuery(e.target.value)} 
+                        placeholder={lang === 'zh' ? '搜索 SOP 或培训内容...' : 'Search SOPs...'} 
+                        className="w-full bg-white border border-gray-200 rounded-xl p-3 pl-10 text-sm outline-none focus:border-blue-400 shadow-sm" 
+                    />
+                </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div className="bg-blue-50 text-blue-600 p-3 rounded-lg text-xs font-bold border border-blue-100 mb-2">
+                    {lang === 'zh' ? '💡 点击卡片展开查看详细步骤和教学视频。' : '💡 Tap a card to view details and tutorial videos.'}
+                </div>
+
+                {filteredSops.map((sop: any) => (
+                    <div key={sop.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 cursor-pointer transition-all active:scale-[0.98]" onClick={() => setExpandedId(expandedId === sop.id ? null : sop.id)}>
+                        <div className="flex justify-between items-center">
+                            <div className="flex-1 pr-4">
+                                <h3 className="font-bold text-gray-800 text-base">{sop.title?.[lang] || sop.title?.zh || 'Untitled SOP'}</h3>
+                                <p className="text-[10px] font-bold text-blue-500 bg-blue-50 inline-block px-2 py-0.5 rounded mt-1">{sop.category || 'General'}</p>
+                            </div>
+                            <div className={`p-2 rounded-full transition-colors ${expandedId === sop.id ? 'bg-blue-100 text-blue-600' : 'bg-gray-50 text-gray-400'}`}>
+                                <Icon name={expandedId === sop.id ? "ChevronUp" : "ChevronRight"} size={16} />
+                            </div>
+                        </div>
+                        
+                        {expandedId === sop.id && (
+                            <div className="mt-4 pt-3 border-t border-gray-100 text-sm animate-fade-in" onClick={e => e.stopPropagation()}>
+                                <p className="text-gray-600 whitespace-pre-line leading-relaxed text-sm">
+                                    {sop.content?.[lang] || sop.content?.zh || 'No detailed description available.'}
+                                </p>
+                                {/* 渲染 YouTube 或普通视频 */}
+                                {(sop.videoUrl || sop.mediaUrl) && renderVideo(sop.videoUrl || sop.mediaUrl)}
+                            </div>
+                        )}
+                    </div>
+                ))}
+
+                {filteredSops.length === 0 && (
+                    <div className="text-center py-10 opacity-50">
+                        <Icon name="Inbox" size={40} className="mx-auto mb-2 text-gray-400" />
+                        <p className="text-sm font-bold text-gray-500">{lang === 'zh' ? '暂无相关培训内容。' : 'No SOPs found.'}</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ============================================================================
 // 组件: 内容编辑器 (Editor Dashboard) - 支持视频直链文案
 // ============================================================================
 const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
@@ -1651,6 +1746,16 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                 <div><label className="block text-xs font-bold text-dark-accent/70 mb-1">CONTENT (EN)</label><textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-40 font-mono" value={editingItem.content?.en || ''} onChange={e => setEditingItem({...editingItem, content: {...(editingItem.content || {zh:'', en:''}), en: e.target.value}})} /></div>
                 <div><label className="block text-xs font-bold text-dark-accent/70 mb-1">CONTENT (ZH)</label><textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-40 font-mono" value={editingItem.content?.zh || ''} onChange={e => setEditingItem({...editingItem, content: {...(editingItem.content || {zh:'', en:''}), zh: e.target.value}})} /></div>
             </div>); 
+        }
+        // 💡 新增：SOP 培训模块的渲染
+        if (view === 'training' as any && activeFeatures.training) {
+            return (
+                <TrainingView 
+                    lang={lang} 
+                    sopList={sopList} 
+                    onCancel={() => setView('home')} 
+                />
+            );
         }
         if (view === 'recipes') { 
             return (<div className="space-y-4">
@@ -4034,6 +4139,13 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
                 <div className="grid grid-cols-2 gap-3">
+                    {/* 💡 新增：培训与SOP模块入口 */}
+                    {activeFeatures.training && (
+                        <button onClick={() => setView('training' as any)} className="bg-blue-50 p-4 rounded-2xl shadow-sm border border-blue-100 text-left active:scale-95 transition-transform">
+                            <Icon name="Award" className="mb-1 text-blue-500"/>
+                            <p className="font-bold text-blue-700">{lang === 'zh' ? 'SOP与培训' : 'Training & SOP'}</p>
+                        </button>
+                    )}
                     {activeFeatures.waste && (
                         <button onClick={() => setView('waste' as any)} className="bg-red-50 p-4 rounded-2xl shadow-sm border border-red-100 text-left active:scale-95 transition-transform">
                             <Icon name="Trash" className="mb-1 text-red-500"/>
