@@ -1340,7 +1340,7 @@ const REPAIR_DATABASE = {
 // ============================================================================
 // 新增组件: 员工端 - 报修提交页面 (中英双语支持)
 // ============================================================================
-function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes, lang }: any) {
+function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes, lang, customDb }: any) {
     const [step, setStep] = useState(1);
     const [selectedCat, setSelectedCat] = useState('');
     const [selectedItemIdx, setSelectedItemIdx] = useState(-1);
@@ -1348,7 +1348,8 @@ function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes,
     const [issues, setIssues] = useState<any[]>([]);
     const [notes, setNotes] = useState('');
 
-    const activeCatData = selectedCat ? (REPAIR_DATABASE as any)[selectedCat] : null;
+    const dbToUse = customDb || REPAIR_DATABASE;
+    const activeCatData = selectedCat ? dbToUse[selectedCat] : null;
     const activeItemData = activeCatData && selectedItemIdx >= 0 ? activeCatData.items[selectedItemIdx] : null;
     const itemOptions = activeItemData?.issues || [];
 
@@ -1392,7 +1393,7 @@ function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes,
                 {step === 1 && (
                     <div className="space-y-3 animate-fade-in">
                         <h3 className="font-bold text-gray-500 text-sm mb-2">{lang === 'zh' ? '1. 选择大类' : '1. Select Category'}</h3>
-                        {Object.entries(REPAIR_DATABASE).map(([key, data]) => (
+                        {Object.entries(dbToUse).map(([key, data]) => (
                             <button key={key} onClick={() => { setSelectedCat(key); setStep(2); }} className="w-full bg-white p-4 rounded-xl border border-gray-100 shadow-sm text-left font-bold text-gray-800 active:scale-95 flex justify-between items-center">
                                 {data.title[lang]} <Icon name="ChevronRight" className="text-gray-400"/>
                             </button>
@@ -2620,6 +2621,65 @@ const StoreManagementView = ({ data }: any) => {
 };
 
 // ============================================================================
+// 新增组件：后台报修题库编辑器 (傻瓜式中英双语配置)
+// ============================================================================
+function RepairConfigEditor({ store, onSave, onCancel }: any) {
+    // 读取当前门店的专属配置，如果没有，就克隆一份默认的 REPAIR_DATABASE
+    const [db, setDb] = useState(() => store?.repairDatabase ? JSON.parse(JSON.stringify(store.repairDatabase)) : JSON.parse(JSON.stringify(REPAIR_DATABASE)));
+
+    const updateCat = (k: string, langKey: string, val: string) => { const n = {...db}; n[k].title[langKey] = val; setDb(n); };
+    const addItem = (k: string) => { const n = {...db}; n[k].items.push({ name:{zh:'', en:''}, issues:[] }); setDb(n); };
+    const updateItem = (k: string, idx: number, langKey: string, val: string) => { const n = {...db}; n[k].items[idx].name[langKey] = val; setDb(n); };
+    const addIssue = (k: string, idx: number) => { const n = {...db}; n[k].items[idx].issues.push({zh:'', en:''}); setDb(n); };
+    const updateIssue = (k: string, idx: number, iIdx: number, langKey: string, val: string) => { const n = {...db}; n[k].items[idx].issues[iIdx][langKey] = val; setDb(n); };
+    const delCat = (k: string) => { if(!window.confirm("Delete this entire category?")) return; const n = {...db}; delete n[k]; setDb(n); };
+    const delItem = (k: string, idx: number) => { const n = {...db}; n[k].items.splice(idx, 1); setDb(n); };
+    const delIssue = (k: string, idx: number, iIdx: number) => { const n = {...db}; n[k].items[idx].issues.splice(iIdx, 1); setDb(n); };
+    const addCat = () => { const key = `c_${Date.now()}`; setDb({...db, [key]: { title:{zh:'新大类',en:'New Category'}, items:[] }}); };
+
+    return (
+        <div className="bg-dark-surface p-4 rounded-xl border border-white/10 space-y-4 animate-fade-in">
+            <div className="flex justify-between items-center"><h3 className="text-white font-bold text-sm">Customize Repair Categories</h3><div className="flex gap-2"><button onClick={onCancel} className="px-4 py-2 bg-white/10 text-white rounded-lg text-xs font-bold">Cancel</button><button onClick={()=>onSave(db)} className="px-4 py-2 bg-orange-500 text-white rounded-lg text-xs font-bold shadow-lg hover:bg-orange-400">Save Config</button></div></div>
+            <div className="space-y-6">
+                {Object.entries(db).map(([k, cat]: any) => (
+                    <div key={k} className="p-3 border border-white/20 rounded-lg bg-dark-bg">
+                        <div className="flex gap-2 mb-3">
+                            <input value={cat.title.zh} onChange={e=>updateCat(k,'zh',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-sm border border-white/10 focus:border-orange-500 outline-none" placeholder="中文大类名称" />
+                            <input value={cat.title.en} onChange={e=>updateCat(k,'en',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-sm border border-white/10 focus:border-orange-500 outline-none" placeholder="EN Category" />
+                            <button onClick={()=>delCat(k)} className="px-3 bg-red-500/20 text-red-400 rounded hover:bg-red-500 hover:text-white transition-colors"><Icon name="Trash" size={16}/></button>
+                        </div>
+                        <div className="pl-4 border-l-2 border-white/10 space-y-3">
+                            {cat.items.map((item:any, idx:number) => (
+                                <div key={idx} className="p-3 border border-white/10 rounded-lg bg-dark-surface">
+                                    <div className="flex gap-2 mb-2">
+                                        <input value={item.name.zh} onChange={e=>updateItem(k,idx,'zh',e.target.value)} className="flex-1 bg-dark-bg text-orange-300 p-1.5 rounded text-xs border border-white/10 focus:border-orange-500 outline-none" placeholder="项目名称(中文)" />
+                                        <input value={item.name.en} onChange={e=>updateItem(k,idx,'en',e.target.value)} className="flex-1 bg-dark-bg text-orange-300 p-1.5 rounded text-xs border border-white/10 focus:border-orange-500 outline-none" placeholder="Item Name(EN)" />
+                                        <button onClick={()=>delItem(k,idx)} className="text-red-400/60 hover:text-red-400 px-2"><Icon name="X" size={16}/></button>
+                                    </div>
+                                    <div className="pl-4 space-y-1.5">
+                                        {item.issues.map((iss:any, iIdx:number) => (
+                                            <div key={iIdx} className="flex gap-2 items-center">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-gray-500 shrink-0"></div>
+                                                <input value={iss.zh} onChange={e=>updateIssue(k,idx,iIdx,'zh',e.target.value)} className="flex-1 bg-transparent text-gray-300 text-[10px] border-b border-white/10 outline-none focus:border-orange-500 pb-1" placeholder="问题选项(中文)" />
+                                                <input value={iss.en} onChange={e=>updateIssue(k,idx,iIdx,'en',e.target.value)} className="flex-1 bg-transparent text-gray-300 text-[10px] border-b border-white/10 outline-none focus:border-orange-500 pb-1" placeholder="Issue Option(EN)" />
+                                                <button onClick={()=>delIssue(k,idx,iIdx)} className="text-gray-500 hover:text-red-400"><Icon name="X" size={14}/></button>
+                                            </div>
+                                        ))}
+                                        <button onClick={()=>addIssue(k,idx)} className="text-[10px] text-orange-400 mt-2 font-bold py-1 px-2 bg-orange-500/10 rounded">+ Add Issue Option</button>
+                                    </div>
+                                </div>
+                            ))}
+                            <button onClick={()=>addItem(k)} className="text-xs text-blue-400 font-bold py-2">+ Add Item (e.g. New Machine)</button>
+                        </div>
+                    </div>
+                ))}
+                <button onClick={addCat} className="w-full py-3 border-2 border-dashed border-white/20 rounded-lg text-dark-text-light text-sm font-bold hover:text-white hover:border-white/50 transition-all">+ Add New Category</button>
+            </div>
+        </div>
+    );
+}
+
+// ============================================================================
 // 经理后台依赖组件: 排班编辑、补卡、工时调整弹窗
 // ============================================================================
 const ShiftEditorModal = ({ isOpen, onClose, shiftData, onSave, availableStaff }: any) => {
@@ -2731,7 +2791,7 @@ const ManualLogModal = ({ isOpen, onClose, onSave, users }: any) => {
 // ============================================================================
 // 组件 5: 经理后台 (Manager Dashboard) - [100% 数据隔离与防错修复版]
 // ============================================================================
-const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStoreId: string, onExit: () => void }) => {
+function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStoreId: string, onExit: () => void }) {
     const { showNotification } = useNotification();
     const safeUsers = Array.isArray(data.users) ? data.users : [];
     const managerUser = safeUsers.find((u:User) => u && u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
@@ -3197,7 +3257,7 @@ const ManagerDashboard = ({ data, adminStoreId, onExit }: { data: any, adminStor
             {logPairToAdjust && <AdjustHoursModal isOpen={!!logPairToAdjust} onClose={() => setLogPairToAdjust(null)} inLog={logPairToAdjust.inLog} outLog={logPairToAdjust.outLog} onSave={handleSaveAdjustedHours} />}
         </div>
     );
-};
+}
 
 // ============================================================================
 
@@ -3793,8 +3853,9 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         if (view === 'repair' as any && activeFeatures.repair) {
             return (
                 <RepairReportView 
-                    lang={lang} recipes={recipes} myStoreId={myStoreId} currentUser={currentUser} 
-                    onCancel={() => setView('home')} 
+                    lang={lang} recipes={recipes} myStoreId={myStoreId} currentUser={currentUser}
+                    customDb={myStore?.repairDatabase} // 💡 这里把当前分店自定义的题库传进去
+                    onCancel={() => setView('home')}
                     onSubmit={(ticket: any) => {
                         // 💡 修复：加上 data. 前缀，确保系统能找到存储函数并避免崩溃
                         const currentRequests = data.repairRequests || [];
@@ -4046,7 +4107,8 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
     const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
     const [ownerSubView, setOwnerSubView] = useState<'stores' | 'presets' | 'history' | 'smart' | 'smart_history' | 'staff' | 'logs' | 'repair'>('presets');
-    
+    const [isEditingRepairDb, setIsEditingRepairDb] = useState(false);
+  
     // ==========================================
     // 🔐 分店管理模块密码锁
     // ==========================================
@@ -4268,53 +4330,75 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                 {ownerSubView === 'staff' && <StaffManagementView users={users} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={scopedLogs} currentUser={ownerUser} onUpdateLogs={(l:any) => Cloud.updateLogs(l)} />}
                 
-                {ownerSubView === 'repair' as any && (
+                {ownerSubView === 'repair' && (
                     <div className="p-4 space-y-3">
-                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Maintenance Tickets</h3></div>
-                        {scopedRepairs.length === 0 && <p className="text-dark-text-light text-center py-10">No pending tickets for this branch.</p>}
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-lg font-bold text-white">Maintenance Tickets</h3>
+                            {!isEditingRepairDb && (
+                                <button onClick={() => setIsEditingRepairDb(true)} className="bg-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">
+                                    <Icon name="Edit" size={14} className="inline mr-1"/> Config Categories
+                                </button>
+                            )}
+                        </div>
                         
-                        {/* 待处理工单 */}
-                        {scopedRepairs.filter((r:any) => r.status === 'pending').slice().reverse().map((ticket: any) => (
-                            <div key={ticket.id} className="bg-orange-500/10 p-4 rounded-xl border border-orange-500/30 mb-3 animate-fade-in">
-                                <div className="flex justify-between items-start mb-2">
-                                    <div>
-                                        <span className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded font-bold uppercase tracking-wider">{ticket.category}</span>
-                                        <h4 className="font-bold text-orange-400 mt-1">{ticket.item}</h4>
+                        {isEditingRepairDb ? (
+                            <RepairConfigEditor 
+                                store={safeStores.find((s:any)=>s.id===adminStoreId)} 
+                                onSave={async (newDb: any) => {
+                                    const newStores = safeStores.map((s:any) => s.id === adminStoreId ? { ...s, repairDatabase: newDb } : s);
+                                    data.setStores(newStores);
+                                    if (Cloud.updateStores) await Cloud.updateStores(newStores);
+                                    alert("✅ Database configuration saved for this branch!");
+                                    setIsEditingRepairDb(false);
+                                }} 
+                                onCancel={() => setIsEditingRepairDb(false)} 
+                            />
+                        ) : (
+                            <>
+                                {scopedRepairs.length === 0 && <p className="text-dark-text-light text-center py-10">No pending tickets for this branch.</p>}
+                                {/* 待处理工单 */}
+                                {scopedRepairs.filter((r:any) => r.status === 'pending').slice().reverse().map((ticket: any) => (
+                                    <div key={ticket.id} className="bg-orange-500/10 p-4 rounded-xl border border-orange-500/30 mb-3 animate-fade-in">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div>
+                                                <span className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded font-bold uppercase tracking-wider">{ticket.category}</span>
+                                                <h4 className="font-bold text-orange-400 mt-1">{ticket.item}</h4>
+                                            </div>
+                                            <span className="text-xs text-dark-text-light font-mono">{new Date(ticket.date).toLocaleString()}</span>
+                                        </div>
+                                        <div className="bg-dark-bg p-3 rounded-lg mt-2">
+                                            <ul className="list-disc pl-4 text-xs text-white space-y-1 mb-2">
+                                                {(ticket.issues || []).map((iss:string, i:number) => <li key={i}>{iss}</li>)}
+                                            </ul>
+                                            {ticket.notes && <p className="text-xs text-gray-400 border-t border-white/10 pt-2 font-mono">备注: {ticket.notes}</p>}
+                                        </div>
+                                        <div className="flex justify-between items-center mt-3 pt-3 border-t border-orange-500/20">
+                                            <span className="text-xs text-dark-text-light">By: <strong className="text-white">{ticket.submittedBy}</strong></span>
+                                            <button 
+                                                onClick={() => {
+                                                    if(!window.confirm("Mark this ticket as RESOLVED?")) return;
+                                                    const updated = data.repairRequests.map((r:any) => r.id === ticket.id ? {...r, status: 'resolved', resolvedAt: Date.now()} : r);
+                                                    data.setRepairRequests(updated);
+                                                    if (Cloud.updateRepairRequests) Cloud.updateRepairRequests(updated);
+                                                }} 
+                                                className="bg-orange-500 hover:bg-orange-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-md transition-all active:scale-95"
+                                            >
+                                                <Icon name="CheckCircle2" size={14} className="inline mr-1" /> Mark Resolved
+                                            </button>
+                                        </div>
                                     </div>
-                                    <span className="text-xs text-dark-text-light font-mono">{new Date(ticket.date).toLocaleString()}</span>
-                                </div>
-                                <div className="bg-dark-bg p-3 rounded-lg mt-2">
-                                    <ul className="list-disc pl-4 text-xs text-white space-y-1 mb-2">
-                                        {(ticket.issues || []).map((iss:string, i:number) => <li key={i}>{iss}</li>)}
-                                    </ul>
-                                    {ticket.notes && <p className="text-xs text-gray-400 border-t border-white/10 pt-2 font-mono">备注: {ticket.notes}</p>}
-                                </div>
-                                <div className="flex justify-between items-center mt-3 pt-3 border-t border-orange-500/20">
-                                    <span className="text-xs text-dark-text-light">By: <strong className="text-white">{ticket.submittedBy}</strong></span>
-                                    <button 
-                                        onClick={() => {
-                                            if(!window.confirm("Mark this ticket as RESOLVED?")) return;
-                                            const updated = data.repairRequests.map((r:any) => r.id === ticket.id ? {...r, status: 'resolved', resolvedAt: Date.now()} : r);
-                                            data.setRepairRequests(updated);
-                                            // 💡 推送到云端！
-                                            if (Cloud.updateRepairRequests) Cloud.updateRepairRequests(updated);
-                                        }} 
-                                        className="bg-orange-500 hover:bg-orange-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-md transition-all active:scale-95"
-                                    >
-                                        <Icon name="CheckCircle2" size={14} className="inline mr-1" /> Mark Resolved
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
+                                ))}
 
-                        {/* 已解决记录 */}
-                        <h4 className="text-sm font-bold text-gray-500 mt-8 mb-2 border-b border-white/10 pb-2">Resolved History</h4>
-                        {scopedRepairs.filter((r:any) => r.status === 'resolved').slice().reverse().map((ticket: any) => (
-                            <div key={ticket.id} className="bg-dark-surface p-3 rounded-xl border border-green-500/20 mb-2 opacity-70">
-                                <div className="flex justify-between items-center"><span className="text-sm font-bold text-gray-400 line-through">{ticket.item}</span><span className="text-[10px] text-green-500 font-bold"><Icon name="Check" size={12} className="inline"/> Resolved</span></div>
-                                <p className="text-[10px] text-dark-text-light mt-1">Reported: {new Date(ticket.date).toLocaleDateString()} | Fixed: {new Date(ticket.resolvedAt).toLocaleDateString()}</p>
-                            </div>
-                        ))}
+                                {/* 已解决记录 */}
+                                <h4 className="text-sm font-bold text-gray-500 mt-8 mb-2 border-b border-white/10 pb-2">Resolved History</h4>
+                                {scopedRepairs.filter((r:any) => r.status === 'resolved').slice().reverse().map((ticket: any) => (
+                                    <div key={ticket.id} className="bg-dark-surface p-3 rounded-xl border border-green-500/20 mb-2 opacity-70">
+                                        <div className="flex justify-between items-center"><span className="text-sm font-bold text-gray-400 line-through">{ticket.item}</span><span className="text-[10px] text-green-500 font-bold"><Icon name="Check" size={12} className="inline"/> Resolved</span></div>
+                                        <p className="text-[10px] text-dark-text-light mt-1">Reported: {new Date(ticket.date).toLocaleDateString()} | Fixed: {new Date(ticket.resolvedAt).toLocaleDateString()}</p>
+                                    </div>
+                                ))}
+                            </>
+                        )}
                     </div>
                 )}
             </div>
