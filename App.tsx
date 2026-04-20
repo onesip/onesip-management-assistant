@@ -2521,9 +2521,21 @@ const StoreManagementView = ({ data }: any) => {
     const [activeStoreId, setActiveStoreId] = useState<string>(safeStores[0]?.id || '');
     const activeStore = safeStores.find((s: any) => s && s.id === activeStoreId);
 
-    const handleSaveGlobalStores = () => {
+    const handleSaveGlobalStores = async () => {
+        // 1. 保留本地备份
         localStorage.setItem('onesip_stores_v1', JSON.stringify(safeStores));
-        alert(lang === 'zh' ? '✅ 分店设置已永久保存！' : '✅ Store configuration saved permanently!');
+        
+        // 2. 💡 新增：将分店数据推送到云端！
+        try {
+            // 假设您的全局云端对象叫 Cloud
+            if (Cloud.updateStores) {
+                await Cloud.updateStores(safeStores);
+            }
+            alert(lang === 'zh' ? '✅ 分店设置已永久保存并同步至云端！' : '✅ Store configuration saved and synced to cloud!');
+        } catch (error) {
+            console.error("Failed to sync stores to cloud:", error);
+            alert(lang === 'zh' ? '⚠️ 本地保存成功，但云端同步失败，请检查网络。' : '⚠️ Local save OK, but cloud sync failed.');
+        }
     };
 
     const handleAddStore = () => {
@@ -4393,7 +4405,10 @@ function App() {
                 if (data?.training) setTrainingLevels(data.training);
                 if (data?.recipes) setRecipes(data.recipes);
             }),
-            Cloud.subscribeToSmartInventoryReports(setSmartInventoryReports)
+            Cloud.subscribeToSmartInventoryReports(setSmartInventoryReports),
+            
+            // 💡 新增这行：实时监听云端的分店数据变化！
+            (Cloud.subscribeToStores ? Cloud.subscribeToStores(setStores) : () => {})
         ];
 
         setTimeout(() => setIsLoading(false), 800);
