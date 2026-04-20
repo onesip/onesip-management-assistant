@@ -782,6 +782,19 @@ export const INVENTORY_ITEMS: InventoryItem[] = [
             sat: { morning: 3, evening: 0 },
             sun: { morning: 3, evening: 0 }
         }
+    },
+    // ... 其他已有的物料 ...
+    {
+        id: 'item_matcha',
+        name: { zh: '抹茶粉', en: 'Matcha Powder' },
+        category: 'Powder',
+        unit: 'unit' // 或 g, pack，按您的习惯
+    },
+    {
+        id: 'item_hojicha',
+        name: { zh: '焙茶粉', en: 'Hojicha Powder' },
+        category: 'Powder',
+        unit: 'unit'
     }
 ];
 
