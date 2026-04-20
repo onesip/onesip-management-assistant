@@ -609,6 +609,25 @@ export const updateStores = async (storesArray: any[]) => {
 };
 
 // ============================================================================
+// 15. REPAIR REQUESTS (新增报修云端同步)
+// ============================================================================
+export const subscribeToRepairRequests = (callback: (data: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'repair_requests'), (doc: any) => {
+        if (doc.exists() && doc.data().list) {
+            callback(doc.data().list);
+        } else {
+            callback([]);
+        }
+    });
+};
+
+export const updateRepairRequests = async (requestsArray: any[]) => {
+    if (!db) return;
+    await setDoc(doc(db, 'data', 'repair_requests'), { list: requestsArray }, { merge: true });
+};
+
+// ============================================================================
 // 13. CLOUD OBJECT EXPORT (关键：让 App.tsx 能调用 Cloud.xxx)
 // ============================================================================
 export const Cloud = {
@@ -670,5 +689,12 @@ export const Cloud = {
 
     // 💡 新增：把刚才写的这两个方法交出去！注意上一行末尾要有逗号
     subscribeToStores,
-    updateStores
+    updateStores,
+
+    subscribeToStores,
+    updateStores,
+
+    // 💡 新增：暴露报修接口
+    subscribeToRepairRequests,
+    updateRepairRequests
 };
