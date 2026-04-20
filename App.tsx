@@ -1338,13 +1338,14 @@ const REPAIR_DATABASE = {
 };
 
 // ============================================================================
-// 新增组件: 员工端 - 报修提交页面 (中英双语支持)
+// 新增组件: 员工端 - 报修提交页面 (带智能搜索饮品功能)
 // ============================================================================
 function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes, lang, customDb }: any) {
     const [step, setStep] = useState(1);
     const [selectedCat, setSelectedCat] = useState('');
     const [selectedItemIdx, setSelectedItemIdx] = useState(-1);
     const [selectedProduct, setSelectedProduct] = useState('');
+    const [productSearch, setProductSearch] = useState(''); // 💡 新增：用于搜索饮品的状态
     const [issues, setIssues] = useState<any[]>([]);
     const [notes, setNotes] = useState('');
 
@@ -1363,8 +1364,13 @@ function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes,
         // 自动拼装双语，方便跨国店长查阅
         const itemNameZh = activeItemData.name.zh;
         const itemNameEn = activeItemData.name.en;
-        const finalItemNameZh = selectedCat === 'recipes' ? `${itemNameZh} - ${selectedProduct}` : itemNameZh;
-        const finalItemNameEn = selectedCat === 'recipes' ? `${itemNameEn} - ${selectedProduct}` : itemNameEn;
+        
+        // 如果是配方类，找到饮品的真实名称并附加上去
+        const drinkNameZh = recipes?.find((r:any) => (r.name.en || r.name.zh) === selectedProduct)?.name.zh || selectedProduct;
+        const drinkNameEn = recipes?.find((r:any) => (r.name.en || r.name.zh) === selectedProduct)?.name.en || selectedProduct;
+
+        const finalItemNameZh = selectedCat === 'recipes' ? `${itemNameZh} - ${drinkNameZh}` : itemNameZh;
+        const finalItemNameEn = selectedCat === 'recipes' ? `${itemNameEn} - ${drinkNameEn}` : itemNameEn;
 
         onSubmit({
             id: `repair_${Date.now()}`, 
@@ -1393,7 +1399,7 @@ function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes,
                 {step === 1 && (
                     <div className="space-y-3 animate-fade-in">
                         <h3 className="font-bold text-gray-500 text-sm mb-2">{lang === 'zh' ? '1. 选择大类' : '1. Select Category'}</h3>
-                        {Object.entries(dbToUse).map(([key, data]) => (
+                        {Object.entries(dbToUse).map(([key, data]: any) => (
                             <button key={key} onClick={() => { setSelectedCat(key); setStep(2); }} className="w-full bg-white p-4 rounded-xl border border-gray-100 shadow-sm text-left font-bold text-gray-800 active:scale-95 flex justify-between items-center">
                                 {data.title[lang]} <Icon name="ChevronRight" className="text-gray-400"/>
                             </button>
@@ -1417,13 +1423,64 @@ function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes,
                     <div className="space-y-4 animate-fade-in">
                          <div className="flex items-center gap-2 mb-2"><button onClick={() => setStep(2)} className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">← {lang === 'zh' ? '返回' : 'Back'}</button><span className="text-sm font-bold text-gray-500">{activeItemData?.name[lang]}</span></div>
                          
+                         {/* 💡 全新的智能饮品搜索选择器 */}
                          {selectedCat === 'recipes' && (
                              <div className="bg-white p-3 rounded-xl border border-orange-200">
-                                 <label className="text-xs font-bold text-orange-600 mb-2 block">{lang === 'zh' ? '具体产品' : 'Which Product?'}</label>
-                                 <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)} className="w-full bg-gray-50 border border-gray-200 p-2 rounded-lg text-sm outline-none focus:border-orange-400">
-                                     <option value="">-- {lang === 'zh' ? '请选择' : 'Please select'} --</option>
-                                     {(recipes || []).map((r:any) => <option key={r.id} value={r.name.en || r.name.zh}>{r.name[lang] || r.name.zh}</option>)}
-                                 </select>
+                                 <label className="text-xs font-bold text-orange-600 mb-2 block">{lang === 'zh' ? '具体产品 (搜索)' : 'Which Product?'}</label>
+                                 
+                                 {selectedProduct ? (
+                                     // 已选择状态
+                                     <div className="flex items-center justify-between bg-orange-50 border border-orange-200 p-3 rounded-lg shadow-sm">
+                                         <span className="text-sm font-bold text-orange-800">
+                                             {recipes?.find((r:any) => (r.name.en || r.name.zh) === selectedProduct)?.name[lang] || selectedProduct}
+                                         </span>
+                                         <button onClick={() => setSelectedProduct('')} className="bg-orange-200/50 p-1.5 rounded-md hover:bg-orange-200 text-orange-600 transition-colors">
+                                             <Icon name="X" size={14} />
+                                         </button>
+                                     </div>
+                                 ) : (
+                                     // 未选择，展示搜索和列表状态
+                                     <div className="space-y-2">
+                                         <div className="relative">
+                                             <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                                             <input 
+                                                 type="text" 
+                                                 placeholder={lang === 'zh' ? '输入饮品名称...' : 'Type to search...'}
+                                                 value={productSearch}
+                                                 onChange={e => setProductSearch(e.target.value)}
+                                                 className="w-full bg-gray-50 border border-gray-200 p-2.5 pl-9 rounded-lg text-sm outline-none focus:border-orange-400"
+                                             />
+                                         </div>
+                                         <div className="max-h-40 overflow-y-auto border border-gray-100 rounded-lg bg-gray-50 shadow-inner custom-scrollbar">
+                                             {(recipes || [])
+                                                 .filter((r:any) => {
+                                                     const q = productSearch.toLowerCase();
+                                                     const nZh = r.name?.zh?.toLowerCase() || '';
+                                                     const nEn = r.name?.en?.toLowerCase() || '';
+                                                     return nZh.includes(q) || nEn.includes(q);
+                                                 })
+                                                 .map((r:any) => (
+                                                     <button 
+                                                         key={r.id} 
+                                                         onClick={() => {
+                                                             setSelectedProduct(r.name.en || r.name.zh);
+                                                             setProductSearch('');
+                                                         }}
+                                                         className="w-full text-left p-3 text-sm border-b border-gray-100 last:border-0 hover:bg-orange-50 text-gray-700 font-medium active:bg-orange-100 transition-colors flex items-center justify-between"
+                                                     >
+                                                         {r.name[lang] || r.name.zh}
+                                                         <Icon name="ChevronRight" size={14} className="text-gray-300" />
+                                                     </button>
+                                             ))}
+                                             {(recipes || []).filter((r:any) => {
+                                                     const q = productSearch.toLowerCase();
+                                                     return (r.name?.zh?.toLowerCase() || '').includes(q) || (r.name?.en?.toLowerCase() || '').includes(q);
+                                                 }).length === 0 && (
+                                                 <p className="p-3 text-center text-xs text-gray-400">{lang === 'zh' ? '未找到相关饮品' : 'No drinks found'}</p>
+                                             )}
+                                         </div>
+                                     </div>
+                                 )}
                              </div>
                          )}
 
