@@ -3790,10 +3790,12 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     onSubmit={(ticket: any) => {
                         // 💡 修复：加上 data. 前缀，确保系统能找到存储函数并避免崩溃
                         const currentRequests = data.repairRequests || [];
-                        data.setRepairRequests([...currentRequests, ticket]);
-                        
+                        const updatedRequests = [...currentRequests, ticket];
+                        data.setRepairRequests(updatedRequests);
+                        // 💡 推送到云端！
+                        if (Cloud.updateRepairRequests) Cloud.updateRepairRequests(updatedRequests);
+
                         showNotification({ type: 'message', title: '✅ 提交成功', message: '工单已发送，店长和经理将收到提醒！' });
-                        setView('home'); 
                      }} 
                 />
             );
@@ -4286,6 +4288,8 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                                             if(!window.confirm("Mark this ticket as RESOLVED?")) return;
                                             const updated = data.repairRequests.map((r:any) => r.id === ticket.id ? {...r, status: 'resolved', resolvedAt: Date.now()} : r);
                                             data.setRepairRequests(updated);
+                                            // 💡 推送到云端！
+                                            if (Cloud.updateRepairRequests) Cloud.updateRepairRequests(updated);
                                         }} 
                                         className="bg-orange-500 hover:bg-orange-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-md transition-all active:scale-95"
                                     >
@@ -4408,7 +4412,9 @@ function App() {
             Cloud.subscribeToSmartInventoryReports(setSmartInventoryReports),
             
             // 💡 新增这行：实时监听云端的分店数据变化！
-            (Cloud.subscribeToStores ? Cloud.subscribeToStores(setStores) : () => {})
+            (Cloud.subscribeToStores ? Cloud.subscribeToStores(setStores) : () => {}),
+            // 💡 新增：全网实时监听报修单的变动！
+            (Cloud.subscribeToRepairRequests ? Cloud.subscribeToRepairRequests(setRepairRequests) : () => {})
         ];
 
         setTimeout(() => setIsLoading(false), 800);
