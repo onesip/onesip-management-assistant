@@ -1464,16 +1464,38 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
     const [searchQuery, setSearchQuery] = useState('');
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
-    // 💡 核心修复：把后台的 SOP 和 TRAINING 两个标签页的数据合并在一起显示！
     const safeSops = Array.isArray(sopList) ? sopList : [];
     const safeTraining = Array.isArray(trainingLevels) ? trainingLevels : [];
     const combinedData = [...safeSops, ...safeTraining];
 
-    // 安全获取标题 (兼容后台纯文本或双语对象格式)
+    // 💡 安全提取标题
     const getTitle = (item: any) => {
+        if (!item) return 'Untitled';
         if (typeof item.title === 'string') return item.title;
         if (typeof item.name === 'string') return item.name;
-        return item.title?.[lang] || item.title?.zh || item.name?.[lang] || item.name?.zh || 'Untitled';
+        if (item.title?.zh || item.title?.en) return item.title[lang] || item.title.zh || item.title.en;
+        if (item.name?.zh || item.name?.en) return item.name[lang] || item.name.zh || item.name.en;
+        return 'Untitled';
+    };
+
+    // 💡 核心修复：防崩溃内容提取器 (彻底解决 React Error #31)
+    const getSafeContent = (item: any) => {
+        if (!item) return 'No detailed description available.';
+        
+        // 1. 如果本身就是普通纯文本，直接返回
+        if (typeof item.content === 'string') return item.content;
+        
+        // 2. 如果是标准双语格式
+        if (item.content?.zh || item.content?.en) return item.content[lang] || item.content.zh || item.content.en;
+        
+        // 3. 针对 0413 编辑器特殊的 { body: "...", title: "..." } 格式
+        if (item.content?.body) return item.content.body;
+        if (item.body) return item.body;
+        
+        // 4. 终极兜底：如果碰到无法识别的奇怪对象，强行转成字符串，绝不让系统崩溃！
+        if (typeof item.content === 'object') return JSON.stringify(item.content);
+        
+        return 'No detailed description available.';
     };
 
     // 过滤搜索
@@ -1483,7 +1505,7 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
         return title.includes(query);
     });
 
-    // 全能 YouTube 解析器 (支持普通链接、分享链接、Shorts短视频)
+    // 全能 YouTube 解析器
     const renderVideo = (url: string) => {
         if (!url) return null;
         if (url.includes('youtube.com') || url.includes('youtu.be')) {
@@ -1543,7 +1565,8 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
                             {expandedId === itemId && (
                                 <div className="mt-4 pt-3 border-t border-gray-100 text-sm animate-fade-in" onClick={e => e.stopPropagation()}>
                                     <p className="text-gray-600 whitespace-pre-line leading-relaxed text-sm">
-                                        {item.content?.[lang] || item.content?.zh || item.content || 'No detailed description available.'}
+                                        {/* 💡 这里使用了防崩溃提取器 */}
+                                        {getSafeContent(item)}
                                     </p>
                                     {(item.videoUrl || item.mediaUrl) && renderVideo(item.videoUrl || item.mediaUrl)}
                                 </div>
@@ -1562,7 +1585,6 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
         </div>
     );
 }
-
 // ============================================================================
 // 组件: 内容编辑器 (Editor Dashboard) - 支持视频直链文案
 // ============================================================================
@@ -1956,70 +1978,151 @@ const OwnerInventoryLogsView = ({ logs, currentUser, onUpdateLogs }: { logs: any
 };
 
 // ============================================================================
-// 2. StaffManagementView (员工管理)
+// 组件: 全局员工管理 (Staff Management) - [新增门店动态分配与云同步]
 // ============================================================================
-const StaffManagementView = ({ users }: { users: any[] }) => {
-    const [isEditing, setIsEditing] = useState(false);
-    const [tempUser, setTempUser] = useState<any>({ id: '', name: '', role: 'staff', phone: '', password: '', active: true });
+function StaffManagementView({ data }: any) {
+    const { users, stores, setStores } = data;
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [formData, setFormData] = useState<any>({});
+    const [selectedStores, setSelectedStores] = useState<string[]>([]);
 
-    const handleEdit = (user: any) => {
-        setTempUser(user || { id: `u_${Date.now()}`, name: '', role: 'staff', phone: '', password: '', active: true });
-        setIsEditing(true);
+    // 打开编辑弹窗
+    const openModal = (user?: any) => {
+        if (user) {
+            setFormData({ ...user });
+            // 自动找出该员工目前被分配到了哪些门店
+            setSelectedStores(stores.filter((s:any) => s.staff?.includes(user.id)).map((s:any) => s.id));
+        } else {
+            // 新建员工
+            setFormData({ id: `u_${Date.now()}`, name: '', role: 'staff', pin: '', active: true });
+            setSelectedStores([]);
+        }
+        setIsModalOpen(true);
     };
 
+    // 保存并同步到云端
     const handleSave = async () => {
-        if (!tempUser.name) return alert("Name is required");
-        await Cloud.saveUser(tempUser);
-        setIsEditing(false);
-        alert("Staff saved!");
+        if (!formData.name) return alert("Please enter a name.");
+        if (!formData.id) return alert("Login ID / PIN is required.");
+        
+        // 1. 保存员工信息到云端
+        try {
+            // @ts-ignore
+            if (typeof Cloud !== 'undefined' && Cloud.saveUser) await Cloud.saveUser(formData);
+        } catch (e) { console.error("Error saving user:", e); }
+
+        // 2. 动态更新门店的 Staff 列表
+        const newStores = stores.map((s:any) => {
+            const currentStaff = s.staff || [];
+            const shouldHave = selectedStores.includes(s.id);
+            const hasUser = currentStaff.includes(formData.id);
+            
+            if (shouldHave && !hasUser) return { ...s, staff: [...currentStaff, formData.id] };
+            if (!shouldHave && hasUser) return { ...s, staff: currentStaff.filter((id:string) => id !== formData.id) };
+            return s;
+        });
+        
+        // 更新本地状态并推送到云端
+        setStores(newStores);
+        // @ts-ignore
+        if (typeof Cloud !== 'undefined' && Cloud.updateStores) await Cloud.updateStores(newStores);
+        
+        setIsModalOpen(false);
+    };
+
+    // 勾选/取消勾选门店
+    const toggleStore = (storeId: string) => {
+        setSelectedStores(prev => prev.includes(storeId) ? prev.filter(id => id !== storeId) : [...prev, storeId]);
     };
 
     return (
-        <div className="p-4 space-y-4 text-dark-text">
+        <div className="p-4 space-y-4 animate-fade-in">
             <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold">Staff Management</h3>
-                <button onClick={() => handleEdit(null)} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90">
-                    <Icon name="Plus" size={16} /> Add Staff
-                </button>
+                <h3 className="text-lg font-bold text-white">Global Staff List</h3>
+                <button onClick={() => openModal()} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold shadow-lg hover:opacity-90 transition-all">+ Add New Staff</button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {users.map((u: any) => (
+                    <div key={u.id} className={`bg-dark-surface p-4 rounded-xl border ${u.active===false ? 'border-red-500/30 opacity-60' : 'border-white/10'} shadow-sm relative overflow-hidden`}>
+                        {u.active === false && <div className="absolute top-0 right-0 bg-red-500/20 text-red-400 text-[9px] px-2 py-0.5 font-bold rounded-bl-lg">INACTIVE</div>}
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <h4 className="font-bold text-white text-base flex items-center gap-2">{u.name}</h4>
+                                <span className="text-[10px] bg-white/10 text-dark-text-light px-2 py-0.5 rounded uppercase mt-1 inline-block font-bold">{u.role}</span>
+                            </div>
+                            <button onClick={() => openModal(u)} className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500/20 transition-colors"><Icon name="Edit" size={14}/></button>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-white/5">
+                            <p className="text-[10px] text-dark-text-light mb-1 font-bold uppercase">Assigned Branches:</p>
+                            <div className="flex flex-wrap gap-1">
+                                {stores.filter((s:any) => s.staff?.includes(u.id)).map((s:any) => (
+                                    <span key={s.id} className="text-[10px] bg-dark-bg text-gray-300 border border-white/10 px-1.5 py-0.5 rounded font-bold">{s.name}</span>
+                                ))}
+                                {stores.filter((s:any) => s.staff?.includes(u.id)).length === 0 && <span className="text-[9px] text-red-400 italic">No branch assigned</span>}
+                            </div>
+                        </div>
+                    </div>
+                ))}
             </div>
 
-            {isEditing && (
-                <div className="bg-dark-surface p-4 rounded-xl border border-white/10 space-y-3 mb-4">
-                    <h4 className="font-bold text-white">Edit Staff</h4>
-                    <input className="w-full p-2 rounded bg-dark-bg border border-white/20 text-white" placeholder="Name" value={tempUser.name} onChange={e => setTempUser({...tempUser, name: e.target.value})} />
-                    <input className="w-full p-2 rounded bg-dark-bg border border-white/20 text-white" placeholder="Phone" value={tempUser.phone} onChange={e => setTempUser({...tempUser, phone: e.target.value})} />
-                    <input className="w-full p-2 rounded bg-dark-bg border border-white/20 text-white" placeholder="Password (4 digits)" maxLength={4} value={tempUser.password} onChange={e => setTempUser({...tempUser, password: e.target.value})} />
-                    <select className="w-full p-2 rounded bg-dark-bg border border-white/20 text-white" value={tempUser.role} onChange={e => setTempUser({...tempUser, role: e.target.value})}>
-                        <option value="staff">Staff</option><option value="manager">Manager</option><option value="boss">Boss</option>
-                    </select>
-                    <div className="flex gap-2">
-                        <button onClick={() => setIsEditing(false)} className="flex-1 bg-white/10 text-white p-2 rounded">Cancel</button>
-                        <button onClick={handleSave} className="flex-1 bg-green-600 text-white p-2 rounded">Save</button>
+            {isModalOpen && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 animate-fade-in">
+                    <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
+                        <h3 className="text-lg font-bold text-white mb-4">{formData.id?.startsWith('u_') && !formData.name ? 'Add New Staff' : 'Edit Staff Profile'}</h3>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Full Name</label>
+                                <input value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none focus:border-dark-accent" placeholder="e.g. John Doe" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Login ID / PIN</label>
+                                    <input value={formData.id} onChange={e=>setFormData({...formData, id: e.target.value})} disabled={formData.id === 'u_owner' || formData.id === 'u_lambert'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50 font-mono" placeholder="PIN code" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Role</label>
+                                    <select value={formData.role} onChange={e=>setFormData({...formData, role: e.target.value})} disabled={formData.role === 'boss'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50">
+                                        <option value="staff">Staff</option>
+                                        <option value="manager">Manager</option>
+                                        <option value="boss">Boss</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            {/* 💡 动态门店分配区域 */}
+                            <div className="bg-dark-bg p-4 rounded-xl border border-white/5 shadow-inner">
+                                <label className="text-xs font-black text-dark-accent uppercase mb-3 flex items-center gap-2">
+                                    <Icon name="Store" size={14}/> Branch Assignment
+                                </label>
+                                <div className="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                                    {stores.map((store: any) => (
+                                        <label key={store.id} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${selectedStores.includes(store.id) ? 'bg-dark-accent/10 border-dark-accent/50 text-white shadow-sm' : 'bg-dark-surface border-white/5 text-gray-400 hover:border-white/20'}`}>
+                                            <span className="text-sm font-bold truncate pr-2">{store.name}</span>
+                                            <input type="checkbox" checked={selectedStores.includes(store.id)} onChange={() => toggleStore(store.id)} className="w-4 h-4 accent-dark-accent shrink-0" />
+                                        </label>
+                                    ))}
+                                    {stores.length === 0 && <p className="text-xs text-gray-500 italic">No branches available.</p>}
+                                </div>
+                            </div>
+
+                            <label className="flex items-center gap-2 p-3 bg-red-500/5 rounded-lg border border-red-500/10 cursor-pointer hover:bg-red-500/10 transition-colors mt-2">
+                                <input type="checkbox" checked={formData.active !== false} onChange={e=>setFormData({...formData, active: e.target.checked})} className="w-4 h-4 accent-red-500" />
+                                <span className="text-sm font-bold text-red-400">Account Active (Can Login)</span>
+                            </label>
+                        </div>
+
+                        <div className="flex gap-3 mt-6">
+                            <button onClick={() => setIsModalOpen(false)} className="flex-1 py-3 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-all">Cancel</button>
+                            <button onClick={handleSave} className="flex-1 py-3 bg-dark-accent text-dark-bg rounded-xl font-black shadow-lg hover:opacity-90 transition-all active:scale-95">Save Profile</button>
+                        </div>
                     </div>
                 </div>
             )}
-
-            <div className="bg-dark-surface rounded-xl border border-white/10 overflow-hidden">
-                <table className="w-full text-xs">
-                    <thead className="bg-dark-bg text-dark-text-light uppercase">
-                        <tr><th className="p-3 text-left">Name</th><th className="p-3 text-left">Role</th><th className="p-3 text-center">Action</th></tr>
-                    </thead>
-                    <tbody>
-                        {users.filter(u => u.active !== false).map(user => (
-                            <tr key={user.id} className="border-t border-white/10">
-                                <td className="p-3 font-bold">{user.name}</td>
-                                <td className="p-3 capitalize">{user.role}</td>
-                                <td className="p-3 text-center">
-                                    <button onClick={() => handleEdit(user)} className="text-blue-400 hover:underline">Edit</button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
         </div>
     );
-};
+}
 
 // ============================================================================
 // 组件 1: Prep Inventory (前台补料 & 后台管理 - 自带一键恢复数据功能)
@@ -4462,7 +4565,7 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                     </div>
                 )}
                 
-                {ownerSubView === 'staff' && <StaffManagementView users={users} />}
+                {ownerSubView === 'staff' && <StaffManagementView data={data} />}
                 {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={scopedLogs} currentUser={ownerUser} onUpdateLogs={(l:any) => Cloud.updateLogs(l)} />}
                 
                 {ownerSubView === 'repair' && (
