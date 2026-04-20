@@ -1294,99 +1294,107 @@ const ChatView = ({ t, currentUser, messages, setMessages, notices, onExit, isMa
 // --- DASHBOARDS ---
 
 // ============================================================================
-// 数据库: 门店报修/异常题库 (可在此处修改增删选项)
+// 数据库: 门店报修/异常题库 (纯正中英双语全面版)
 // ============================================================================
 const REPAIR_DATABASE = {
     machines: {
-        title: '机器类 (Machines)',
-        items: {
-            '奶茶机 (Milk Tea Machine)': ['清洗吸水不好', '漏水：茶桶区1-5', '漏水：中间区6-12', '漏水：下层13-18', '接口接不上/漏液(需备注管路)', '扫码不读码', '部件缺失/损坏', '校准后出料仍不准(需备注管路)', '蚂蚁', '不出料(需备注管路)', '其他'],
-            '泡茶机 (Tea Brewer)': ['部件缺失', '部件损坏', '其他'],
-            '制冰机 (Ice Maker)': ['有积水', '出现 Error', '冰块形状变小', '其他'],
-            '封口机 (Sealer)': ['Error 4 不感应', '封口封不上(纸杯/塑料杯)', '封口切口不齐', '封口膜容易断裂', '其他'],
-            '咖啡机 (Coffee Machine)': ['加热盘不够温度', '沥水盘不感应', '蚂蚁', '其他'],
-            '显示屏 (Displays)': ['左1 无法打开', '左2 无法打开', '左3 无法打开', '左4 无法打开', '其他'],
-            '打印/标签机 (Printers)': ['无法连接', '不打印', '重复打印', '其他'],
-            'Pad/效期机 (Tablets)': ['不连接 Orderpin', '不连接效期系统', '不连接蓝牙', '不能播放音乐', '打不开管理App', '其他'],
-            '水池/冰槽 (Sinks/Ice Sinks)': ['左边不下水', '右边不下水', '水池破损', '下方漏水', '冰槽气味难闻', '有蚂蚁', '其他'],
-            '其他设备 (Other Equipment)': ['蒸汽机达不到压力', '叫号器无声/打不开', '沙冰壶漏水/破损', '洗碗机洗不干净/有积水/断电', '开水机达不到温度/断电', 'Kiosk 不能支付/死机(需检查纸/网/电)']
-        }
+        title: { zh: '机器类', en: 'Machines' },
+        items: [
+            { name: { zh: '奶茶机', en: 'Milk Tea Machine' }, issues: [{zh:'清洗吸水不好', en:'Poor suction during cleaning'}, {zh:'漏水：茶桶区1-5', en:'Leaking: Tea bucket area 1-5'}, {zh:'漏水：中间区6-12', en:'Leaking: Middle area 6-12'}, {zh:'漏水：下层13-18', en:'Leaking: Bottom area 13-18'}, {zh:'接口接不上/漏液(需备注管路)', en:'Connector issue/Leaking (Add note)'}, {zh:'扫码不读码', en:'Scanner not reading'}, {zh:'部件缺失/损坏', en:'Missing/Broken parts'}, {zh:'校准后出料仍不准(需备注管路)', en:'Dispensing inaccurate after calibration (Add note)'}, {zh:'蚂蚁', en:'Ants'}, {zh:'不出料(需备注管路)', en:'Not dispensing (Add note)'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: '泡茶机', en: 'Tea Brewer' }, issues: [{zh:'部件缺失', en:'Missing parts'}, {zh:'部件损坏', en:'Broken parts'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: '制冰机', en: 'Ice Maker' }, issues: [{zh:'有积水', en:'Water pooling'}, {zh:'出现 Error', en:'Error code on screen'}, {zh:'冰块形状变小', en:'Ice cubes too small'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: '蒸汽机', en: 'Steamer' }, issues: [{zh:'达不到压力', en:'Not reaching pressure'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: '封口机', en: 'Sealer' }, issues: [{zh:'Error 4 不感应', en:'Error 4 / Sensor issue'}, {zh:'封口封不上(纸杯/塑料杯)', en:'Not sealing properly'}, {zh:'封口切口不齐', en:'Uneven cutting'}, {zh:'封口膜容易断裂', en:'Film tears easily'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: '咖啡机', en: 'Coffee Machine' }, issues: [{zh:'加热盘不够温度', en:'Heating plate not hot enough'}, {zh:'沥水盘不感应', en:'Drip tray sensor issue'}, {zh:'蚂蚁', en:'Ants'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: '叫号器', en: 'Pager' }, issues: [{zh:'无声', en:'No sound'}, {zh:'无法打开', en:'Won\'t turn on'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: '显示屏', en: 'Displays' }, issues: [{zh:'左1 无法打开', en:'Display L1 won\'t turn on'}, {zh:'左2 无法打开', en:'Display L2 won\'t turn on'}, {zh:'左3 无法打开', en:'Display L3 won\'t turn on'}, {zh:'左4 无法打开', en:'Display L4 won\'t turn on'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: '打印机/标签机', en: 'Printers' }, issues: [{zh:'无法连接', en:'Won\'t connect'}, {zh:'不打印', en:'Not printing'}, {zh:'重复打印', en:'Printing duplicates'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: 'Pad/效期机', en: 'Tablets' }, issues: [{zh:'不连接 Orderpin', en:'Not connecting to Orderpin'}, {zh:'不连接效期系统', en:'Not connecting to Expiry system'}, {zh:'不连接蓝牙', en:'Bluetooth issue'}, {zh:'不能播放音乐', en:'Music not playing'}, {zh:'打不开管理App', en:'App won\'t open'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: '水池/冰槽', en: 'Sinks/Ice Bins' }, issues: [{zh:'左边不下水', en:'Left sink not draining'}, {zh:'右边不下水', en:'Right sink not draining'}, {zh:'水池破损', en:'Sink damaged'}, {zh:'下方漏水', en:'Leaking underneath'}, {zh:'冰槽气味难闻', en:'Bad smell in ice bin'}, {zh:'有蚂蚁', en:'Ants'}, {zh:'其他', en:'Other'}] },
+            { name: { zh: '其他设备', en: 'Other Equipments' }, issues: [{zh:'沙冰壶漏水/破损', en:'Blender pitcher leaking/broken'}, {zh:'洗碗机洗不干净/有积水/断电', en:'Dishwasher issue'}, {zh:'开水机达不到温度/断电', en:'Water boiler issue'}, {zh:'Kiosk 不能支付/死机', en:'Kiosk payment failed/frozen'}] }
+        ]
     },
     recipes: {
-        title: '配方/出品类 (Recipes)',
-        items: {
-            '饮品问题 (Drink Issues)': ['不能直接扫码', '出品奇怪', '颜色不对', '量太多', '量太少', '冰度异常', '糖度异常'] // 具体产品在UI中由员工下拉选择
-        }
+        title: { zh: '配方/出品类', en: 'Recipes & Drinks' },
+        items: [
+            { name: { zh: '饮品问题', en: 'Drink Issues' }, issues: [{zh:'不能直接扫码', en:'Cannot scan code'}, {zh:'出品奇怪', en:'Looks weird'}, {zh:'颜色不对', en:'Wrong color'}, {zh:'量太多', en:'Too much quantity'}, {zh:'量太少', en:'Too little quantity'}, {zh:'冰度异常', en:'Ice level abnormal'}, {zh:'糖度异常', en:'Sugar level abnormal'}] }
+        ]
     },
     facility: {
-        title: '门店设施类 (Facility)',
-        items: {
-            '门窗/桌椅 (Doors/Furniture)': ['前窗户损坏', '后窗户损坏', '门/门锁损坏', '桌椅损坏'],
-            '水电/照明 (Electrical/Lighting)': ['插头没电', '蓝牙连不上', '紫外灯坏了', '照明灯坏了(需备注位置)'],
-            '空间环境 (Spaces)': ['地板破损', '厕所(马桶/水池/门)', '储物间(架子/冰箱/雪柜)', '厨房(微波炉/烤箱/柜子/桌椅)']
-        }
+        title: { zh: '门店设施类', en: 'Facility' },
+        items: [
+            { name: { zh: '门窗/桌椅', en: 'Doors/Windows/Furniture' }, issues: [{zh:'前窗户损坏', en:'Front window damaged'}, {zh:'后窗户损坏', en:'Back window damaged'}, {zh:'门/门锁损坏', en:'Door/Lock damaged'}, {zh:'桌椅损坏', en:'Furniture damaged'}] },
+            { name: { zh: '水电/照明', en: 'Electrical/Lighting' }, issues: [{zh:'插头没电', en:'Outlet no power'}, {zh:'蓝牙连不上', en:'Bluetooth won\'t connect'}, {zh:'紫外灯坏了', en:'UV light broken'}, {zh:'照明灯坏了(需备注位置)', en:'Light broken (Note location)'}] },
+            { name: { zh: '空间环境', en: 'Spaces/Rooms' }, issues: [{zh:'地板破损', en:'Floor damaged'}, {zh:'厕所(马桶/水池/门)', en:'Restroom issue'}, {zh:'储物间(架子/冰箱/雪柜)', en:'Storage room issue'}, {zh:'厨房(微波炉/烤箱/柜子/桌椅)', en:'Kitchen issue'}] }
+        ]
     },
     others: {
-        title: '其他状况 (Others)',
-        items: {
-            '突发状况 (Incidents)': ['物件找不到', '物件破碎', '发现老鼠', '发现大面积污渍(地面/机器下/黏脚)', '发现蚂蚁'],
-            '物料短缺 (Shortages)': ['原料不足(已检查楼下库存)', '茶桶不足', '盒子不足']
-        }
+        title: { zh: '其他状况', en: 'Others' },
+        items: [
+            { name: { zh: '突发状况', en: 'Incidents' }, issues: [{zh:'物件找不到', en:'Item missing'}, {zh:'物件破碎', en:'Item shattered'}, {zh:'发现老鼠', en:'Found mouse/rat'}, {zh:'发现大面积污渍', en:'Large stain/Sticky floor'}, {zh:'发现蚂蚁', en:'Found ants'}] },
+            { name: { zh: '物料短缺', en: 'Shortages' }, issues: [{zh:'原料不足(已检查库存)', en:'Ingredients short (Checked stock)'}, {zh:'茶桶不足', en:'Tea buckets short'}, {zh:'盒子不足', en:'Containers short'}] }
+        ]
     }
 };
 
 // ============================================================================
-// 新增组件: 员工端 - 报修提交页面 (Repair Submit View)
+// 新增组件: 员工端 - 报修提交页面 (中英双语支持)
 // ============================================================================
-const RepairReportView = ({ onCancel, onSubmit, currentUser, myStoreId, recipes, lang }: any) => {
+function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes, lang }: any) {
     const [step, setStep] = useState(1);
     const [selectedCat, setSelectedCat] = useState('');
-    const [selectedItem, setSelectedItem] = useState('');
-    const [selectedProduct, setSelectedProduct] = useState(''); // 仅配方类用到
-    const [issues, setIssues] = useState<string[]>([]);
+    const [selectedItemIdx, setSelectedItemIdx] = useState(-1);
+    const [selectedProduct, setSelectedProduct] = useState('');
+    const [issues, setIssues] = useState<any[]>([]);
     const [notes, setNotes] = useState('');
 
     const activeCatData = selectedCat ? (REPAIR_DATABASE as any)[selectedCat] : null;
-    const itemOptions = activeCatData?.items[selectedItem] || [];
+    const activeItemData = activeCatData && selectedItemIdx >= 0 ? activeCatData.items[selectedItemIdx] : null;
+    const itemOptions = activeItemData?.issues || [];
 
-    const handleIssueToggle = (issue: string) => {
-        setIssues(prev => prev.includes(issue) ? prev.filter(i => i !== issue) : [...prev, issue]);
+    const handleIssueToggle = (issue: any) => { 
+        setIssues(prev => prev.some(i => i.en === issue.en) ? prev.filter(i => i.en !== issue.en) : [...prev, issue]); 
     };
 
     const handleSubmit = () => {
-        if (issues.length === 0 && !notes) return alert("请至少勾选一个问题或填写备注。");
-        const finalItemName = selectedCat === 'recipes' ? `${selectedItem} - ${selectedProduct}` : selectedItem;
+        if (issues.length === 0 && !notes) return alert(lang === 'zh' ? "请至少勾选一个问题或填写备注。" : "Please select at least one issue or add a note.");
         
+        // 自动拼装双语，方便跨国店长查阅
+        const itemNameZh = activeItemData.name.zh;
+        const itemNameEn = activeItemData.name.en;
+        const finalItemNameZh = selectedCat === 'recipes' ? `${itemNameZh} - ${selectedProduct}` : itemNameZh;
+        const finalItemNameEn = selectedCat === 'recipes' ? `${itemNameEn} - ${selectedProduct}` : itemNameEn;
+
         onSubmit({
-            id: `repair_${Date.now()}`,
-            storeId: myStoreId,
-            date: new Date().toISOString(),
-            submittedBy: currentUser.name,
+            id: `repair_${Date.now()}`, 
+            storeId: myStoreId, 
+            date: new Date().toISOString(), 
+            submittedBy: currentUser.name, 
             userId: currentUser.id,
-            category: activeCatData.title,
-            item: finalItemName,
-            issues: issues,
-            notes: notes,
-            status: 'pending' // pending = 待处理, resolved = 已解决
+            category: `${activeCatData.title.en} | ${activeCatData.title.zh}`, 
+            item: `${finalItemNameEn} | ${finalItemNameZh}`, 
+            issues: issues.map(i => `${i.en} | ${i.zh}`), 
+            notes: notes, 
+            status: 'pending'
         });
-        alert("✅ 报修工单已提交！店长将收到通知。");
-        onCancel();
     };
 
     return (
         <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3">
                 <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
-                <h2 className="text-xl font-black text-orange-500 flex items-center gap-2"><Icon name="AlertTriangle" size={20} /> Submit Ticket</h2>
+                <h2 className="text-xl font-black text-orange-500 flex items-center gap-2">
+                    <Icon name="AlertTriangle" size={20} /> {lang === 'zh' ? '提报异常工单' : 'Submit Ticket'}
+                </h2>
             </div>
             
             <div className="p-4 space-y-4 overflow-y-auto flex-1">
                 {step === 1 && (
                     <div className="space-y-3 animate-fade-in">
-                        <h3 className="font-bold text-gray-500 text-sm mb-2">1. Select Category (选择大类)</h3>
+                        <h3 className="font-bold text-gray-500 text-sm mb-2">{lang === 'zh' ? '1. 选择大类' : '1. Select Category'}</h3>
                         {Object.entries(REPAIR_DATABASE).map(([key, data]) => (
                             <button key={key} onClick={() => { setSelectedCat(key); setStep(2); }} className="w-full bg-white p-4 rounded-xl border border-gray-100 shadow-sm text-left font-bold text-gray-800 active:scale-95 flex justify-between items-center">
-                                {data.title} <Icon name="ChevronRight" className="text-gray-400"/>
+                                {data.title[lang]} <Icon name="ChevronRight" className="text-gray-400"/>
                             </button>
                         ))}
                     </div>
@@ -1394,11 +1402,11 @@ const RepairReportView = ({ onCancel, onSubmit, currentUser, myStoreId, recipes,
 
                 {step === 2 && (
                     <div className="space-y-3 animate-fade-in">
-                        <div className="flex items-center gap-2 mb-4"><button onClick={() => setStep(1)} className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">← Back</button><span className="text-sm font-bold text-gray-500">{activeCatData?.title}</span></div>
-                        <h3 className="font-bold text-gray-500 text-sm mb-2">2. Select Item (选择具体项目)</h3>
-                        {Object.keys(activeCatData?.items || {}).map(item => (
-                            <button key={item} onClick={() => { setSelectedItem(item); setStep(3); }} className="w-full bg-white p-4 rounded-xl border border-gray-100 shadow-sm text-left font-bold text-gray-800 active:scale-95 flex justify-between items-center">
-                                {item} <Icon name="ChevronRight" className="text-gray-400"/>
+                        <div className="flex items-center gap-2 mb-4"><button onClick={() => setStep(1)} className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">← {lang === 'zh' ? '返回' : 'Back'}</button><span className="text-sm font-bold text-gray-500">{activeCatData?.title[lang]}</span></div>
+                        <h3 className="font-bold text-gray-500 text-sm mb-2">{lang === 'zh' ? '2. 选择具体项目' : '2. Select Item'}</h3>
+                        {activeCatData?.items.map((item:any, idx:number) => (
+                            <button key={idx} onClick={() => { setSelectedItemIdx(idx); setStep(3); }} className="w-full bg-white p-4 rounded-xl border border-gray-100 shadow-sm text-left font-bold text-gray-800 active:scale-95 flex justify-between items-center">
+                                {item.name[lang]} <Icon name="ChevronRight" className="text-gray-400"/>
                             </button>
                         ))}
                     </div>
@@ -1406,27 +1414,27 @@ const RepairReportView = ({ onCancel, onSubmit, currentUser, myStoreId, recipes,
 
                 {step === 3 && (
                     <div className="space-y-4 animate-fade-in">
-                         <div className="flex items-center gap-2 mb-2"><button onClick={() => setStep(2)} className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">← Back</button><span className="text-sm font-bold text-gray-500">{selectedItem}</span></div>
+                         <div className="flex items-center gap-2 mb-2"><button onClick={() => setStep(2)} className="text-xs font-bold text-orange-500 bg-orange-50 px-2 py-1 rounded">← {lang === 'zh' ? '返回' : 'Back'}</button><span className="text-sm font-bold text-gray-500">{activeItemData?.name[lang]}</span></div>
                          
                          {selectedCat === 'recipes' && (
                              <div className="bg-white p-3 rounded-xl border border-orange-200">
-                                 <label className="text-xs font-bold text-orange-600 mb-2 block">Which Product? (具体产品)</label>
+                                 <label className="text-xs font-bold text-orange-600 mb-2 block">{lang === 'zh' ? '具体产品' : 'Which Product?'}</label>
                                  <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)} className="w-full bg-gray-50 border border-gray-200 p-2 rounded-lg text-sm outline-none focus:border-orange-400">
-                                     <option value="">-- Please select --</option>
-                                     {(recipes || []).map((r:any) => <option key={r.id} value={r.name.zh}>{r.name[lang] || r.name.zh}</option>)}
+                                     <option value="">-- {lang === 'zh' ? '请选择' : 'Please select'} --</option>
+                                     {(recipes || []).map((r:any) => <option key={r.id} value={r.name.en || r.name.zh}>{r.name[lang] || r.name.zh}</option>)}
                                  </select>
                              </div>
                          )}
 
                         <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-                            <h3 className="font-bold text-gray-800 text-sm mb-3">3. What's wrong? (勾选问题)</h3>
+                            <h3 className="font-bold text-gray-800 text-sm mb-3">{lang === 'zh' ? '3. 勾选具体问题' : '3. What\'s wrong?'}</h3>
                             <div className="space-y-2">
-                                {itemOptions.map((issue: string) => {
-                                    const isChecked = issues.includes(issue);
+                                {itemOptions.map((issue: any, idx: number) => {
+                                    const isChecked = issues.some(i => i.en === issue.en);
                                     return (
-                                        <label key={issue} className={`flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer ${isChecked ? 'bg-orange-50 border-orange-300' : 'bg-gray-50 border-transparent hover:bg-gray-100'}`}>
+                                        <label key={idx} className={`flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer ${isChecked ? 'bg-orange-50 border-orange-300' : 'bg-gray-50 border-transparent hover:bg-gray-100'}`}>
                                             <input type="checkbox" checked={isChecked} onChange={() => handleIssueToggle(issue)} className="mt-1 w-4 h-4 text-orange-500 rounded focus:ring-orange-500" />
-                                            <span className={`text-sm ${isChecked ? 'text-orange-900 font-bold' : 'text-gray-700'}`}>{issue}</span>
+                                            <span className={`text-sm ${isChecked ? 'text-orange-900 font-bold' : 'text-gray-700'}`}>{issue[lang]}</span>
                                         </label>
                                     );
                                 })}
@@ -1434,19 +1442,19 @@ const RepairReportView = ({ onCancel, onSubmit, currentUser, myStoreId, recipes,
                         </div>
 
                         <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-                            <h3 className="font-bold text-gray-800 text-sm mb-2">Remarks (备注详情)</h3>
-                            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="管路编号、损坏程度、或其它补充说明..." className="w-full bg-gray-50 border border-gray-200 p-3 rounded-lg text-sm outline-none focus:border-orange-400 min-h-[80px] resize-none" />
+                            <h3 className="font-bold text-gray-800 text-sm mb-2">{lang === 'zh' ? '补充备注' : 'Remarks (Optional)'}</h3>
+                            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder={lang === 'zh' ? '管路编号、损坏程度、或其它说明...' : 'Tube number, damage details, or other notes...'} className="w-full bg-gray-50 border border-gray-200 p-3 rounded-lg text-sm outline-none focus:border-orange-400 min-h-[80px] resize-none" />
                         </div>
 
                         <button onClick={handleSubmit} disabled={selectedCat === 'recipes' && !selectedProduct} className="w-full bg-orange-500 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
-                            <Icon name="Send" size={20} /> Submit Ticket
+                            <Icon name="Send" size={20} /> {lang === 'zh' ? '提交工单' : 'Submit Ticket'}
                         </button>
                     </div>
                 )}
             </div>
         </div>
     );
-};
+}
 
 // ============================================================================
 // 组件: 内容编辑器 (Editor Dashboard) - 支持视频直链文案
