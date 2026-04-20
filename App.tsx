@@ -1458,7 +1458,7 @@ function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes,
 }
 
 // ============================================================================
-// 新增组件: 员工端 - SOP与培训模块 (Training View) [支持双语 & YouTube Shorts]
+// 新增组件: 员工端 - SOP与培训模块 (Training View) [适配 0413 高级编辑器]
 // ============================================================================
 function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
     const [searchQuery, setSearchQuery] = useState('');
@@ -1468,7 +1468,7 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
     const safeTraining = Array.isArray(trainingLevels) ? trainingLevels : [];
     const combinedData = [...safeSops, ...safeTraining];
 
-    // 💡 安全提取标题
+    // 💡 提取标题
     const getTitle = (item: any) => {
         if (!item) return 'Untitled';
         if (typeof item.title === 'string') return item.title;
@@ -1478,34 +1478,7 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
         return 'Untitled';
     };
 
-    // 💡 核心修复：防崩溃内容提取器 (彻底解决 React Error #31)
-    const getSafeContent = (item: any) => {
-        if (!item) return 'No detailed description available.';
-        
-        // 1. 如果本身就是普通纯文本，直接返回
-        if (typeof item.content === 'string') return item.content;
-        
-        // 2. 如果是标准双语格式
-        if (item.content?.zh || item.content?.en) return item.content[lang] || item.content.zh || item.content.en;
-        
-        // 3. 针对 0413 编辑器特殊的 { body: "...", title: "..." } 格式
-        if (item.content?.body) return item.content.body;
-        if (item.body) return item.body;
-        
-        // 4. 终极兜底：如果碰到无法识别的奇怪对象，强行转成字符串，绝不让系统崩溃！
-        if (typeof item.content === 'object') return JSON.stringify(item.content);
-        
-        return 'No detailed description available.';
-    };
-
-    // 过滤搜索
-    const filteredItems = combinedData.filter((item: any) => {
-        const title = getTitle(item).toLowerCase();
-        const query = searchQuery.toLowerCase();
-        return title.includes(query);
-    });
-
-    // 全能 YouTube 解析器
+    // 💡 全能 YouTube 解析器 (自动适配链接里的参数)
     const renderVideo = (url: string) => {
         if (!url) return null;
         if (url.includes('youtube.com') || url.includes('youtu.be')) {
@@ -1514,15 +1487,73 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
             const yId = (match && match[2].length === 11) ? match[2] : null;
             return yId ? (
                 <iframe 
-                    className="w-full aspect-video rounded-xl mt-3 shadow-md border border-gray-100" 
+                    className="w-full aspect-video rounded-xl mt-4 shadow-md border border-gray-100" 
                     src={`https://www.youtube.com/embed/${yId}`} 
                     title="Training Video" 
                     allowFullScreen>
                 </iframe>
             ) : null;
         }
-        return (<video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-xl mt-3 shadow-md bg-black object-contain" />);
+        return (<video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-xl mt-4 shadow-md bg-black object-contain" />);
     };
+
+    // 💡 核心修复：完美解析 0413 编辑器的“多段落”富文本数据
+    const renderAdvancedContent = (item: any) => {
+        // 1. 渲染 Description
+        let desc = item.description || item.desc || '';
+        if (typeof desc === 'object') desc = desc[lang] || desc.zh || desc.en || '';
+
+        // 2. 渲染 Content Sections
+        let sectionsOutput = null;
+        const content = item.content;
+
+        if (Array.isArray(content)) {
+            // ✅ 解析后台编辑器的 CONTENT SECTIONS
+            sectionsOutput = (
+                <div className="space-y-3 mt-3">
+                    {content.map((sec: any, idx: number) => {
+                        const t = sec.title?.[lang] || sec.title?.zh || sec.title?.en || '';
+                        const b = sec.body?.[lang] || sec.body?.zh || sec.body?.en || '';
+                        // 如果标题和内容都是空的，就不渲染这块
+                        if (!t && !b) return null; 
+                        return (
+                            <div key={idx} className="bg-blue-50/50 p-3 rounded-lg border border-blue-100/50">
+                                {t && <h4 className="font-bold text-blue-800 text-sm mb-1.5">{t}</h4>}
+                                {b && <p className="text-gray-700 text-xs whitespace-pre-line leading-relaxed">{b}</p>}
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        } else if (typeof content === 'string') {
+            // 兼容老数据：纯字符串
+            sectionsOutput = <p className="text-gray-600 text-sm whitespace-pre-line mt-2">{content}</p>;
+        } else if (content && typeof content === 'object') {
+            // 兼容老数据：双语对象
+            const text = content[lang] || content.zh || content.en || content.body;
+            if (text) sectionsOutput = <p className="text-gray-600 text-sm whitespace-pre-line mt-2">{text}</p>;
+        }
+
+        return (
+            <div className="mt-4 pt-3 border-t border-gray-100 animate-fade-in" onClick={e => e.stopPropagation()}>
+                {/* 描述信息 */}
+                {desc && <p className="text-gray-500 text-sm italic font-medium">{desc}</p>}
+                
+                {/* 分段内容 */}
+                {sectionsOutput}
+                
+                {/* 教学视频 (兼容不同的字段名) */}
+                {(item.videoUrl || item.youtubeLink || item.mediaUrl) && renderVideo(item.videoUrl || item.youtubeLink || item.mediaUrl)}
+            </div>
+        );
+    };
+
+    // 过滤搜索
+    const filteredItems = combinedData.filter((item: any) => {
+        const title = getTitle(item).toLowerCase();
+        const query = searchQuery.toLowerCase();
+        return title.includes(query);
+    });
 
     return (
         <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
@@ -1562,15 +1593,8 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
                                 </div>
                             </div>
                             
-                            {expandedId === itemId && (
-                                <div className="mt-4 pt-3 border-t border-gray-100 text-sm animate-fade-in" onClick={e => e.stopPropagation()}>
-                                    <p className="text-gray-600 whitespace-pre-line leading-relaxed text-sm">
-                                        {/* 💡 这里使用了防崩溃提取器 */}
-                                        {getSafeContent(item)}
-                                    </p>
-                                    {(item.videoUrl || item.mediaUrl) && renderVideo(item.videoUrl || item.mediaUrl)}
-                                </div>
-                            )}
+                            {/* 展开后，调用高级排版器 */}
+                            {expandedId === itemId && renderAdvancedContent(item)}
                         </div>
                     );
                 })}
