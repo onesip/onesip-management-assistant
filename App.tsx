@@ -1460,23 +1460,33 @@ function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes,
 // ============================================================================
 // 新增组件: 员工端 - SOP与培训模块 (Training View) [支持双语 & YouTube Shorts]
 // ============================================================================
-function TrainingView({ lang, sopList, onCancel }: any) {
+function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
     const [searchQuery, setSearchQuery] = useState('');
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
+    // 💡 核心修复：把后台的 SOP 和 TRAINING 两个标签页的数据合并在一起显示！
+    const safeSops = Array.isArray(sopList) ? sopList : [];
+    const safeTraining = Array.isArray(trainingLevels) ? trainingLevels : [];
+    const combinedData = [...safeSops, ...safeTraining];
+
+    // 安全获取标题 (兼容后台纯文本或双语对象格式)
+    const getTitle = (item: any) => {
+        if (typeof item.title === 'string') return item.title;
+        if (typeof item.name === 'string') return item.name;
+        return item.title?.[lang] || item.title?.zh || item.name?.[lang] || item.name?.zh || 'Untitled';
+    };
+
     // 过滤搜索
-    const filteredSops = (sopList || []).filter((sop: any) => {
-        const titleZh = sop.title?.zh?.toLowerCase() || '';
-        const titleEn = sop.title?.en?.toLowerCase() || '';
+    const filteredItems = combinedData.filter((item: any) => {
+        const title = getTitle(item).toLowerCase();
         const query = searchQuery.toLowerCase();
-        return titleZh.includes(query) || titleEn.includes(query);
+        return title.includes(query);
     });
 
-    // 核心：全能 YouTube 解析器 (支持普通链接、分享链接、Shorts短视频)
+    // 全能 YouTube 解析器 (支持普通链接、分享链接、Shorts短视频)
     const renderVideo = (url: string) => {
         if (!url) return null;
         if (url.includes('youtube.com') || url.includes('youtu.be')) {
-            // 这个正则完美兼容各种 YouTube 格式，包括 /shorts/
             const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?]*).*/;
             const match = url.match(regExp);
             const yId = (match && match[2].length === 11) ? match[2] : null;
@@ -1484,12 +1494,11 @@ function TrainingView({ lang, sopList, onCancel }: any) {
                 <iframe 
                     className="w-full aspect-video rounded-xl mt-3 shadow-md border border-gray-100" 
                     src={`https://www.youtube.com/embed/${yId}`} 
-                    title="SOP Training Video" 
+                    title="Training Video" 
                     allowFullScreen>
                 </iframe>
             ) : null;
         }
-        // 如果是普通的 mp4 或其他链接
         return (<video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-xl mt-3 shadow-md bg-black object-contain" />);
     };
 
@@ -1506,7 +1515,7 @@ function TrainingView({ lang, sopList, onCancel }: any) {
                     <input 
                         value={searchQuery} 
                         onChange={e => setSearchQuery(e.target.value)} 
-                        placeholder={lang === 'zh' ? '搜索 SOP 或培训内容...' : 'Search SOPs...'} 
+                        placeholder={lang === 'zh' ? '搜索 SOP 或培训内容...' : 'Search training...'} 
                         className="w-full bg-white border border-gray-200 rounded-xl p-3 pl-10 text-sm outline-none focus:border-blue-400 shadow-sm" 
                     />
                 </div>
@@ -1517,34 +1526,36 @@ function TrainingView({ lang, sopList, onCancel }: any) {
                     {lang === 'zh' ? '💡 点击卡片展开查看详细步骤和教学视频。' : '💡 Tap a card to view details and tutorial videos.'}
                 </div>
 
-                {filteredSops.map((sop: any) => (
-                    <div key={sop.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 cursor-pointer transition-all active:scale-[0.98]" onClick={() => setExpandedId(expandedId === sop.id ? null : sop.id)}>
-                        <div className="flex justify-between items-center">
-                            <div className="flex-1 pr-4">
-                                <h3 className="font-bold text-gray-800 text-base">{sop.title?.[lang] || sop.title?.zh || 'Untitled SOP'}</h3>
-                                <p className="text-[10px] font-bold text-blue-500 bg-blue-50 inline-block px-2 py-0.5 rounded mt-1">{sop.category || 'General'}</p>
+                {filteredItems.map((item: any, index: number) => {
+                    const itemId = item.id || `train_${index}`;
+                    return (
+                        <div key={itemId} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 cursor-pointer transition-all active:scale-[0.98]" onClick={() => setExpandedId(expandedId === itemId ? null : itemId)}>
+                            <div className="flex justify-between items-center">
+                                <div className="flex-1 pr-4">
+                                    <h3 className="font-bold text-gray-800 text-base">{getTitle(item)}</h3>
+                                    <p className="text-[10px] font-bold text-blue-500 bg-blue-50 inline-block px-2 py-0.5 rounded mt-1">{item.category || 'General'}</p>
+                                </div>
+                                <div className={`p-2 rounded-full transition-colors ${expandedId === itemId ? 'bg-blue-100 text-blue-600' : 'bg-gray-50 text-gray-400'}`}>
+                                    <Icon name={expandedId === itemId ? "ChevronUp" : "ChevronRight"} size={16} />
+                                </div>
                             </div>
-                            <div className={`p-2 rounded-full transition-colors ${expandedId === sop.id ? 'bg-blue-100 text-blue-600' : 'bg-gray-50 text-gray-400'}`}>
-                                <Icon name={expandedId === sop.id ? "ChevronUp" : "ChevronRight"} size={16} />
-                            </div>
+                            
+                            {expandedId === itemId && (
+                                <div className="mt-4 pt-3 border-t border-gray-100 text-sm animate-fade-in" onClick={e => e.stopPropagation()}>
+                                    <p className="text-gray-600 whitespace-pre-line leading-relaxed text-sm">
+                                        {item.content?.[lang] || item.content?.zh || item.content || 'No detailed description available.'}
+                                    </p>
+                                    {(item.videoUrl || item.mediaUrl) && renderVideo(item.videoUrl || item.mediaUrl)}
+                                </div>
+                            )}
                         </div>
-                        
-                        {expandedId === sop.id && (
-                            <div className="mt-4 pt-3 border-t border-gray-100 text-sm animate-fade-in" onClick={e => e.stopPropagation()}>
-                                <p className="text-gray-600 whitespace-pre-line leading-relaxed text-sm">
-                                    {sop.content?.[lang] || sop.content?.zh || 'No detailed description available.'}
-                                </p>
-                                {/* 渲染 YouTube 或普通视频 */}
-                                {(sop.videoUrl || sop.mediaUrl) && renderVideo(sop.videoUrl || sop.mediaUrl)}
-                            </div>
-                        )}
-                    </div>
-                ))}
+                    );
+                })}
 
-                {filteredSops.length === 0 && (
+                {filteredItems.length === 0 && (
                     <div className="text-center py-10 opacity-50">
                         <Icon name="Inbox" size={40} className="mx-auto mb-2 text-gray-400" />
-                        <p className="text-sm font-bold text-gray-500">{lang === 'zh' ? '暂无相关培训内容。' : 'No SOPs found.'}</p>
+                        <p className="text-sm font-bold text-gray-500">{lang === 'zh' ? '暂无相关培训内容。' : 'No content found.'}</p>
                     </div>
                 )}
             </div>
@@ -3849,6 +3860,18 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             );
         }
 
+        // 💡 修复：当点击“培训”时，不再返回空白，而是渲染出上面写好的界面，并传入双份数据！
+        if (view === 'training' as any && activeFeatures.training) {
+            return (
+                <TrainingView 
+                    lang={lang} 
+                    sopList={sopList} 
+                    trainingLevels={trainingLevels} // <--- 把后台 TRAINING 的数据传进去了！
+                    onCancel={() => setView('home')}
+                  />
+            );
+        }
+                  
         if (view === 'recipes' && activeFeatures.recipes) {
              const filteredRecipes = recipes
                 .filter((r: DrinkRecipe) => r.isPublished !== false)
