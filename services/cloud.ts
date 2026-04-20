@@ -592,6 +592,23 @@ export const updateScheduleCycles = async (cycles: ScheduleCycle[]) => {
 };
 
 // ============================================================================
+// 14. STORES / BRANCH MANAGEMENT (新增分店管理同步)
+// ============================================================================
+export const subscribeToStores = (callback: (data: any[]) => void) => {
+    if (!db) return () => {};
+    return onSnapshot(doc(db, 'data', 'stores'), (doc: any) => {
+        if (doc.exists() && doc.data().list) {
+            callback(doc.data().list);
+        }
+    });
+};
+
+export const updateStores = async (storesArray: any[]) => {
+    if (!db) return;
+    await setDoc(doc(db, 'data', 'stores'), { list: storesArray }, { merge: true });
+};
+
+// ============================================================================
 // 13. CLOUD OBJECT EXPORT (关键：让 App.tsx 能调用 Cloud.xxx)
 // ============================================================================
 export const Cloud = {
@@ -649,5 +666,9 @@ export const Cloud = {
     
     // Inventory Logs (Refill)
     subscribeToInventoryLogs,
-    saveInventoryLogs
+    saveInventoryLogs,
+
+    // 💡 新增：把刚才写的这两个方法交出去！注意上一行末尾要有逗号
+    subscribeToStores,
+    updateStores
 };
