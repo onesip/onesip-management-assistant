@@ -2206,317 +2206,192 @@ function StaffManagementView({ data }: any) {
 }
 
 // ============================================================================
-// 组件 1: Prep Inventory (前台补料 & 后台管理 - 自带一键恢复数据功能)
+// 升级版组件: 日常盘点与备料 (InventoryView) [新增目标差额计算与底部任务总结]
 // ============================================================================
-const InventoryView = ({ lang, t, inventoryList, onUpdateInventoryList, isOwner, onSubmit, currentUser, isForced, onCancel, forcedShift }: any) => {
-    const todayObj = new Date();
-    const todayIndex = todayObj.getDay(); 
-    let dayGroup: 'mon_thu' | 'fri' | 'sat' | 'sun' = 'mon_thu';
-    if (todayIndex === 5) dayGroup = 'fri';
-    if (todayIndex === 6) dayGroup = 'sat';
-    if (todayIndex === 0) dayGroup = 'sun';
+function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInventoryList, onSubmit, onCancel, currentUser, isOwner }: any) {
+    const [invData, setInvData] = useState<Record<string, { end: string }>>({});
+    const [editList, setEditList] = useState<any[]>(inventoryList || []);
+    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
+    const draftKey = `onesip_prep_draft_${currentUser?.id}`;
 
-    const isAmNeeded = (todayIndex === 5 || todayIndex === 6);
-    const initialShift = (isAmNeeded && todayObj.getHours() < 16) ? 'morning' : 'evening';
-
-    const [viewShift, setViewShift] = useState<'morning' | 'evening'>(initialShift);
-
-    const [editTargets, setEditTargets] = useState(false);
-    
-    // 初始化直接读取传入的列表
-    const [localList, setLocalList] = useState<any[]>(inventoryList ? JSON.parse(JSON.stringify(inventoryList)) : []);
-    
-    const [isAddingItem, setIsAddingItem] = useState(false);
-    const [newItemData, setNewItemData] = useState({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    // 监听云端数据变化
-    useEffect(() => {
-        if (!editTargets) {
-            setLocalList(JSON.parse(JSON.stringify(inventoryList || [])));
-        }
-    }, [inventoryList, editTargets]);
-
-    const [inputData, setInputData] = useState<Record<string, { end: string, isChecked?: boolean }>>({});
-    const [fridgeChecked, setFridgeChecked] = useState(false);
-
-    const draftKey = `onesip_prep_draft_${currentUser?.id}_${dayGroup}_${viewShift}`;
+    useEffect(() => { setEditList(inventoryList || []); }, [inventoryList]);
 
     useEffect(() => {
         if (isOwner) return;
         const saved = localStorage.getItem(draftKey);
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                setInputData(parsed.inputData || {});
-                setFridgeChecked(!!parsed.fridgeChecked);
-            } catch(e) {}
-        } else {
-            setInputData({});
-            setFridgeChecked(false);
-        }
-    }, [draftKey, isOwner, viewShift]);
+        if (saved) { try { setInvData(JSON.parse(saved)); } catch(e) {} }
+    }, [draftKey, isOwner]);
 
     useEffect(() => {
         if (isOwner) return;
-        localStorage.setItem(draftKey, JSON.stringify({ inputData, fridgeChecked }));
-    }, [inputData, fridgeChecked, draftKey, isOwner]);
+        localStorage.setItem(draftKey, JSON.stringify(invData));
+    }, [invData, draftKey, isOwner]);
 
-    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-
-    const handleCheck = (id: string, target: number) => {
-        setInputData(prev => {
-            const currentlyChecked = prev[id]?.isChecked;
-            return { ...prev, [id]: { ...prev[id], isChecked: !currentlyChecked, end: !currentlyChecked ? String(target) : '' } };
-        });
-    };
-
-    const handleAmountChange = (id: string, target: number, val: string) => {
-        setInputData(prev => ({ ...prev, [id]: { ...prev[id], end: val, isChecked: parseFloat(val) === target } }));
-    };
-
-    const handleTargetChange = (id: string, group: string, shift: string, val: string) => {
-        setLocalList(prev => prev.map(item => {
-            if (item.id === id) {
-                const newTargets = item.dailyTargets ? JSON.parse(JSON.stringify(item.dailyTargets)) : { mon_thu: {morning:0, evening:0}, fri: {morning:0, evening:0}, sat: {morning:0, evening:0}, sun: {morning:0, evening:0} };
-                newTargets[group][shift] = parseFloat(val);
-                return { ...item, dailyTargets: newTargets };
-            }
-            return item;
-        }));
-    };
-
-    const toggleHidden = (id: string) => {
-        setLocalList(prev => prev.map(item => item.id === id ? { ...item, hidden: !item.hidden } : item));
-    };
-
-    const handleDownloadTemplate = () => {
-        const headers = "Name(ZH),Name(EN),Unit,Category,MonThu_AM,MonThu_PM,Fri_AM,Fri_PM,Sat_AM,Sat_PM,Sun_AM,Sun_PM\n";
-        const rows = localList.map((item: any) => {
-            const t = item.dailyTargets || {};
-            const safe = (val: any) => val || 0;
-            return [ item.name.zh, item.name.en, item.unit, item.category, safe(t.mon_thu?.morning), safe(t.mon_thu?.evening), safe(t.fri?.morning), safe(t.fri?.evening), safe(t.sat?.morning), safe(t.sat?.evening), safe(t.sun?.morning), safe(t.sun?.evening) ].join(',');
-        }).join('\n');
-        const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-        const blob = new Blob([bom, headers + rows], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.setAttribute("download", "prep_targets_template.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    };
-
-    const handleFileUpload = async (e: any) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const readFile = (f: File, encoding: string): Promise<string> => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = (evt) => resolve(evt.target?.result as string); reader.onerror = reject; reader.readAsText(f, encoding); });
-        try {
-            let csvText = await readFile(file, 'UTF-8');
-            if (csvText.includes('\uFFFD') || (!csvText.includes("Name(ZH)") && !csvText.includes("Category"))) csvText = await readFile(file, 'GBK');
-            if (!csvText) { alert("File is empty!"); return; }
-            const lines = csvText.split(/\r?\n/);
-            const newItems = [...localList];
-            let updatedCount = 0; let createdCount = 0;
-            lines.slice(1).forEach((line) => {
-                if (!line.trim()) return;
-                let cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
-                if (cols.length < 4) return;
-                const [zh, en, unit, cat, mt_am, mt_pm, f_am, f_pm, s_am, s_pm, su_am, su_pm] = cols;
-                if (!zh || zh.includes('Name(ZH)')) return; 
-                let itemIndex = newItems.findIndex(i => i.name.zh === zh);
-                const targets = { mon_thu: { morning: parseFloat(mt_am)||0, evening: parseFloat(mt_pm)||0 }, fri: { morning: parseFloat(f_am)||0, evening: parseFloat(f_pm)||0 }, sat: { morning: parseFloat(s_am)||0, evening: parseFloat(s_pm)||0 }, sun: { morning: parseFloat(su_am)||0, evening: parseFloat(su_pm)||0 } };
-                if (itemIndex >= 0) { newItems[itemIndex] = { ...newItems[itemIndex], dailyTargets: targets, unit: unit || newItems[itemIndex].unit, category: cat || newItems[itemIndex].category }; updatedCount++; } 
-                else { newItems.push({ id: `p_imp_${Date.now()}_${Math.floor(Math.random()*1000)}`, name: { zh: zh, en: en || zh }, unit: unit || 'L', category: cat || 'other', defaultVal: '0', hidden: false, dailyTargets: targets }); createdCount++; }
-            });
-            setLocalList(newItems);
-            if (onUpdateInventoryList) onUpdateInventoryList(newItems);
-            alert(`✅ Import Success!\nUpdated: ${updatedCount}\nCreated: ${createdCount}`);
-        } catch (err) { console.error(err); alert("Error reading file."); } finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
-    };
-
-    const handleAddItem = () => {
-        if (!newItemData.nameZH || !newItemData.nameEN) return alert("Please enter names.");
-        const newItem: any = { id: `p_new_${Date.now()}`, name: { zh: newItemData.nameZH, en: newItemData.nameEN }, unit: newItemData.unit, category: newItemData.category, defaultVal: '0', hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 0 }, fri: { morning: 0, evening: 0 }, sat: { morning: 0, evening: 0 }, sun: { morning: 0, evening: 0 } } };
-        const newList = [...localList, newItem];
-        setLocalList(newList);
-        if (onUpdateInventoryList) onUpdateInventoryList(newList);
-        setIsAddingItem(false); setNewItemData({ nameZH: '', nameEN: '', unit: 'L', category: 'premix' });
-        alert("Item Added!");
-    };
-
-    const saveTargets = () => {
-        if (onUpdateInventoryList) onUpdateInventoryList(localList);
-        alert("✅ Changes saved successfully!");
-        setEditTargets(false);
-    };
-
-    // --- 一键恢复您图表里的初始数据 ---
-    const restoreDefaultData = () => {
-        const defaultItems = [
-            { id: `p_${Date.now()}_1`, name: { zh: "奶精", en: "Creamer" }, unit: "L", category: "tea base", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 10 }, fri: { morning: 10, evening: 20 }, sat: { morning: 0, evening: 12.5 }, sun: { morning: 0, evening: 10 } } },
-            { id: `p_${Date.now()}_2`, name: { zh: "茉莉绿茶", en: "Jasmine Tea" }, unit: "L", category: "tea base", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 15 }, fri: { morning: 20, evening: 20 }, sat: { morning: 12, evening: 16 }, sun: { morning: 0, evening: 15 } } },
-            { id: `p_${Date.now()}_3`, name: { zh: "红茶", en: "Black Tea" }, unit: "L", category: "tea base", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 12 }, fri: { morning: 0, evening: 16 }, sat: { morning: 4, evening: 12 }, sun: { morning: 0, evening: 12 } } },
-            { id: `p_${Date.now()}_4`, name: { zh: "桂花乌龙", en: "Osmanthus Tea" }, unit: "L", category: "tea base", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 8 }, fri: { morning: 0, evening: 10 }, sat: { morning: 4, evening: 8 }, sun: { morning: 0, evening: 8 } } },
-            { id: `p_${Date.now()}_5`, name: { zh: "山茶花乌龙", en: "Camellia Tea" }, unit: "L", category: "tea base", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 6 }, fri: { morning: 4, evening: 8 }, sat: { morning: 0, evening: 6 }, sun: { morning: 0, evening: 6 } } },
-            { id: `p_${Date.now()}_6`, name: { zh: "芝士奶盖", en: "Cheese Foam" }, unit: "bucket", category: "foam toppings", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 1.5 }, fri: { morning: 1, evening: 2 }, sat: { morning: 0, evening: 1.5 }, sun: { morning: 0, evening: 1.5 } } },
-            { id: `p_${Date.now()}_7`, name: { zh: "抹茶云顶", en: "Matcha Cloud" }, unit: "bucket", category: "foam toppings", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 1 }, fri: { morning: 0, evening: 1 }, sat: { morning: 0, evening: 1 }, sun: { morning: 0, evening: 1 } } },
-            { id: `p_${Date.now()}_8`, name: { zh: "芋泥奶盖", en: "Taro Foam" }, unit: "bucket", category: "foam toppings", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 1 }, fri: { morning: 1, evening: 1 }, sat: { morning: 1, evening: 1 }, sun: { morning: 0, evening: 1 } } },
-            { id: `p_${Date.now()}_9`, name: { zh: "火龙果预拌液", en: "Dragon Fruit" }, unit: "L", category: "premix", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 3 }, fri: { morning: 3, evening: 6 }, sat: { morning: 0, evening: 3 }, sun: { morning: 0, evening: 3 } } },
-            { id: `p_${Date.now()}_10`, name: { zh: "香芋预拌液", en: "Taro" }, unit: "L", category: "premix", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 3 }, fri: { morning: 3, evening: 6 }, sat: { morning: 0, evening: 3 }, sun: { morning: 0, evening: 3 } } },
-            { id: `p_${Date.now()}_11`, name: { zh: "泰奶预拌液", en: "Thai" }, unit: "L", category: "premix", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 3 }, fri: { morning: 3, evening: 6 }, sat: { morning: 0, evening: 3 }, sun: { morning: 0, evening: 3 } } },
-            { id: `p_${Date.now()}_12`, name: { zh: "椰子预拌液", en: "Coconut" }, unit: "L", category: "premix", hidden: false, dailyTargets: { mon_thu: { morning: 0, evening: 3 }, fri: { morning: 3, evening: 6 }, sat: { morning: 0, evening: 3 }, sun: { morning: 0, evening: 3 } } }
-        ];
-        setLocalList(defaultItems);
-        if (onUpdateInventoryList) onUpdateInventoryList(defaultItems);
-        alert("✅ Data restored successfully! 数据已完美恢复！");
-    };
-
-    const handleStaffSubmit = () => {
-        const visibleItems = inventoryList.filter((item: any) => !item.hidden);
-        const incompleteItem = visibleItems.find((item: any) => {
-            const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
-            if (target === 0) return false;
-            const val = inputData[item.id]?.end;
-            return val === undefined || val === '' || val === null;
-        });
-
-        if (incompleteItem) return alert(lang === 'zh' ? `⚠️ 信息缺失！\n请确认或填写以下物品的补加量: ${getLoc(incompleteItem.name)}` : `⚠️ Missing Input!\nPlease verify or enter the added amount for: ${getLoc(incompleteItem.name)}`);
-        if (!fridgeChecked) return alert(lang === 'zh' ? "⚠️ 必须进行安全检查！\n请检查冰箱温度 (< 6°C) 并勾选确认框。" : "⚠️ Safety Check Required!\nPlease check the fridge temperature (< 6°C) and tick the box.");
-
-        onSubmit({ submittedBy: currentUser?.name, userId: currentUser?.id, data: inputData, shift: viewShift, dayGroup: dayGroup, date: new Date().toISOString(), fridgeChecked: fridgeChecked });
-        localStorage.removeItem(draftKey);
-        setInputData({});
-        setFridgeChecked(false);
-    };
-
+    // ---------------- 👑 OWNER 模式：店长配置盘点目标 ----------------
     if (isOwner) {
+        const addItem = () => setEditList([...editList, { id: `item_${Date.now()}`, name: { zh: '', en: '' }, unit: 'g', target: '0' }]);
+        const updateItem = (idx: number, field: string, val: string) => {
+            const n = [...editList];
+            if (field === 'zh' || field === 'en') n[idx].name[field] = val;
+            else n[idx][field] = val;
+            setEditList(n);
+        };
+        const delItem = (idx: number) => { if(window.confirm("Delete item?")) setEditList(editList.filter((_, i) => i !== idx)); };
+
         return (
-            <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
-                <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".csv" className="hidden" />
-                <div className="p-4 bg-dark-surface border-b border-white/10 sticky top-0 z-10 shadow-md flex justify-between items-center">
-                    <div><h2 className="text-xl font-black text-white flex items-center gap-2"><Icon name="Coffee" className="text-orange-400"/> Manage Prep Targets</h2></div>
-                    <div className="flex gap-2">
-                        {editTargets ? (
-                            <><button onClick={() => setEditTargets(false)} className="bg-white/10 text-white px-3 py-2 rounded-lg text-xs font-bold">Cancel</button><button onClick={saveTargets} className="bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-bold">Save All</button></>
-                        ) : (
-                            <div className="flex gap-2">
-                                <button onClick={handleDownloadTemplate} className="bg-white/5 hover:bg-white/10 text-dark-text-light px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1"><Icon name="Download" size={14} /> Template</button>
-                                <button onClick={() => fileInputRef.current?.click()} className="bg-white/5 hover:bg-white/10 text-blue-300 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1"><Icon name="Upload" size={14} /> Import</button>
-                                <div className="w-px bg-white/10 mx-1"></div>
-                                <button onClick={() => setIsAddingItem(true)} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1"><Icon name="Plus" size={14} /> Add</button>
-                                <button onClick={() => setEditTargets(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold">Edit</button>
-                            </div>
-                        )}
+            <div className="bg-dark-surface p-4 rounded-xl border border-white/10 space-y-4 animate-fade-in h-full flex flex-col">
+                <div className="flex justify-between items-center shrink-0">
+                    <div>
+                        <h3 className="text-white font-bold text-sm">Prep Target Configuration</h3>
+                        <p className="text-[10px] text-gray-400">Set standard prep amounts for this branch.</p>
                     </div>
+                    <button onClick={() => { onUpdateInventoryList(editList); alert(lang === 'zh' ? '✅ 盘点目标已存入云端' : '✅ Targets saved to cloud'); }} className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-bold shadow-lg hover:bg-green-500 flex items-center gap-1"><Icon name="Save" size={14}/> Save Config</button>
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-20">
-                    {localList.map((item: any) => (
-                        <div key={item.id} className={`bg-dark-surface p-4 rounded-xl border transition-all ${item.hidden ? 'border-red-500/30 opacity-60' : 'border-white/10'}`}>
-                            <div className="flex justify-between items-center mb-2 border-b border-white/5 pb-2">
-                                <div className="flex items-center gap-2">
-                                    {editTargets && <button onClick={() => toggleHidden(item.id)} className={`p-1.5 rounded-lg transition-colors ${item.hidden ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}><Icon name={item.hidden ? "EyeOff" : "Eye"} size={16} /></button>}
-                                    <div><h3 className={`font-bold text-lg ${item.hidden ? 'text-gray-500 line-through' : 'text-white'}`}>{item.name.zh} <span className="text-dark-text-light text-xs font-normal">({item.name.en})</span></h3></div>
+                <div className="space-y-3 overflow-y-auto flex-1 pr-2 custom-scrollbar">
+                    {editList.map((item, idx) => (
+                        <div key={item.id} className="flex gap-2 items-center bg-dark-bg p-3 rounded-lg border border-white/5">
+                            <div className="flex-1 space-y-2">
+                                <div className="flex gap-2">
+                                    <input value={item.name.zh} onChange={e=>updateItem(idx,'zh',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-xs border border-white/10 focus:border-blue-500 outline-none" placeholder="中文名 (e.g. 珍珠)" />
+                                    <input value={item.name.en} onChange={e=>updateItem(idx,'en',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-xs border border-white/10 focus:border-blue-500 outline-none" placeholder="EN Name" />
                                 </div>
-                                <span className="text-xs font-mono bg-white/10 px-2 py-1 rounded text-orange-300">{item.unit}</span>
+                                <div className="flex gap-2">
+                                    <div className="flex-1 flex items-center gap-2 bg-dark-surface rounded border border-white/10 px-2">
+                                        <span className="text-[10px] text-gray-400 uppercase font-bold w-12">Target</span>
+                                        <input type="number" value={item.target || ''} onChange={e=>updateItem(idx,'target',e.target.value)} className="flex-1 bg-transparent text-white p-1.5 text-xs outline-none font-mono" placeholder="Amount" />
+                                    </div>
+                                    <div className="flex-1 flex items-center gap-2 bg-dark-surface rounded border border-white/10 px-2">
+                                        <span className="text-[10px] text-gray-400 uppercase font-bold w-10">Unit</span>
+                                        <input value={item.unit || ''} onChange={e=>updateItem(idx,'unit',e.target.value)} className="flex-1 bg-transparent text-white p-1.5 text-xs outline-none" placeholder="g / bag" />
+                                    </div>
+                                </div>
                             </div>
-                            <div className="grid grid-cols-5 gap-1 text-center text-[10px] text-dark-text-light uppercase font-bold mb-1"><div></div><div>Mon-Thu</div><div>Fri</div><div>Sat</div><div>Sun</div></div>
-                            {['morning', 'evening'].map(shift => (
-                                <div key={shift} className="grid grid-cols-5 gap-2 items-center mb-2">
-                                    <div className={`text-[10px] uppercase font-bold text-right pr-2 ${shift==='morning'?'text-yellow-400':'text-indigo-400'}`}>{shift}</div>
-                                    {['mon_thu', 'fri', 'sat', 'sun'].map(group => {
-                                        const val = item.dailyTargets?.[group]?.[shift] || 0;
-                                        return editTargets ? <input key={group} type="number" className="w-full bg-dark-bg border border-white/20 rounded p-2 text-center text-white text-sm font-bold focus:border-blue-500 outline-none" value={val} onChange={e => handleTargetChange(item.id, group, shift, e.target.value)} /> : <div key={group} className="bg-white/5 rounded p-2 text-white text-sm font-mono text-center border border-white/5">{val}</div>;
-                                    })}
-                                </div>
-                            ))}
+                            <button onClick={()=>delItem(idx)} className="p-3 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors h-full"><Icon name="Trash" size={16}/></button>
                         </div>
                     ))}
-                    
-                    {/* 一键恢复按钮 */}
-                    {localList.length === 0 && (
-                        <div className="text-center py-16 px-4">
-                            <Icon name="Database" size={40} className="mx-auto mb-4 text-dark-text-light opacity-50" />
-                            <p className="text-dark-text mb-2 font-bold">No prep targets configured for this branch.</p>
-                            <p className="text-sm text-dark-text-light mb-6">当前分店还没有配置补料目标哦</p>
-                            <button 
-                                onClick={restoreDefaultData} 
-                                className="mx-auto bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-6 rounded-xl flex items-center gap-2 shadow-lg transition-transform active:scale-95"
-                            >
-                                <Icon name="RotateCcw" size={18} />
-                                Restore Default Data (一键恢复数据)
-                            </button>
-                        </div>
-                    )}
+                    <button onClick={addItem} className="w-full py-3 border-2 border-dashed border-white/10 rounded-lg text-dark-text-light text-xs font-bold hover:text-white hover:border-white/30 transition-all">+ Add New Prep Item</button>
                 </div>
-                {isAddingItem && (
-                    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
-                        <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 max-w-sm w-full shadow-2xl space-y-4">
-                            <h3 className="text-lg font-bold text-white">Add New Prep Item</h3>
-                            <div><label className="text-xs text-gray-400">Name (ZH)</label><input className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.nameZH} onChange={e => setNewItemData({...newItemData, nameZH: e.target.value})} /></div>
-                            <div><label className="text-xs text-gray-400">Name (EN)</label><input className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.nameEN} onChange={e => setNewItemData({...newItemData, nameEN: e.target.value})} /></div>
-                            <div className="flex gap-2">
-                                <div className="flex-1"><label className="text-xs text-gray-400">Unit</label><select className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.unit} onChange={e => setNewItemData({...newItemData, unit: e.target.value})}><option value="L">L</option><option value="ml">ml</option><option value="g">g</option><option value="kg">kg</option><option value="pcs">pcs</option><option value="box">box</option></select></div>
-                                <div className="flex-1"><label className="text-xs text-gray-400">Category</label><select className="w-full bg-dark-bg border border-white/20 rounded p-2 text-white" value={newItemData.category} onChange={e => setNewItemData({...newItemData, category: e.target.value})}><option value="premix">Premix</option><option value="dairy">Dairy</option><option value="topping">Topping</option><option value="fruit">Fruit</option><option value="other">Other</option></select></div>
-                            </div>
-                            <div className="flex gap-2 mt-4"><button onClick={() => setIsAddingItem(false)} className="flex-1 py-3 rounded-xl bg-white/10 text-white font-bold">Cancel</button><button onClick={handleAddItem} className="flex-1 py-3 rounded-xl bg-purple-600 text-white font-bold">Add Item</button></div>
-                        </div>
-                    </div>
-                )}
             </div>
         );
     }
 
+    // ---------------- 🧑‍🍳 STAFF 模式：员工备料录入界面 ----------------
+    const visibleItems = (inventoryList || []).filter((i:any) => !i.hidden);
+
+    const handleSubmit = () => {
+        const dataToSubmit: any = {};
+        let hasData = false;
+        Object.keys(invData).forEach(id => {
+            if (invData[id].end) { dataToSubmit[id] = invData[id]; hasData = true; }
+        });
+        if (!hasData) return alert(lang === 'zh' ? "请至少输入一项。" : "Please enter at least one amount.");
+        onSubmit({ submittedBy: currentUser?.name, userId: currentUser?.id, data: dataToSubmit });
+        localStorage.removeItem(draftKey); setInvData({});
+    };
+
+    // 计算当前所有尚未达标的物料任务
+    const missingTasks = visibleItems.filter((pt: any) => {
+        const targetAmount = parseFloat(pt.target || '0');
+        if (targetAmount <= 0) return false; // 如果后台没设目标，就不算作任务
+        const actualStr = invData[pt.id]?.end;
+        const actualAmount = actualStr ? parseFloat(actualStr) : 0;
+        return actualAmount < targetAmount;
+    });
+
     return (
-        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
-            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm">
-                 <div className="flex justify-between items-center mb-2">
-                    <h2 className="text-xl font-black flex items-center gap-2">
-                        {viewShift === 'morning' ? <span className="text-orange-500">{lang === 'zh' ? '☀️ 早班补货 (AM)' : '☀️ Morning Refill (AM)'}</span> : <span className="text-indigo-500">{lang === 'zh' ? '🌙 晚班盘点 (PM)' : '🌙 Evening Prep (PM)'}</span>}
-                    </h2>
-                </div>
-                <div className="flex items-center justify-between text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
-                    <span>{lang === 'zh' ? '目标周期:' : 'Target Day:'} <strong className="uppercase text-gray-800">{dayGroup.replace('_', '-')}</strong></span>
-                    {isAmNeeded && (
-                        <div className="flex gap-2">
-                            <button onClick={()=>setViewShift('morning')} className={`px-2 py-1 rounded ${viewShift==='morning'?'bg-white shadow text-orange-500 font-bold':'text-gray-400'}`}>AM</button>
-                            <button onClick={()=>setViewShift('evening')} className={`px-2 py-1 rounded ${viewShift==='evening'?'bg-white shadow text-indigo-500 font-bold':'text-gray-400'}`}>PM</button>
+        <div className="flex flex-col h-full bg-secondary animate-fade-in-up text-text">
+            {/* 顶部标题 */}
+            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3 shrink-0">
+                <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
+                <h2 className="text-xl font-black text-blue-600 flex items-center gap-2">
+                    <Icon name="Package" size={20} /> {lang === 'zh' ? '今日备料任务' : 'Daily Prep Tasks'}
+                </h2>
+            </div>
+
+            {/* 中间：填写区 */}
+            <div className="p-4 space-y-4 overflow-y-auto flex-1 pb-4 custom-scrollbar">
+                {visibleItems.map((item: any) => {
+                    const target = parseFloat(item.target || '0');
+                    const actualStr = invData[item.id]?.end;
+                    const actual = actualStr ? parseFloat(actualStr) : 0;
+                    const hasInput = actualStr !== undefined && actualStr !== '';
+                    const isDone = target > 0 && hasInput && actual >= target;
+                    const diff = target > 0 ? parseFloat((target - actual).toFixed(2)) : 0;
+
+                    return (
+                        <div key={item.id} className={`bg-white p-4 rounded-xl shadow-sm border transition-all ${isDone ? 'border-green-300 bg-green-50/50' : 'border-gray-100'}`}>
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <div className="font-bold text-gray-800 text-sm">{getLoc(item.name)}</div>
+                                    <div className="text-[10px] text-gray-500 mt-1 font-mono">
+                                        {target > 0 ? (lang === 'zh' ? `目标: ${target} ${item.unit}` : `Target: ${target} ${item.unit}`) : `单位: ${item.unit}`}
+                                    </div>
+                                </div>
+                                <div className="w-24">
+                                    <input
+                                        type="number"
+                                        placeholder="已备"
+                                        value={invData[item.id]?.end || ''}
+                                        onChange={e => setInvData({...invData, [item.id]: { end: e.target.value }})}
+                                        className={`w-full p-2 text-center font-bold text-base rounded-lg border outline-none transition-colors ${isDone ? 'border-green-400 bg-green-100 text-green-800 focus:border-green-500' : 'border-blue-200 focus:border-blue-500 bg-blue-50 text-blue-800'}`}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* 💡 智能计算提示区域 */}
+                            {target > 0 && (
+                                <div className="mt-3 pt-2 border-t border-gray-100/50 flex items-center justify-between animate-fade-in">
+                                    {isDone ? (
+                                        <span className="text-xs font-bold text-green-600 flex items-center gap-1"><Icon name="CheckCircle2" size={14} /> {lang === 'zh' ? '目标达成，辛苦了！' : 'Target met, great job!'}</span>
+                                    ) : (
+                                        <span className="text-xs font-bold text-orange-500 flex items-center gap-1"><Icon name="AlertCircle" size={14} /> {lang === 'zh' ? `还需备料: ${diff > 0 ? diff : target} ${item.unit}` : `Still need: ${diff > 0 ? diff : target} ${item.unit}`}</span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )
+                })}
+                {visibleItems.length === 0 && <p className="text-center text-gray-400 py-10">{lang === 'zh' ? '暂无需要备料的项目' : 'No items to prep.'}</p>}
+            </div>
+
+            {/* 💡 底部：悬浮任务总结面板 */}
+            <div className="bg-white border-t border-gray-200 shadow-[0_-15px_30px_rgba(0,0,0,0.06)] shrink-0 pb-safe">
+                <div className="px-4 py-3 bg-blue-50/50 border-b border-blue-100 flex items-center justify-between">
+                    <div className="shrink-0 mr-4">
+                        <p className="text-xs font-bold text-blue-800 flex items-center gap-1"><Icon name="ListTodo" size={14} /> {lang === 'zh' ? '今日备料状态' : 'Task Summary'}</p>
+                        <p className="text-[10px] text-blue-600 mt-0.5">
+                            {missingTasks.length === 0 
+                                ? (lang === 'zh' ? '🎉 所有任务已清零！' : '🎉 All targets met!')
+                                : (lang === 'zh' ? `还有 ${missingTasks.length} 项未达标` : `${missingTasks.length} tasks remaining`)}
+                        </p>
+                    </div>
+                    
+                    {/* 滑动列表：展示具体缺什么 */}
+                    {missingTasks.length > 0 && (
+                        <div className="flex-1 overflow-x-auto whitespace-nowrap custom-scrollbar flex gap-2 pb-1 fade-in">
+                            {missingTasks.map((pt: any) => {
+                                const t = parseFloat(pt.target || '0');
+                                const a = parseFloat(invData[pt.id]?.end || '0');
+                                const d = parseFloat((t - a).toFixed(2));
+                                return (
+                                    <span key={pt.id} className="inline-block bg-white border border-orange-200 text-orange-600 text-[10px] px-2 py-1 rounded font-bold shadow-sm">
+                                        {getLoc(pt.name)} 还需 {d}
+                                    </span>
+                                );
+                            })}
                         </div>
                     )}
                 </div>
-            </div>
-
-            <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                {localList.filter((item: any) => !item.hidden).map((item: any) => {
-                    const target = item.dailyTargets?.[dayGroup]?.[viewShift] || 0;
-                    if (target === 0) return null;
-                    return (
-                        <div key={item.id} className="bg-white p-4 rounded-xl border shadow-sm flex flex-col gap-3">
-                            <div className="flex justify-between items-center border-b pb-2 border-gray-100">
-                                <div className="font-bold text-lg text-gray-800">{getLoc(item.name)}</div>
-                                <div className={`text-xs font-bold px-3 py-1 rounded-full border ${viewShift === 'morning' ? 'text-orange-600 bg-orange-50 border-orange-100' : 'text-primary bg-indigo-50 border-indigo-100'}`}>{lang === 'zh' ? '目标:' : 'Target:'} <span className="text-lg">{target}</span> {item.unit}</div>
-                            </div>
-                            <div className="flex gap-3 items-center bg-gray-50 p-2 rounded-xl border border-gray-100">
-                                <button onClick={() => handleCheck(item.id, target)} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg border-2 transition-all ${inputData[item.id]?.isChecked ? 'bg-green-500 border-green-500 text-white shadow-md' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}><Icon name="CheckCircle2" size={20} /><span className="font-bold text-sm">{lang === 'zh' ? `补足了 ${target}` : `Filled ${target}`}</span></button>
-                                <div className="w-[120px] flex flex-col border-l border-gray-200 pl-3">
-                                    <label className="text-[9px] font-bold text-gray-400 mb-1 uppercase text-center">{lang === 'zh' ? '实际补加量' : 'Actual Added'}</label>
-                                    <input type="number" className="w-full p-2 rounded-lg border border-gray-300 text-center text-lg font-bold focus:bg-white focus:border-primary transition-colors outline-none" placeholder={String(target)} value={inputData[item.id]?.end ?? ''} onChange={(e) => handleAmountChange(item.id, target, e.target.value)} />
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
-                {localList.length === 0 && <p className="text-center text-gray-400 py-10 text-sm">No items configured for this branch.</p>}
-            </div>
-            
-            <div className="p-4 bg-white border-t sticky bottom-0 z-20 space-y-3 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-                <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex items-center gap-3 cursor-pointer" onClick={() => setFridgeChecked(!fridgeChecked)}>
-                    <div className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${fridgeChecked ? 'bg-blue-500 border-blue-500 text-white' : 'bg-white border-blue-300'}`}>{fridgeChecked && <Icon name="Check" size={16} />}</div>
-                    <div className="flex-1"><p className="font-bold text-blue-900 text-sm">{lang === 'zh' ? '检查冰箱温度 < 6°C' : 'Check Fridge Temp < 6°C'}</p><p className="text-xs text-blue-600">{lang === 'zh' ? '该安全检查为必填项。' : 'Checking temperature is mandatory.'}</p></div>
-                    <Icon name="Snowflake" className="text-blue-300" />
+                
+                <div className="p-4">
+                    <button onClick={handleSubmit} className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-transform hover:bg-blue-700">
+                        <Icon name="Save" size={18} /> {lang === 'zh' ? '确认并提交' : 'Submit Report'}
+                    </button>
                 </div>
-                <button onClick={handleStaffSubmit} className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-primary-dark">
-                    <Icon name="Save" size={20} /> {lang === 'zh' ? (viewShift === 'morning' ? '提交早班补货记录' : '提交晚班盘点报告') : (viewShift === 'morning' ? 'Submit AM Refill' : 'Submit PM Report')}
-                </button>
             </div>
         </div>
     );
-};
+}
 // ============================================================================
 // 组件 4: Smart Inventory View (后台仓库 - 显示当前库存 + 提交反馈)
 // ============================================================================
