@@ -2206,7 +2206,7 @@ function StaffManagementView({ data }: any) {
 }
 
 // ============================================================================
-// 升级版组件: 日常盘点与备料 (InventoryView) [新增目标差额计算与底部任务总结]
+// 恢复版组件: 日常盘点与备料 (InventoryView) [维持原UI，仅增加计算与总结]
 // ============================================================================
 function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInventoryList, onSubmit, onCancel, currentUser, isOwner }: any) {
     const [invData, setInvData] = useState<Record<string, { end: string }>>({});
@@ -2227,7 +2227,7 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
         localStorage.setItem(draftKey, JSON.stringify(invData));
     }, [invData, draftKey, isOwner]);
 
-    // ---------------- 👑 OWNER 模式：店长配置盘点目标 ----------------
+    // ---------------- 👑 OWNER 模式：店长配置盘点目标 (保持不变) ----------------
     if (isOwner) {
         const addItem = () => setEditList([...editList, { id: `item_${Date.now()}`, name: { zh: '', en: '' }, unit: 'g', target: '0' }]);
         const updateItem = (idx: number, field: string, val: string) => {
@@ -2284,23 +2284,23 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
         Object.keys(invData).forEach(id => {
             if (invData[id].end) { dataToSubmit[id] = invData[id]; hasData = true; }
         });
-        if (!hasData) return alert(lang === 'zh' ? "请至少输入一项。" : "Please enter at least one amount.");
-        onSubmit({ submittedBy: currentUser?.name, userId: currentUser?.id, data: dataToSubmit });
+        if (!hasData) return alert(lang === 'zh' ? "请至少输入一项数量。" : "Please enter at least one amount.");
+        onSubmit({ submittedBy: currentUser?.name, userId: currentUser?.id, data: dataToSubmit, shift: 'prep', date: new Date().toISOString() });
         localStorage.removeItem(draftKey); setInvData({});
     };
 
     // 计算当前所有尚未达标的物料任务
     const missingTasks = visibleItems.filter((pt: any) => {
         const targetAmount = parseFloat(pt.target || '0');
-        if (targetAmount <= 0) return false; // 如果后台没设目标，就不算作任务
+        if (targetAmount <= 0) return false;
         const actualStr = invData[pt.id]?.end;
         const actualAmount = actualStr ? parseFloat(actualStr) : 0;
         return actualAmount < targetAmount;
     });
 
     return (
-        <div className="flex flex-col h-full bg-secondary animate-fade-in-up text-text">
-            {/* 顶部标题 */}
+        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
+            {/* 原有样式的顶部 */}
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3 shrink-0">
                 <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
                 <h2 className="text-xl font-black text-blue-600 flex items-center gap-2">
@@ -2308,8 +2308,8 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                 </h2>
             </div>
 
-            {/* 中间：填写区 */}
-            <div className="p-4 space-y-4 overflow-y-auto flex-1 pb-4 custom-scrollbar">
+            {/* 中间：恢复原有干净样式的列表 */}
+            <div className="p-4 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
                 {visibleItems.map((item: any) => {
                     const target = parseFloat(item.target || '0');
                     const actualStr = invData[item.id]?.end;
@@ -2319,32 +2319,32 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                     const diff = target > 0 ? parseFloat((target - actual).toFixed(2)) : 0;
 
                     return (
-                        <div key={item.id} className={`bg-white p-4 rounded-xl shadow-sm border transition-all ${isDone ? 'border-green-300 bg-green-50/50' : 'border-gray-100'}`}>
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <div className="font-bold text-gray-800 text-sm">{getLoc(item.name)}</div>
-                                    <div className="text-[10px] text-gray-500 mt-1 font-mono">
-                                        {target > 0 ? (lang === 'zh' ? `目标: ${target} ${item.unit}` : `Target: ${target} ${item.unit}`) : `单位: ${item.unit}`}
+                        <div key={item.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-2 transition-all">
+                            <div className="flex items-center justify-between">
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-bold text-gray-800 text-sm truncate">{getLoc(item.name)}</div>
+                                    <div className="text-[10px] text-gray-400 mt-0.5">
+                                        单位: {item.unit} {target > 0 && `| 目标: ${target}`}
                                     </div>
                                 </div>
-                                <div className="w-24">
+                                <div className="flex gap-2 items-center">
                                     <input
                                         type="number"
-                                        placeholder="已备"
+                                        placeholder={lang === 'zh' ? '已备' : 'Qty'}
                                         value={invData[item.id]?.end || ''}
                                         onChange={e => setInvData({...invData, [item.id]: { end: e.target.value }})}
-                                        className={`w-full p-2 text-center font-bold text-base rounded-lg border outline-none transition-colors ${isDone ? 'border-green-400 bg-green-100 text-green-800 focus:border-green-500' : 'border-blue-200 focus:border-blue-500 bg-blue-50 text-blue-800'}`}
+                                        className="w-20 p-2 rounded-lg border border-gray-200 text-center text-blue-600 font-bold bg-gray-50 focus:bg-white outline-none text-sm"
                                     />
                                 </div>
                             </div>
-
-                            {/* 💡 智能计算提示区域 */}
+                            
+                            {/* 💡 克制的差额提示：只在目标大于0时显示，且只占极小空间 */}
                             {target > 0 && (
-                                <div className="mt-3 pt-2 border-t border-gray-100/50 flex items-center justify-between animate-fade-in">
+                                <div className="flex justify-end animate-fade-in">
                                     {isDone ? (
-                                        <span className="text-xs font-bold text-green-600 flex items-center gap-1"><Icon name="CheckCircle2" size={14} /> {lang === 'zh' ? '目标达成，辛苦了！' : 'Target met, great job!'}</span>
+                                        <span className="text-[10px] font-bold text-green-500">✅ 目标达成</span>
                                     ) : (
-                                        <span className="text-xs font-bold text-orange-500 flex items-center gap-1"><Icon name="AlertCircle" size={14} /> {lang === 'zh' ? `还需备料: ${diff > 0 ? diff : target} ${item.unit}` : `Still need: ${diff > 0 ? diff : target} ${item.unit}`}</span>
+                                        <span className="text-[10px] font-bold text-orange-500">⚠️ 还需: {diff > 0 ? diff : target}</span>
                                     )}
                                 </div>
                             )}
@@ -2354,40 +2354,33 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                 {visibleItems.length === 0 && <p className="text-center text-gray-400 py-10">{lang === 'zh' ? '暂无需要备料的项目' : 'No items to prep.'}</p>}
             </div>
 
-            {/* 💡 底部：悬浮任务总结面板 */}
-            <div className="bg-white border-t border-gray-200 shadow-[0_-15px_30px_rgba(0,0,0,0.06)] shrink-0 pb-safe">
-                <div className="px-4 py-3 bg-blue-50/50 border-b border-blue-100 flex items-center justify-between">
-                    <div className="shrink-0 mr-4">
-                        <p className="text-xs font-bold text-blue-800 flex items-center gap-1"><Icon name="ListTodo" size={14} /> {lang === 'zh' ? '今日备料状态' : 'Task Summary'}</p>
-                        <p className="text-[10px] text-blue-600 mt-0.5">
-                            {missingTasks.length === 0 
-                                ? (lang === 'zh' ? '🎉 所有任务已清零！' : '🎉 All targets met!')
-                                : (lang === 'zh' ? `还有 ${missingTasks.length} 项未达标` : `${missingTasks.length} tasks remaining`)}
-                        </p>
+            {/* 💡 底部：悬浮任务总结面板与提交按钮 */}
+            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+                {/* 只有在后台设置了 Target 的前提下，才显示缺少的任务提醒 */}
+                {visibleItems.some((i:any) => parseFloat(i.target || '0') > 0) && (
+                    <div className="mb-3">
+                        {missingTasks.length === 0 ? (
+                            <p className="text-xs font-bold text-green-600 flex items-center gap-1">🎉 所有目标已达成！</p>
+                        ) : (
+                            <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar pb-1">
+                                <span className="text-[10px] font-bold text-gray-500 shrink-0">缺料:</span>
+                                {missingTasks.map((pt: any) => {
+                                    const t = parseFloat(pt.target || '0');
+                                    const a = parseFloat(invData[pt.id]?.end || '0');
+                                    const d = parseFloat((t - a).toFixed(2));
+                                    return (
+                                        <span key={pt.id} className="inline-block bg-orange-50 text-orange-600 border border-orange-100 text-[10px] px-1.5 py-0.5 rounded font-bold">
+                                            {getLoc(pt.name)} 差 {d}
+                                        </span>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
-                    
-                    {/* 滑动列表：展示具体缺什么 */}
-                    {missingTasks.length > 0 && (
-                        <div className="flex-1 overflow-x-auto whitespace-nowrap custom-scrollbar flex gap-2 pb-1 fade-in">
-                            {missingTasks.map((pt: any) => {
-                                const t = parseFloat(pt.target || '0');
-                                const a = parseFloat(invData[pt.id]?.end || '0');
-                                const d = parseFloat((t - a).toFixed(2));
-                                return (
-                                    <span key={pt.id} className="inline-block bg-white border border-orange-200 text-orange-600 text-[10px] px-2 py-1 rounded font-bold shadow-sm">
-                                        {getLoc(pt.name)} 还需 {d}
-                                    </span>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-                
-                <div className="p-4">
-                    <button onClick={handleSubmit} className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-transform hover:bg-blue-700">
-                        <Icon name="Save" size={18} /> {lang === 'zh' ? '确认并提交' : 'Submit Report'}
-                    </button>
-                </div>
+                )}
+                <button onClick={handleSubmit} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 hover:bg-blue-700">
+                    <Icon name="Save" size={20} /> {lang === 'zh' ? '提交备料记录' : 'Submit Report'}
+                </button>
             </div>
         </div>
     );
@@ -4600,6 +4593,7 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                                                     if(!window.confirm("Mark this ticket as RESOLVED?")) return;
                                                     const updated = data.repairRequests.map((r:any) => r.id === ticket.id ? {...r, status: 'resolved', resolvedAt: Date.now()} : r);
                                                     data.setRepairRequests(updated);
+                                                    // 💡 修复：经理点击解决后，立刻同步给云端全网！
                                                     if (Cloud.updateRepairRequests) Cloud.updateRepairRequests(updated);
                                                 }} 
                                                 className="bg-orange-500 hover:bg-orange-400 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-md transition-all active:scale-95"
