@@ -2206,7 +2206,7 @@ function StaffManagementView({ data }: any) {
 }
 
 // ============================================================================
-// 恢复版组件: 日常盘点与备料 (InventoryView) [维持原UI，仅增加计算与总结]
+// 恢复版组件: 日常盘点与备料 (InventoryView) [支持周一到周日独立 Target + 任务总结]
 // ============================================================================
 function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInventoryList, onSubmit, onCancel, currentUser, isOwner }: any) {
     const [invData, setInvData] = useState<Record<string, { end: string }>>({});
@@ -2227,13 +2227,32 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
         localStorage.setItem(draftKey, JSON.stringify(invData));
     }, [invData, draftKey, isOwner]);
 
-    // ---------------- 👑 OWNER 模式：店长配置盘点目标 (保持不变) ----------------
+    // 💡 获取今天是周几
+    const todayDay = new Date().getDay(); // 0 = Sun, 1 = Mon... 6 = Sat
+    const dayNames = lang === 'zh' ? ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // 💡 辅助函数：智能获取某项“今天”的 Target
+    const getTodayTarget = (item: any) => {
+        // 如果有按星期设置的 targets，优先读今天的；否则降级读以前的老 target 字段（完美兼容老数据）
+        if (item.targets && item.targets[todayDay] !== undefined && item.targets[todayDay] !== '') {
+            return parseFloat(item.targets[todayDay]);
+        }
+        return parseFloat(item.target || '0');
+    };
+
+    // ---------------- 👑 OWNER 模式：店长配置盘点目标 ----------------
     if (isOwner) {
-        const addItem = () => setEditList([...editList, { id: `item_${Date.now()}`, name: { zh: '', en: '' }, unit: 'g', target: '0' }]);
+        const addItem = () => setEditList([...editList, { id: `item_${Date.now()}`, name: { zh: '', en: '' }, unit: 'L', targets: {0:'', 1:'', 2:'', 3:'', 4:'', 5:'', 6:''} }]);
         const updateItem = (idx: number, field: string, val: string) => {
             const n = [...editList];
             if (field === 'zh' || field === 'en') n[idx].name[field] = val;
             else n[idx][field] = val;
+            setEditList(n);
+        };
+        const updateTarget = (idx: number, day: number, val: string) => {
+            const n = [...editList];
+            if (!n[idx].targets) n[idx].targets = { 0:'', 1:'', 2:'', 3:'', 4:'', 5:'', 6:'' };
+            n[idx].targets[day] = val;
             setEditList(n);
         };
         const delItem = (idx: number) => { if(window.confirm("Delete item?")) setEditList(editList.filter((_, i) => i !== idx)); };
@@ -2242,33 +2261,41 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
             <div className="bg-dark-surface p-4 rounded-xl border border-white/10 space-y-4 animate-fade-in h-full flex flex-col">
                 <div className="flex justify-between items-center shrink-0">
                     <div>
-                        <h3 className="text-white font-bold text-sm">Prep Target Configuration</h3>
-                        <p className="text-[10px] text-gray-400">Set standard prep amounts for this branch.</p>
+                        <h3 className="text-white font-bold text-sm">Prep Target Config</h3>
+                        <p className="text-[10px] text-gray-400">Set daily prep amounts for this branch.</p>
                     </div>
                     <button onClick={() => { onUpdateInventoryList(editList); alert(lang === 'zh' ? '✅ 盘点目标已存入云端' : '✅ Targets saved to cloud'); }} className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-bold shadow-lg hover:bg-green-500 flex items-center gap-1"><Icon name="Save" size={14}/> Save Config</button>
                 </div>
                 <div className="space-y-3 overflow-y-auto flex-1 pr-2 custom-scrollbar">
-                    {editList.map((item, idx) => (
-                        <div key={item.id} className="flex gap-2 items-center bg-dark-bg p-3 rounded-lg border border-white/5">
-                            <div className="flex-1 space-y-2">
-                                <div className="flex gap-2">
-                                    <input value={item.name.zh} onChange={e=>updateItem(idx,'zh',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-xs border border-white/10 focus:border-blue-500 outline-none" placeholder="中文名 (e.g. 珍珠)" />
-                                    <input value={item.name.en} onChange={e=>updateItem(idx,'en',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-xs border border-white/10 focus:border-blue-500 outline-none" placeholder="EN Name" />
-                                </div>
-                                <div className="flex gap-2">
-                                    <div className="flex-1 flex items-center gap-2 bg-dark-surface rounded border border-white/10 px-2">
-                                        <span className="text-[10px] text-gray-400 uppercase font-bold w-12">Target</span>
-                                        <input type="number" value={item.target || ''} onChange={e=>updateItem(idx,'target',e.target.value)} className="flex-1 bg-transparent text-white p-1.5 text-xs outline-none font-mono" placeholder="Amount" />
-                                    </div>
-                                    <div className="flex-1 flex items-center gap-2 bg-dark-surface rounded border border-white/10 px-2">
-                                        <span className="text-[10px] text-gray-400 uppercase font-bold w-10">Unit</span>
-                                        <input value={item.unit || ''} onChange={e=>updateItem(idx,'unit',e.target.value)} className="flex-1 bg-transparent text-white p-1.5 text-xs outline-none" placeholder="g / bag" />
-                                    </div>
-                                </div>
+                    {editList.map((item, idx) => {
+                        // 兼容老数据：如果老数据没有 targets 数组，就把旧的 target 赋给每天作为默认值
+                        const tgs = item.targets || { 0: item.target||'', 1: item.target||'', 2: item.target||'', 3: item.target||'', 4: item.target||'', 5: item.target||'', 6: item.target||'' };
+                        
+                        return (
+                        <div key={item.id} className="flex flex-col gap-2 bg-dark-bg p-3 rounded-lg border border-white/5">
+                            <div className="flex gap-2 items-center">
+                                <input value={item.name.zh} onChange={e=>updateItem(idx,'zh',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-xs border border-white/10 focus:border-blue-500 outline-none" placeholder="中文名 (e.g. 珍珠)" />
+                                <input value={item.name.en} onChange={e=>updateItem(idx,'en',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-xs border border-white/10 focus:border-blue-500 outline-none" placeholder="EN Name" />
+                                <input value={item.unit || ''} onChange={e=>updateItem(idx,'unit',e.target.value)} className="w-16 bg-dark-surface text-white p-2 rounded text-xs border border-white/10 focus:border-blue-500 outline-none text-center" placeholder="Unit" />
+                                <button onClick={()=>delItem(idx)} className="p-2 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"><Icon name="Trash" size={16}/></button>
                             </div>
-                            <button onClick={()=>delItem(idx)} className="p-3 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors h-full"><Icon name="Trash" size={16}/></button>
+                            {/* 💡 7天目标动态输入网格 */}
+                            <div className="grid grid-cols-7 gap-1 mt-1">
+                                {dayNames.map((dName, dIdx) => (
+                                    <div key={dIdx} className="flex flex-col items-center">
+                                        <span className={`text-[9px] mb-0.5 ${dIdx === 0 || dIdx === 6 ? 'text-orange-400 font-bold' : 'text-gray-400'}`}>{dName}</span>
+                                        <input 
+                                            type="number" 
+                                            value={tgs[dIdx]} 
+                                            onChange={e => updateTarget(idx, dIdx, e.target.value)}
+                                            className="w-full bg-dark-surface text-white p-1 text-center text-xs border border-white/10 rounded outline-none focus:border-blue-500 font-mono" 
+                                            placeholder="-"
+                                        />
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    ))}
+                    )})}
                     <button onClick={addItem} className="w-full py-3 border-2 border-dashed border-white/10 rounded-lg text-dark-text-light text-xs font-bold hover:text-white hover:border-white/30 transition-all">+ Add New Prep Item</button>
                 </div>
             </div>
@@ -2291,7 +2318,7 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
 
     // 计算当前所有尚未达标的物料任务
     const missingTasks = visibleItems.filter((pt: any) => {
-        const targetAmount = parseFloat(pt.target || '0');
+        const targetAmount = getTodayTarget(pt);
         if (targetAmount <= 0) return false;
         const actualStr = invData[pt.id]?.end;
         const actualAmount = actualStr ? parseFloat(actualStr) : 0;
@@ -2300,18 +2327,19 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
 
     return (
         <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
-            {/* 原有样式的顶部 */}
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3 shrink-0">
                 <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
                 <h2 className="text-xl font-black text-blue-600 flex items-center gap-2">
                     <Icon name="Package" size={20} /> {lang === 'zh' ? '今日备料任务' : 'Daily Prep Tasks'}
                 </h2>
+                <div className="ml-auto text-xs font-bold bg-blue-50 text-blue-600 px-2 py-1 rounded">
+                    {dayNames[todayDay]}
+                </div>
             </div>
 
-            {/* 中间：恢复原有干净样式的列表 */}
             <div className="p-4 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
                 {visibleItems.map((item: any) => {
-                    const target = parseFloat(item.target || '0');
+                    const target = getTodayTarget(item);
                     const actualStr = invData[item.id]?.end;
                     const actual = actualStr ? parseFloat(actualStr) : 0;
                     const hasInput = actualStr !== undefined && actualStr !== '';
@@ -2323,8 +2351,10 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                             <div className="flex items-center justify-between">
                                 <div className="flex-1 min-w-0">
                                     <div className="font-bold text-gray-800 text-sm truncate">{getLoc(item.name)}</div>
-                                    <div className="text-[10px] text-gray-400 mt-0.5">
-                                        单位: {item.unit} {target > 0 && `| 目标: ${target}`}
+                                    <div className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-2">
+                                        <span>单位: {item.unit}</span>
+                                        {/* 自动显示今天的目标量 */}
+                                        {target > 0 && <span className="bg-blue-50 text-blue-500 px-1.5 py-0.5 rounded font-bold">{dayNames[todayDay]}目标: {target}</span>}
                                     </div>
                                 </div>
                                 <div className="flex gap-2 items-center">
@@ -2338,7 +2368,6 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                                 </div>
                             </div>
                             
-                            {/* 💡 克制的差额提示：只在目标大于0时显示，且只占极小空间 */}
                             {target > 0 && (
                                 <div className="flex justify-end animate-fade-in">
                                     {isDone ? (
@@ -2354,18 +2383,16 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                 {visibleItems.length === 0 && <p className="text-center text-gray-400 py-10">{lang === 'zh' ? '暂无需要备料的项目' : 'No items to prep.'}</p>}
             </div>
 
-            {/* 💡 底部：悬浮任务总结面板与提交按钮 */}
             <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-                {/* 只有在后台设置了 Target 的前提下，才显示缺少的任务提醒 */}
-                {visibleItems.some((i:any) => parseFloat(i.target || '0') > 0) && (
+                {visibleItems.some((i:any) => getTodayTarget(i) > 0) && (
                     <div className="mb-3">
                         {missingTasks.length === 0 ? (
-                            <p className="text-xs font-bold text-green-600 flex items-center gap-1">🎉 所有目标已达成！</p>
+                            <p className="text-xs font-bold text-green-600 flex items-center gap-1">🎉 {lang === 'zh' ? '今日所有目标已达成！' : 'All targets met!'}</p>
                         ) : (
                             <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar pb-1">
-                                <span className="text-[10px] font-bold text-gray-500 shrink-0">缺料:</span>
+                                <span className="text-[10px] font-bold text-gray-500 shrink-0">{lang === 'zh' ? '缺料:' : 'Missing:'}</span>
                                 {missingTasks.map((pt: any) => {
-                                    const t = parseFloat(pt.target || '0');
+                                    const t = getTodayTarget(pt);
                                     const a = parseFloat(invData[pt.id]?.end || '0');
                                     const d = parseFloat((t - a).toFixed(2));
                                     return (
