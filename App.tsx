@@ -4237,9 +4237,30 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                         <h4 className="font-black text-gray-800">{ticket.item}</h4>
                                     </div>
                                 </div>
-                                <div className="bg-orange-50 p-2 rounded-lg mb-3">
-                                    <p className="text-xs text-orange-800 line-clamp-2 italic">"{ticket.issues?.join('、') || ticket.notes}"</p>
+                                
+                                {/* 💡 完美替换的部分：让勾选的问题和手写备注同时显示 */}
+                                <div className="bg-orange-50 p-3 rounded-lg mb-3 space-y-2">
+                                    {/* 1. 显示勾选的具体问题 */}
+                                    {ticket.issues?.length > 0 && (
+                                        <div className="flex items-start gap-1.5">
+                                            <span className="text-orange-600 text-xs font-bold shrink-0">📍</span>
+                                            <p className="text-xs text-orange-800 font-black leading-relaxed">
+                                                {Array.isArray(ticket.issues) ? ticket.issues.join('、') : ticket.issues}
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* 2. 显示文字备注（如果有的话） */}
+                                    {ticket.notes && (
+                                        <div className={`flex items-start gap-1.5 ${ticket.issues?.length > 0 ? 'pt-2 border-t border-orange-200/50' : ''}`}>
+                                            <span className="text-orange-500 text-xs shrink-0">📝</span>
+                                            <p className="text-xs text-orange-700 italic leading-relaxed">
+                                                {ticket.notes}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
+                                
                                 <div className="flex justify-between items-center">
                                     <span className="text-[10px] text-gray-500 font-bold">From: {ticket.submittedBy} • {new Date(ticket.date).toLocaleDateString()}</span>
                                     <button 
