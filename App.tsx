@@ -3007,19 +3007,26 @@ function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStor
     const [isAddingManualLog, setIsAddingManualLog] = useState(false);
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
-    // 💡 监听新报修工单并触发报警弹窗
+    // 💡 实时监听新报修工单并弹窗 (加入备注详情显示)
     const prevRepairsLength = useRef(data.repairRequests?.length || 0);
     useEffect(() => {
         const currentLen = data.repairRequests?.length || 0;
         if (currentLen > prevRepairsLength.current) {
             const newTicket = data.repairRequests[currentLen - 1];
             if ((newTicket.storeId || 'default_store') === adminStoreId) {
-                showNotification({ type: 'announcement', title: '🚨 新异常提报', message: `${newTicket.submittedBy} 提交了关于 [${newTicket.item}] 的报修，请处理！`, sticky: true });
+                // 判断员工是否写了备注，如果有就加上去
+                const notesInfo = newTicket.notes ? `\n📝 备注: ${newTicket.notes}` : '';
+                
+                showNotification({ 
+                    type: 'announcement', 
+                    title: '🚨 新异常提报 (New Ticket)', 
+                    message: `${newTicket.submittedBy} 提报了关于 [${newTicket.item}] 的异常。${notesInfo}`, 
+                    sticky: true 
+                });
             }
         }
         prevRepairsLength.current = currentLen;
     }, [data.repairRequests, adminStoreId, showNotification]);
-
     // ==========================================
     // 🛡️ 经理后台严格分店数据隔离
     // ==========================================
@@ -4360,14 +4367,22 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
     // 判断是否为大老板 (可以切换任意门店)
     const isBoss = adminMode === 'owner' || currentUser?.role === 'boss';
 
-    // 💡 实时监听新报修工单并弹窗 (挪到这里就绝对安全了！！)
+    // 💡 实时监听新报修工单并弹窗 (加入备注详情显示)
     const prevRepairsLength = useRef(data.repairRequests?.length || 0);
     useEffect(() => {
         const currentLen = data.repairRequests?.length || 0;
         if (currentLen > prevRepairsLength.current) {
             const newTicket = data.repairRequests[currentLen - 1];
             if ((newTicket.storeId || 'default_store') === adminStoreId) {
-                showNotification({ type: 'announcement', title: '🚨 新异常提报 (New Ticket)', message: `${newTicket.submittedBy} 提交了关于 [${newTicket.item}] 的报修，请前往 Tickets 查看！`, sticky: true });
+                // 判断员工是否写了备注，如果有就加上去
+                const notesInfo = newTicket.notes ? `\n📝 备注: ${newTicket.notes}` : '';
+                
+                showNotification({ 
+                    type: 'announcement', 
+                    title: '🚨 新异常提报 (New Ticket)', 
+                    message: `${newTicket.submittedBy} 提报了关于 [${newTicket.item}] 的异常。${notesInfo}`, 
+                    sticky: true 
+                });
             }
         }
         prevRepairsLength.current = currentLen;
