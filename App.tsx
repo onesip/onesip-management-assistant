@@ -4208,6 +4208,7 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                             if(!window.confirm(lang === 'zh' ? "确认此问题已解决？" : "Mark as resolved?")) return;
                                             const updated = data.repairRequests.map((r:any) => r.id === ticket.id ? {...r, status: 'resolved', resolvedAt: Date.now()} : r);
                                             data.setRepairRequests(updated);
+                                            if (typeof Cloud !== 'undefined' && Cloud.updateRepairRequests) Cloud.updateRepairRequests(updated);
                                             showNotification({ type: 'message', title: 'Task Completed', message: '报修单已归档。' });
                                         }}
                                         className="bg-orange-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-md hover:bg-orange-600 active:scale-95 transition-all"
