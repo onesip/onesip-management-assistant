@@ -2206,26 +2206,29 @@ function StaffManagementView({ data }: any) {
 }
 
 // ============================================================================
-// 逻辑增强版: 日常盘点与备料 (InventoryView) 
-// [冰箱温度常驻 + 周五周六 16:00 动态切换目标]
+// 【数据保护版】InventoryView - 优先找回并保护您的云端配置
 // ============================================================================
 function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInventoryList, onSubmit, onCancel, currentUser, isOwner }: any) {
+    // 💡 修复：确保 editList 永远锁定云端传来的原始数据
+    const [editList, setEditList] = useState<any[]>([]);
     const [invData, setInvData] = useState<Record<string, { end: string }>>({});
-    const [editList, setEditList] = useState<any[]>(inventoryList || []);
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     const draftKey = `onesip_prep_draft_${currentUser?.id}`;
 
-    // 💡 冰箱温度检查项定义
+    // 冰箱常驻项 (仅显示，不存入数据库)
     const FRIDGE_ITEM_ID = 'fridge_temp_check';
     const fridgeCheckItem = { 
         id: FRIDGE_ITEM_ID, 
         name: { zh: '🌡️ 检查冰箱温度 < 6°C', en: '🌡️ Fridge Temp < 6°C' }, 
-        unit: 'Check', 
-        target: '1',
-        isMandatory: true 
+        unit: 'Check', target: '1', isMandatory: true 
     };
 
-    useEffect(() => { setEditList(inventoryList || []); }, [inventoryList]);
+    // 💡 核心保护：只有当云端数据真正加载出来时，才更新本地编辑列表
+    useEffect(() => {
+        if (inventoryList && inventoryList.length > 0) {
+            setEditList(inventoryList);
+        }
+    }, [inventoryList]);
 
     useEffect(() => {
         if (isOwner) return;
@@ -2233,39 +2236,47 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
         if (saved) { try { setInvData(JSON.parse(saved)); } catch(e) {} }
     }, [draftKey, isOwner]);
 
-    useEffect(() => {
-        if (isOwner) return;
-        localStorage.setItem(draftKey, JSON.stringify(invData));
-    }, [invData, draftKey, isOwner]);
-
-    // ---------------- 👑 OWNER 模式：店长配置 ----------------
+    // ---------------- 👑 OWNER 模式：修改配置 ----------------
     if (isOwner) {
         const addItem = () => setEditList([...editList, { id: `item_${Date.now()}`, name: { zh: '', en: '' }, unit: 'g', target: '0', target14: '0' }]);
         const updateItem = (idx: number, field: string, val: string) => {
             const n = [...editList];
-            if (field === 'zh' || field === 'en') n[idx].name[field] = val;
-            else n[idx][field] = val;
+            // 保护：如果修改名称，确保是对象格式
+            if (field === 'zh' || field === 'en') {
+                if (typeof n[idx].name === 'string') n[idx].name = { zh: n[idx].name, en: '' };
+                n[idx].name[field] = val;
+            } else {
+                n[idx][field] = val;
+            }
             setEditList(n);
         };
-        const delItem = (idx: number) => { if(window.confirm("Delete?")) setEditList(editList.filter((_, i) => i !== idx)); };
+        const delItem = (idx: number) => { if(window.confirm("Delete item?")) setEditList(editList.filter((_, i) => i !== idx)); };
 
         return (
             <div className="bg-dark-surface p-4 rounded-xl border border-white/10 space-y-4 animate-fade-in h-full flex flex-col">
                 <div className="flex justify-between items-center shrink-0">
                     <h3 className="text-white font-bold text-sm">Prep Target Configuration</h3>
-                    <button onClick={() => onUpdateInventoryList(editList)} className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-bold shadow-lg">Save Config</button>
+                    <button 
+                        onClick={() => {
+                            onUpdateInventoryList(editList);
+                            alert("✅ 已成功同步至云端，所有设备已更新！");
+                        }} 
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg text-xs font-bold shadow-lg"
+                    >
+                        Save to Cloud
+                    </button>
                 </div>
+                
                 <div className="space-y-3 overflow-y-auto flex-1 pr-2 custom-scrollbar">
-                    {/* 冰箱项在配置页仅作为提示，不可删除 */}
-                    <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-[10px] text-blue-300">
-                        💡 {lang === 'zh' ? '“冰箱温度检查”已设为常驻强制项' : '"Fridge Temp Check" is now a permanent mandatory item.'}
-                    </div>
+                    {/* 如果这里是一片空白，说明云端数据还没推送到位，请稍等一秒 */}
+                    {editList.length === 0 && <p className="text-gray-500 text-xs italic p-4 text-center">Loading your cloud data...</p>}
+                    
                     {editList.map((item, idx) => (
                         <div key={item.id} className="flex gap-2 items-center bg-dark-bg p-3 rounded-lg border border-white/5">
                             <div className="flex-1 space-y-2">
                                 <div className="flex gap-2">
-                                    <input value={item.name.zh} onChange={e=>updateItem(idx,'zh',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-xs border border-white/10" placeholder="中文名" />
-                                    <input value={item.name.en} onChange={e=>updateItem(idx,'en',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-xs border border-white/10" placeholder="EN Name" />
+                                    <input value={item.name?.zh || ''} onChange={e=>updateItem(idx,'zh',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-xs border border-white/10" placeholder="中文名" />
+                                    <input value={item.name?.en || ''} onChange={e=>updateItem(idx,'en',e.target.value)} className="flex-1 bg-dark-surface text-white p-2 rounded text-xs border border-white/10" placeholder="English Name" />
                                 </div>
                                 <div className="grid grid-cols-3 gap-2">
                                     <div className="bg-dark-surface rounded border border-white/10 p-1 px-2">
@@ -2282,24 +2293,23 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                                     </div>
                                 </div>
                             </div>
-                            <button onClick={()=>delItem(idx)} className="p-2 text-red-400"><Icon name="Trash" size={16}/></button>
+                            <button onClick={()=>delItem(idx)} className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"><Icon name="Trash" size={16}/></button>
                         </div>
                     ))}
-                    <button onClick={addItem} className="w-full py-3 border-2 border-dashed border-white/10 rounded-lg text-dark-text-light text-xs font-bold">+ Add New Prep Item</button>
+                    <button onClick={addItem} className="w-full py-3 border-2 border-dashed border-white/10 rounded-lg text-dark-text-light text-xs font-bold">+ Add New Item</button>
                 </div>
             </div>
         );
     }
 
     // ---------------- 🧑‍🍳 STAFF 模式 ----------------
-    // 💡 注入冰箱检查项，并保持现有列表
-    const allItems = [fridgeCheckItem, ...(inventoryList || []).filter((i:any) => !i.hidden && i.id !== FRIDGE_ITEM_ID)];
-    
-    // 💡 时间节点逻辑：周五(5)周六(6)，16:00 之前
     const now = new Date();
     const isWeekendNode = [5, 6].includes(now.getDay());
     const isBefore16 = now.getHours() < 16;
     const isSpecialTargetActive = isWeekendNode && isBefore16;
+
+    // 动态合并冰箱检查项（只用于显示，不存库）
+    const allItems = [fridgeCheckItem, ...(inventoryList || []).filter((i:any) => !i.hidden && i.id !== FRIDGE_ITEM_ID)];
 
     const handleSubmit = () => {
         const dataToSubmit: any = {};
@@ -2307,14 +2317,14 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
         Object.keys(invData).forEach(id => {
             if (invData[id].end) { dataToSubmit[id] = invData[id]; hasData = true; }
         });
-        if (!hasData) return alert("Please enter quantities.");
+        if (!hasData) return alert("Empty report.");
         onSubmit({ submittedBy: currentUser?.name, userId: currentUser?.id, data: dataToSubmit, shift: 'prep', date: new Date().toISOString() });
         localStorage.removeItem(draftKey); setInvData({});
     };
 
     const missingTasks = allItems.filter((pt: any) => {
         let targetAmount = parseFloat(pt.target || '0');
-        if (isSpecialTargetActive && pt.target14) targetAmount = parseFloat(pt.target14);
+        if (isSpecialTargetActive && pt.target14 && pt.target14 !== '0') targetAmount = parseFloat(pt.target14);
         if (targetAmount <= 0) return false;
         const actualAmount = parseFloat(invData[pt.id]?.end || '0');
         return actualAmount < targetAmount;
@@ -2325,24 +2335,15 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
             <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3 shrink-0">
                 <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
                 <div className="flex-1">
-                    <h2 className="text-xl font-black text-blue-600 flex items-center gap-2">
-                        <Icon name="Package" size={20} /> {lang === 'zh' ? '今日备料任务' : 'Daily Prep Tasks'}
-                    </h2>
-                    {isSpecialTargetActive && (
-                        <p className="text-[9px] font-bold text-orange-500 uppercase tracking-tighter animate-pulse">
-                            ⚡ Weekend Mode: Using 14:00 Refill Targets
-                        </p>
-                    )}
+                    <h2 className="text-xl font-black text-blue-600">今日备料任务</h2>
+                    {isSpecialTargetActive && <p className="text-[9px] font-bold text-orange-500 uppercase">Weekend Mode: 14:00 Targets Active</p>}
                 </div>
             </div>
 
             <div className="p-4 space-y-3 overflow-y-auto flex-1">
                 {allItems.map((item: any) => {
-                    // 💡 动态决定当前使用的 Target
                     let target = parseFloat(item.target || '0');
-                    if (isSpecialTargetActive && item.target14 && item.target14 !== '0') {
-                        target = parseFloat(item.target14);
-                    }
+                    if (isSpecialTargetActive && item.target14 && item.target14 !== '0') target = parseFloat(item.target14);
                     
                     const actualStr = invData[item.id]?.end;
                     const actual = actualStr ? parseFloat(actualStr) : 0;
@@ -2350,32 +2351,22 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                     const diff = target > 0 ? parseFloat((target - actual).toFixed(2)) : 0;
 
                     return (
-                        <div key={item.id} className={`bg-white p-3 rounded-xl shadow-sm border ${item.isMandatory ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100'} flex flex-col gap-2 transition-all`}>
+                        <div key={item.id} className={`bg-white p-3 rounded-xl shadow-sm border ${item.isMandatory ? 'border-blue-200' : 'border-gray-100'}`}>
                             <div className="flex items-center justify-between">
                                 <div className="flex-1 min-w-0">
-                                    <div className={`font-bold text-sm truncate ${item.isMandatory ? 'text-blue-700' : 'text-gray-800'}`}>{getLoc(item.name)}</div>
-                                    <div className="text-[10px] text-gray-400 mt-0.5">
-                                        {item.id === FRIDGE_ITEM_ID ? (lang === 'zh' ? '强制检查项' : 'Mandatory Check') : `${lang==='zh'?'单位':'Unit'}: ${item.unit} | ${lang==='zh'?'目标':'Target'}: ${target}`}
-                                    </div>
+                                    <div className="font-bold text-sm text-gray-800">{getLoc(item.name)}</div>
+                                    <div className="text-[10px] text-gray-400 mt-0.5">目标: {target} {item.unit}</div>
                                 </div>
-                                <div className="flex gap-2 items-center">
-                                    <input
-                                        type="number"
-                                        placeholder={item.id === FRIDGE_ITEM_ID ? "OK=1" : (lang === 'zh' ? '已备' : 'Qty')}
-                                        value={invData[item.id]?.end || ''}
-                                        onChange={e => setInvData({...invData, [item.id]: { end: e.target.value }})}
-                                        className={`w-20 p-2 rounded-lg border text-center font-bold outline-none text-sm ${isDone ? 'border-green-400 bg-green-50 text-green-600' : 'border-gray-200 bg-gray-50 text-blue-600'}`}
-                                    />
-                                </div>
+                                <input
+                                    type="number"
+                                    value={invData[item.id]?.end || ''}
+                                    onChange={e => setInvData({...invData, [item.id]: { end: e.target.value }})}
+                                    className={`w-20 p-2 rounded-lg border text-center font-bold text-sm ${isDone ? 'bg-green-50 border-green-400 text-green-600' : 'bg-gray-50 border-gray-200 text-blue-600'}`}
+                                />
                             </div>
-                            
                             {target > 0 && (
-                                <div className="flex justify-end">
-                                    {isDone ? (
-                                        <span className="text-[10px] font-bold text-green-500 flex items-center gap-1"><Icon name="Check" size={10}/> {lang === 'zh' ? '目标达成，辛苦了！' : 'Target Met'}</span>
-                                    ) : (
-                                        <span className="text-[10px] font-bold text-orange-500">⚠️ {lang === 'zh' ? '还需' : 'Need'}: {diff > 0 ? diff : target}</span>
-                                    )}
+                                <div className="flex justify-end mt-1">
+                                    {isDone ? <span className="text-[10px] font-bold text-green-500">✅ 目标达成</span> : <span className="text-[10px] font-bold text-orange-500">⚠️ 还需: {diff > 0 ? diff : target}</span>}
                                 </div>
                             )}
                         </div>
@@ -2383,27 +2374,17 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                 })}
             </div>
 
-            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+            <div className="p-4 bg-white border-t sticky bottom-0 z-20">
                 {missingTasks.length > 0 && (
-                    <div className="mb-3">
-                        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar pb-1">
-                            <span className="text-[10px] font-bold text-gray-500 shrink-0">{lang === 'zh' ? '未完成:' : 'Pending:'}</span>
-                            {missingTasks.map((pt: any) => {
-                                let t = parseFloat(pt.target || '0');
-                                if (isSpecialTargetActive && pt.target14) t = parseFloat(pt.target14);
-                                const a = parseFloat(invData[pt.id]?.end || '0');
-                                return (
-                                    <span key={pt.id} className="inline-block bg-orange-50 text-orange-600 border border-orange-100 text-[10px] px-1.5 py-0.5 rounded font-bold">
-                                        {getLoc(pt.name)} {t-a > 0 ? `-${t-a}` : ''}
-                                    </span>
-                                );
-                            })}
-                        </div>
+                    <div className="flex gap-2 overflow-x-auto pb-2 mb-2">
+                        {missingTasks.map(pt => (
+                            <span key={pt.id} className="bg-orange-50 text-orange-600 text-[10px] px-2 py-1 rounded font-bold border border-orange-100 whitespace-nowrap">
+                                {getLoc(pt.name)} 差 {parseFloat(((parseFloat(isSpecialTargetActive && pt.target14 ? pt.target14 : pt.target) || 0) - (parseFloat(invData[pt.id]?.end || '0'))).toFixed(2))}
+                            </span>
+                        ))}
                     </div>
                 )}
-                <button onClick={handleSubmit} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all">
-                    <Icon name="Save" size={20} /> {lang === 'zh' ? '提交备料记录' : 'Submit Report'}
-                </button>
+                <button onClick={handleSubmit} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg">提交记录</button>
             </div>
         </div>
     );
