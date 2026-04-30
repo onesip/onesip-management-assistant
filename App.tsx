@@ -1669,7 +1669,7 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
 // ============================================================================
 // 组件: 内容编辑器 (Editor Dashboard) - 支持视频直链文案 + 分店动态推送
 // ============================================================================
-const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
+function EditorDashboard({ data, onExit }: { data: any, onExit: () => void }) {
     // 💡 提取了 stores (分店数据)，用于渲染选择列表
     const { sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t, stores = [] } = data;
     const [view, setView] = useState<'training' | 'sop' | 'recipes'>('training');
