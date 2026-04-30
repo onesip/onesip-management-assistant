@@ -3690,10 +3690,6 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     } = data;
     const { showNotification } = useNotification();
 
-    // 💡 核心：根据当前员工所在的分店 ID，过滤出属于该店的配方
-    const scopedRecipes = (recipes || []).filter((r: any) => 
-        r.storeIds?.includes(myStoreId)
-    );
     const [view, setView] = useState<StaffViewMode>('home');
     const [currentShift, setCurrentShift] = useState<string>('opening'); 
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
