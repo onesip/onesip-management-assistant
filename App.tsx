@@ -1667,10 +1667,11 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
     );
 }
 // ============================================================================
-// 组件: 内容编辑器 (Editor Dashboard) - 支持视频直链文案
+// 组件: 内容编辑器 (Editor Dashboard) - 支持视频直链文案 + 分店动态推送
 // ============================================================================
 const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) => {
-    const { sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t } = data;
+    // 💡 提取了 stores (分店数据)，用于渲染选择列表
+    const { sopList, setSopList, trainingLevels, setTrainingLevels, recipes, setRecipes, t, stores = [] } = data;
     const [view, setView] = useState<'training' | 'sop' | 'recipes'>('training');
     const [editingItem, setEditingItem] = useState<any>(null);
     const [isProcessingPdf, setIsProcessingPdf] = useState(false);
@@ -1694,7 +1695,15 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
         }
     };
 
-    const createNewItem = () => { const id = `item_${Date.now()}`; if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', imageUrls: [], content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]}, isNew: false, coverImageUrl: '', tutorialVideoUrl: '', basePreparation: {zh: '', en: ''}, isPublished: true, createdAt: new Date().toISOString(), recipeType: 'product' }; return {}; };
+    // 💡 新建配方时，加入 storeIds: [] 字段
+    const createNewItem = () => { 
+        const id = `item_${Date.now()}`; 
+        if (view === 'training') return { id, title: {zh:'',en:''}, subtitle: {zh:'',en:''}, desc: {zh:'',en:''}, youtubeLink: '', imageUrls: [], content: [{title:{zh:'',en:''}, body:{zh:'',en:''}}], quiz: [] }; 
+        if (view === 'sop') return { id, title: {zh:'',en:''}, content: {zh:'',en:''}, tags: [], category: 'General' }; 
+        if (view === 'recipes') return { id, name: {zh:'',en:''}, cat: 'Milk Tea', size: '500ml', ice: 'Standard', sugar: '100%', toppings: {zh:'',en:''}, steps: {cold:[], warm:[]}, isNew: false, coverImageUrl: '', tutorialVideoUrl: '', basePreparation: {zh: '', en: ''}, isPublished: true, createdAt: new Date().toISOString(), recipeType: 'product', storeIds: [] }; 
+        return {}; 
+    };
+
     const handleSave = async () => {
         if (!editingItem) return;
 
@@ -1744,6 +1753,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
             } catch (error: any) { alert(error.message); }
         } else { setEditingItem(null); }
     };
+    
     const handleDelete = (id: string) => { if(!window.confirm("Delete this item?")) return; if (view === 'sop') { const list = sopList.filter((i:any) => i.id !== id); setSopList(list); Cloud.saveContent('sops', list); } else if (view === 'training') { const list = trainingLevels.filter((i:any) => i.id !== id); setTrainingLevels(list); Cloud.saveContent('training', list); } else { const list = recipes.filter((i:any) => i.id !== id); setRecipes(list); Cloud.saveContent('recipes', list); } };
     
     const handleMoveRecipe = (indexToMove: number, direction: 'up' | 'down') => {
@@ -1815,6 +1825,17 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
         } catch (err) { alert("Error processing PDF."); } finally { setIsProcessingPdf(false); }
     };
 
+    // 💡 处理分店勾选/取消勾选的函数
+    const toggleStore = (storeId: string) => {
+        setEditingItem((prev: any) => {
+            const currentIds = prev.storeIds || [];
+            const newIds = currentIds.includes(storeId) 
+                ? currentIds.filter((id: string) => id !== storeId)
+                : [...currentIds, storeId];
+            return { ...prev, storeIds: newIds };
+        });
+    };
+
     const renderEditorFields = () => {
         if (!editingItem) return null;
         if (view === 'training') { 
@@ -1861,16 +1882,7 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                 <div><label className="block text-xs font-bold text-dark-accent/70 mb-1">CONTENT (ZH)</label><textarea className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm h-40 font-mono" value={editingItem.content?.zh || ''} onChange={e => setEditingItem({...editingItem, content: {...(editingItem.content || {zh:'', en:''}), zh: e.target.value}})} /></div>
             </div>); 
         }
-        // 💡 新增：SOP 培训模块的渲染
-        if (view === 'training' as any && activeFeatures.training) {
-            return (
-                <TrainingView 
-                    lang={lang} 
-                    sopList={sopList} 
-                    onCancel={() => setView('home')} 
-                />
-            );
-        }
+        
         if (view === 'recipes') { 
             return (<div className="space-y-4">
                 <div className="flex justify-end">
@@ -1879,11 +1891,30 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                         <input type="file" accept="application/pdf" className="hidden" onChange={handlePdfUpload} disabled={isProcessingPdf} />
                     </label>
                 </div>
+
+                {/* 💡 核心：配方推送至分店选择区 */}
+                <div className="border-t border-white/10 pt-4 mt-4">
+                    <h4 className="text-xs font-bold text-dark-accent mb-2 uppercase flex items-center gap-2">
+                        <Icon name="Store" size={14}/> 推送至分店 (Push to Branches)
+                    </h4>
+                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                        {stores.map((s: any) => {
+                            const isSelected = (editingItem.storeIds || []).includes(s.id);
+                            return (
+                                <label key={s.id} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${isSelected ? 'bg-dark-accent/10 border-dark-accent/40 text-white shadow-sm' : 'bg-dark-surface border-white/5 text-gray-500 hover:border-white/20'}`}>
+                                    <span className="text-sm font-bold">{s.name}</span>
+                                    <input type="checkbox" checked={isSelected} onChange={() => toggleStore(s.id)} className="accent-dark-accent w-4 h-4" />
+                                </label>
+                            );
+                        })}
+                        {stores.length === 0 && <p className="text-xs text-gray-500 italic p-2 bg-white/5 rounded">请先在管理后台添加分店</p>}
+                    </div>
+                </div>
+
                  <div className="border-t border-white/10 pt-4 mt-2">
                     <h4 className="text-xs font-bold text-green-400 mb-2 uppercase">Display Assets (Optional)</h4>
                     <div><label className="text-[10px] uppercase font-bold text-dark-text-light">Cover Image URL</label><input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://..." value={editingItem.coverImageUrl || ''} onChange={e => setEditingItem({...editingItem, coverImageUrl: e.target.value})} /></div>
                     
-                    {/* 【修改点】：文案更新为 MP4 / YouTube */}
                     <div className="mt-2">
                         <label className="text-[10px] uppercase font-bold text-dark-text-light">Tutorial Video URL (MP4 / YouTube)</label>
                         <input className="w-full bg-dark-bg border border-white/10 p-2 rounded text-sm" placeholder="https://... (.mp4 link or YouTube)" value={editingItem.tutorialVideoUrl || ''} onChange={e => setEditingItem({...editingItem, tutorialVideoUrl: e.target.value})} />
@@ -1995,7 +2026,20 @@ const EditorDashboard = ({ data, onExit }: { data: any, onExit: () => void }) =>
                        <button onClick={() => setEditingItem(createNewItem())} className="w-full py-4 border-2 border-dashed border-white/20 rounded-xl text-dark-text-light font-bold hover:border-dark-accent hover:text-dark-accent transition-all">+ Add New Item</button>
                        {(view === 'training' ? trainingLevels : view === 'sop' ? sopList : sortedRecipesForDisplay).map((item: any, index: number) => (
                            <div key={item.id} className="bg-dark-surface p-4 rounded-xl flex justify-between items-center border border-white/10 hover:border-white/20 transition-all">
-                               <div><h3 className="font-bold text-sm text-dark-text">{item.title?.en || item.name?.en}</h3><p className="text-xs text-dark-text-light font-mono">{item.id}</p></div>
+                               <div>
+                                   <h3 className="font-bold text-sm text-dark-text">{item.title?.en || item.name?.en}</h3>
+                                   <p className="text-xs text-dark-text-light font-mono">{item.id}</p>
+                                   
+                                   {/* 💡 这里会在列表展示出该配方已被推送到哪些分店 */}
+                                   {view === 'recipes' && (
+                                       <div className="flex flex-wrap gap-1 mt-2">
+                                           {stores.filter((s:any) => item.storeIds?.includes(s.id)).map((s:any) => (
+                                               <span key={s.id} className="text-[9px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/20">{s.name}</span>
+                                           ))}
+                                           {(!item.storeIds || item.storeIds.length === 0) && <span className="text-[9px] text-red-400 italic">未推送到任何分店</span>}
+                                       </div>
+                                   )}
+                               </div>
                                <div className="flex gap-2">
                                    {view === 'recipes' && (
                                        <>
@@ -3646,6 +3690,10 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     } = data;
     const { showNotification } = useNotification();
 
+    // 💡 核心：根据当前员工所在的分店 ID，过滤出属于该店的配方
+    const scopedRecipes = (recipes || []).filter((r: any) => 
+        r.storeIds?.includes(myStoreId)
+    );
     const [view, setView] = useState<StaffViewMode>('home');
     const [currentShift, setCurrentShift] = useState<string>('opening'); 
     const [hasUnreadChat, setHasUnreadChat] = useState(false);
@@ -3979,6 +4027,8 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                   
         if (view === 'recipes' && activeFeatures.recipes) {
              const filteredRecipes = recipes
+                // 💡 新增拦截：如果没有设置分店(全员可见)，或者当前分店ID在允许列表内，才显示
+                .filter((r: any) => !r.storeIds || r.storeIds.length === 0 || r.storeIds.includes(myStoreId))
                 .filter((r: DrinkRecipe) => r.isPublished !== false)
                 .filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType)))
                 .filter((r: DrinkRecipe) => r.name.en.toLowerCase().includes(recipeSearchQuery.toLowerCase()) || r.name.zh.includes(recipeSearchQuery));
