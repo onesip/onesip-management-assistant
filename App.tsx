@@ -3043,65 +3043,68 @@ const ManualLogModal = ({ isOpen, onClose, onSave, users }: any) => {
 // ============================================================================
 // 组件 5: 经理后台 (Manager Dashboard) - [100% 数据隔离与防错修复版]
 // ============================================================================
-function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStoreId: string, onExit: () => void }) {
+// ============================================================================
+// 组件 5: 经理后台 (Manager Dashboard) - [新增 Manager 自动锁定指定分店]
+// ============================================================================
+function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
     const { showNotification } = useNotification();
     const safeUsers = Array.isArray(data.users) ? data.users : [];
-    const managerUser = safeUsers.find((u:User) => u && u.id === 'u_lambert') || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
+    
+    // 💡 核心新增：自动锁定逻辑
+    // 1. 查找当前登录的经理被分配到了哪个分店
+    const myAssignedStore = data.stores?.find((s:any) => s.staff?.includes(currentUser?.id));
+    // 2. 强行锁定：如果是 Manager，就用他专属的店；如果是 Boss 测试看面板，就用传进来的店
+    const realStoreId = (currentUser?.role === 'manager' && myAssignedStore) ? myAssignedStore.id : adminStoreId;
+
+    const managerUser = safeUsers.find((u:User) => u && u.id === currentUser?.id) || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
     const { schedule, setSchedule, logs, setLogs, t, swapRequests, users, scheduleCycles, setScheduleCycles, stores, notices } = data;
     
     const today = new Date();
     const [view, setView] = useState<'schedule' | 'logs' | 'financial' | 'requests' | 'confirmations'>('schedule');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' | 'all' } | null>(null);
-    const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem(`onesip_budget_max_${adminStoreId}`)) || 5000);
+    const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem(`onesip_budget_max_${realStoreId}`)) || 5000);
     const [financialMonth, setFinancialMonth] = useState(new Date().toISOString().slice(0, 7)); 
     const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
 
     const [isAddingManualLog, setIsAddingManualLog] = useState(false);
     const [logToInvalidate, setLogToInvalidate] = useState<LogEntry | null>(null);
     const [logPairToAdjust, setLogPairToAdjust] = useState<{ inLog: LogEntry, outLog: LogEntry } | null>(null);
-    // 💡 实时监听新报修工单并弹窗 (加入备注详情显示)
+    
     const prevRepairsLength = useRef(data.repairRequests?.length || 0);
     useEffect(() => {
         const currentLen = data.repairRequests?.length || 0;
         if (currentLen > prevRepairsLength.current) {
             const newTicket = data.repairRequests[currentLen - 1];
-            if ((newTicket.storeId || 'default_store') === adminStoreId) {
-                // 判断员工是否写了备注，如果有就加上去
+            if ((newTicket.storeId || 'default_store') === realStoreId) {
                 const notesInfo = newTicket.notes ? `\n📝 备注: ${newTicket.notes}` : '';
-                
-                showNotification({ 
-                    type: 'announcement', 
-                    title: '🚨 新异常提报 (New Ticket)', 
-                    message: `${newTicket.submittedBy} 提报了关于 [${newTicket.item}] 的异常。${notesInfo}`, 
-                    sticky: true 
-                });
+                showNotification({ type: 'announcement', title: '🚨 新异常提报', message: `${newTicket.submittedBy} 提报了关于 [${newTicket.item}] 的异常。${notesInfo}`, sticky: true });
             }
         }
         prevRepairsLength.current = currentLen;
-    }, [data.repairRequests, adminStoreId, showNotification]);
+    }, [data.repairRequests, realStoreId, showNotification]);
+
     // ==========================================
     // 🛡️ 经理后台严格分店数据隔离
     // ==========================================
     const getStoreId = (item: any) => item.storeId || 'default_store';
     
-    const scopedSchedule = { days: (schedule?.days || []).filter((d:any) => getStoreId(d) === adminStoreId) };
-    const scopedLogs = (logs || []).filter((l:any) => getStoreId(l) === adminStoreId);
-    const scopedSwapRequests = (swapRequests || []).filter((r:any) => getStoreId(r) === adminStoreId);
+    const scopedSchedule = { days: (schedule?.days || []).filter((d:any) => getStoreId(d) === realStoreId) };
+    const scopedLogs = (logs || []).filter((l:any) => getStoreId(l) === realStoreId);
+    const scopedSwapRequests = (swapRequests || []).filter((r:any) => getStoreId(r) === realStoreId);
     
-    // 只保留被分配到当前门店的员工
-    const activeStore = stores?.find((s:any) => s.id === adminStoreId);
+    const activeStore = stores?.find((s:any) => s.id === realStoreId);
     const branchStaffIds = activeStore?.staff || [];
     const scopedUsers = safeUsers.filter((u:User) => branchStaffIds.includes(u.id) || u.role === 'boss');
 
     const [wages, setWages] = useState<Record<string, { type: 'hourly'|'fixed', value: number }>>(() => {
-        const saved = localStorage.getItem(`onesip_wages_v3_${adminStoreId}`);
+        const saved = localStorage.getItem(`onesip_wages_v3_${realStoreId}`);
         if (saved) return JSON.parse(saved);
         const def: any = {};
         scopedUsers.forEach((m: User) => { if (m) def[m.name] = { type: 'hourly', value: 12 }; });
         return def;
     });
 
-    const saveWages = (newWages: any) => { setWages(newWages); localStorage.setItem(`onesip_wages_v3_${adminStoreId}`, JSON.stringify(newWages)); };
+    const saveWages = (newWages: any) => { setWages(newWages); localStorage.setItem(`onesip_wages_v3_${realStoreId}`, JSON.stringify(newWages)); };
     const validStaffNames = new Set(scopedUsers.filter((u:User)=>u).map((u: User) => u.name));
     const normalizeName = (name: string) => name ? name.trim() : "Unknown";
 
@@ -3121,7 +3124,7 @@ function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStor
     });
 
     const totalWeeks = Math.ceil(displayedDays.length / 7);
-    const activeStaff = scopedUsers.filter((u: User) => u && u.active !== false); // 用于编辑排班和手动补卡
+    const activeStaff = scopedUsers.filter((u: User) => u && u.active !== false);
 
     const handleUpdateLogs = async (updatedLogs: LogEntry[]) => {
         try { await Cloud.updateLogs(updatedLogs); } catch (e) { console.error(e); alert("Error saving logs."); }
@@ -3164,13 +3167,12 @@ function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStor
         const { dayIdx } = editingShift; 
         const targetDay = displayedDays[dayIdx];
         
-        // 隔离保存：过滤掉属于当前门店的同一天，用新的覆盖，保持其他门店数据不动
-        const otherStoreDays = (schedule.days || []).filter((d:any) => !(d.date === targetDay.date && getStoreId(d) === adminStoreId));
-        const updatedDay = { ...targetDay, shifts: updatedShifts, storeId: adminStoreId, morning: [], evening: [], night: [] };
+        const otherStoreDays = (schedule.days || []).filter((d:any) => !(d.date === targetDay.date && getStoreId(d) === realStoreId));
+        const updatedDay = { ...targetDay, shifts: updatedShifts, storeId: realStoreId, morning: [], evening: [], night: [] };
         const newSched = { ...schedule, days: [...otherStoreDays, updatedDay] };
         
         setSchedule(newSched); 
-        Cloud.saveSchedule(newSched); 
+        if (typeof Cloud !== 'undefined' && Cloud.saveSchedule) Cloud.saveSchedule(newSched); 
         setEditingShift(null); 
     };
 
@@ -3181,21 +3183,20 @@ function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStor
         const year = new Date().getFullYear();
         const startISO = `${year}-${startDate.split('-').map((p:string)=>p.padStart(2,'0')).join('-')}`;
         const endISO = `${year}-${endDate.split('-').map((p:string)=>p.padStart(2,'0')).join('-')}`;
-        const cycleId = `${startISO}_${endISO}_${adminStoreId}`;
+        const cycleId = `${startISO}_${endISO}_${realStoreId}`;
         const confirmations: any = {};
         activeStaff.forEach((u: User) => { confirmations[u.id] = { status: 'pending', viewed: false }; });
         
-        const newCycle = { cycleId, storeId: adminStoreId, startDate: startISO, endDate: endISO, publishedAt: new Date().toISOString(), status: 'published', confirmations, snapshot: {} };
+        const newCycle = { cycleId, storeId: realStoreId, startDate: startISO, endDate: endISO, publishedAt: new Date().toISOString(), status: 'published', confirmations, snapshot: {} };
         const updatedCycles = (scheduleCycles || []).filter((c: ScheduleCycle) => c && c.cycleId !== cycleId);
         updatedCycles.push(newCycle);
-        await Cloud.updateScheduleCycles(updatedCycles);
+        if (typeof Cloud !== 'undefined' && Cloud.updateScheduleCycles) await Cloud.updateScheduleCycles(updatedCycles);
         if (setScheduleCycles) setScheduleCycles(updatedCycles);
         
-        // 【修复 Invalid Date 报错】：自动发布包含正确 Date 的排班公告，并绑定当前门店
         const newNotice = { 
             id: Date.now().toString(), 
             type: 'announcement', 
-            storeId: adminStoreId, 
+            storeId: realStoreId, 
             title: "📅 New Schedule", 
             content: `Schedule ${startDate} to ${endDate} is live. Please confirm.`, 
             date: new Date().toISOString(),
@@ -3203,7 +3204,7 @@ function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStor
             author: managerUser.name || 'Manager', 
             frequency: 'once' 
         };
-        await Cloud.updateNotices([...(notices || []), newNotice]);
+        if (typeof Cloud !== 'undefined' && Cloud.updateNotices) await Cloud.updateNotices([...(notices || []), newNotice]);
         
         showNotification({ type: 'message', title: 'Published!', message: `Schedule published for this branch.`});
     };
@@ -3216,7 +3217,7 @@ function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStor
         const dayIndex = newSchedule.days.findIndex((d: ScheduleDay) => {
             const dKey = d.date.split('-').map(n => parseInt(n, 10)).join('-');
             const rKey = req.requesterDate.split('-').map(n => parseInt(n, 10)).join('-');
-            return dKey === rKey && getStoreId(d) === adminStoreId;
+            return dKey === rKey && getStoreId(d) === realStoreId;
         });
         
         if (dayIndex === -1) return;
@@ -3228,17 +3229,17 @@ function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStor
              day[req.requesterShift] = day[req.requesterShift].map((n:string) => n === req.requesterName ? req.targetName : n);
         }
         try {
-            await Cloud.saveSchedule(newSchedule);
+            if (typeof Cloud !== 'undefined' && Cloud.saveSchedule) await Cloud.saveSchedule(newSchedule);
             const updatedReqs = swapRequests.map((r: SwapRequest) => r.id === reqId ? { ...r, status: 'completed', appliedToSchedule: true } : r);
-            await Cloud.updateSwapRequests(updatedReqs);
+            if (typeof Cloud !== 'undefined' && Cloud.updateSwapRequests) await Cloud.updateSwapRequests(updatedReqs);
             showNotification({type: 'message', title: "Success", message: "Swap applied."});
         } catch(e) { console.error(e); }
     };
 
     const handleSaveManualLog = (inLog: LogEntry, outLog: LogEntry) => {
-        const scopedInLog = { ...inLog, storeId: adminStoreId };
-        const scopedOutLog = { ...outLog, storeId: adminStoreId };
-        Cloud.saveLog(scopedInLog); Cloud.saveLog(scopedOutLog);
+        const scopedInLog = { ...inLog, storeId: realStoreId };
+        const scopedOutLog = { ...outLog, storeId: realStoreId };
+        if (typeof Cloud !== 'undefined' && Cloud.saveLog) { Cloud.saveLog(scopedInLog); Cloud.saveLog(scopedOutLog); }
         setIsAddingManualLog(false); alert('Manual record added.');
     };
 
@@ -3341,7 +3342,7 @@ function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStor
 
     const { stats, totalEstCost, totalActualCost, totalHourlyEst, totalHourlyAct, totalFixed } = calculateFinancials();
 
-    const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem(`onesip_budget_max_${adminStoreId}`, b.toString()); };
+    const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem(`onesip_budget_max_${realStoreId}`, b.toString()); };
 
     const handleExportFinancialCSV = () => {
         let csv = "FINANCIAL SUMMARY REPORT\n";
@@ -3399,7 +3400,7 @@ function ManagerDashboard({ data, adminStoreId, onExit }: { data: any, adminStor
     const currentCycle = (scheduleCycles || []).find((c: ScheduleCycle) => {
         if (!c) return false;
         const start = new Date(c.startDate); const end = new Date(c.endDate);
-        return today >= start && today <= end && getStoreId(c) === adminStoreId;
+        return today >= start && today <= end && getStoreId(c) === realStoreId;
     });
 
     const visibleLogs = scopedLogs.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
@@ -4524,7 +4525,12 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                 <button onClick={() => setView('main')} className="bg-white/10 px-4 py-2 rounded-lg text-white font-bold text-xs">Back to Admin</button>
             </div>
             <div className="flex-1 overflow-hidden">
-                <ManagerDashboard data={data} adminStoreId={adminStoreId} onExit={() => setView('main')} />
+                <ManagerDashboard 
+                    data={data} 
+                    adminStoreId={adminStoreId} 
+                    currentUser={currentUser} // 👈 仅增加这一行
+                    onExit={() => setView('home')} 
+                />
             </div>
         </div>
     );
