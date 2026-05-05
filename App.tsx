@@ -4608,22 +4608,28 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
     return (
         <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
             <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
-                <div className="flex items-center gap-4">
-                    <h1 className="text-xl font-black tracking-tight text-white hidden md:block">Admin Panel</h1>
-                    
-                    {/* 💡 升级版分店选择器：老板看所有店，经理只能看自己的店 */}
-                    <select 
-                        value={adminStoreId} 
-                        onChange={e => setAdminStoreId(e.target.value)}
-                        disabled={!canSwitchStore}
-                        className={`bg-dark-bg border border-white/20 rounded-lg px-3 py-2 text-white font-bold outline-none focus:border-dark-accent text-sm shadow-inner ${!canSwitchStore ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                    >
-                        {safeStores
-                            .filter((s: any) => isBoss || myManagerStoreIds.includes(s.id))
-                            .map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)
-                        }
-                    </select>
-                </div>
+                  <div className="flex items-center gap-4">
+                      <h1 className="text-xl font-black tracking-tight text-white hidden md:block">Admin Panel</h1>
+                      
+                      {/* 💡 智能 UI 升级：能切店的显示下拉菜单，不能切店的显示高级徽章 */}
+                      {canSwitchStore ? (
+                          <select 
+                              value={adminStoreId} 
+                              onChange={e => setAdminStoreId(e.target.value)}
+                              className="bg-dark-bg border border-white/20 rounded-lg px-3 py-2 text-white font-bold outline-none focus:border-dark-accent text-sm shadow-inner cursor-pointer"
+                          >
+                              {safeStores
+                                  .filter((s: any) => isBoss || myManagerStoreIds.includes(s.id))
+                                  .map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)
+                              }
+                          </select>
+                      ) : (
+                          <div className="bg-dark-bg/50 border border-white/10 rounded-lg px-4 py-2 text-white font-bold text-sm flex items-center gap-2 shadow-inner">
+                              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                              {safeStores.find((s:any) => s.id === adminStoreId)?.name || 'Loading Branch...'}
+                          </div>
+                      )}
+                  </div>
                 <div className="flex gap-2">
                     <button onClick={() => setView('manager')} className="bg-blue-600/20 text-blue-400 p-2 rounded hover:bg-blue-600/30 transition-all text-xs font-bold px-3">Manager Mode</button>
                     <button onClick={onExit} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20 transition-all"><Icon name="LogOut" /></button>
