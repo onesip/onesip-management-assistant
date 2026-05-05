@@ -4496,6 +4496,20 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
     // 判断是否为大老板 (可以切换任意门店)
     const isBoss = adminMode === 'owner' || currentUser?.role === 'boss';
 
+    // 💡 新增计算：获取当前登录经理管辖的所有分店ID
+    const myManagerStoreIds = (currentUser?.role === 'manager' && currentUser.storeRoles) 
+        ? Object.keys(currentUser.storeRoles).filter(id => currentUser.storeRoles[id] === 'manager') 
+        : [];
+
+    // 💡 智能锁定逻辑：如果登录的是 Manager，强行将后台分店切换为他负责的分店！
+    useEffect(() => {
+        if (!isBoss && myManagerStoreIds.length > 0) {
+            if (!myManagerStoreIds.includes(adminStoreId)) {
+                setAdminStoreId(myManagerStoreIds[0]); // 强制切回他管辖的第一家店
+            }
+        }
+    }, [isBoss, myManagerStoreIds, adminStoreId]);
+
     // 💡 实时监听新报修工单并弹窗 (加入备注详情显示)
     const prevRepairsLength = useRef(data.repairRequests?.length || 0);
     useEffect(() => {
@@ -4581,25 +4595,33 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                 <ManagerDashboard 
                     data={data} 
                     adminStoreId={adminStoreId} 
-                    currentUser={currentUser} // 👈 仅增加这一行
+                    currentUser={currentUser}
                     onExit={() => setView('home')} 
                 />
             </div>
         </div>
     );
     
+    // 💡 动态判断是否允许切换门店：老板或者管辖超过1家店的区域经理
+    const canSwitchStore = isBoss || myManagerStoreIds.length > 1;
+
     return (
         <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
             <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
                 <div className="flex items-center gap-4">
                     <h1 className="text-xl font-black tracking-tight text-white hidden md:block">Admin Panel</h1>
+                    
+                    {/* 💡 升级版分店选择器：老板看所有店，经理只能看自己的店 */}
                     <select 
                         value={adminStoreId} 
                         onChange={e => setAdminStoreId(e.target.value)}
-                        disabled={!isBoss}
-                        className={`bg-dark-bg border border-white/20 rounded-lg px-3 py-2 text-white font-bold outline-none focus:border-dark-accent text-sm shadow-inner ${!isBoss ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                        disabled={!canSwitchStore}
+                        className={`bg-dark-bg border border-white/20 rounded-lg px-3 py-2 text-white font-bold outline-none focus:border-dark-accent text-sm shadow-inner ${!canSwitchStore ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
-                        {safeStores.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        {safeStores
+                            .filter((s: any) => isBoss || myManagerStoreIds.includes(s.id))
+                            .map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)
+                        }
                     </select>
                 </div>
                 <div className="flex gap-2">
