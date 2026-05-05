@@ -4487,28 +4487,22 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
     // ==========================================
     const safeStores = Array.isArray(stores) && stores.length > 0 ? stores : [{ id: 'default_store', name: 'Main Store', staff: [], features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true, repair: true } }];
     
-    // 识别当前登录员工属于哪个门店
-    const myStore = currentUser ? safeStores.find((s:any) => s.staff?.includes(currentUser.id)) : null;
-    const initialStoreId = myStore ? myStore.id : safeStores[0].id;
-    
-    const [adminStoreId, setAdminStoreId] = useState(initialStoreId);
-
     // 判断是否为大老板 (可以切换任意门店)
     const isBoss = adminMode === 'owner' || currentUser?.role === 'boss';
 
-    // 💡 新增计算：获取当前登录经理管辖的所有分店ID
+    // 💡 精准计算：获取当前登录经理管辖的所有分店ID
     const myManagerStoreIds = (currentUser?.role === 'manager' && currentUser.storeRoles) 
         ? Object.keys(currentUser.storeRoles).filter(id => currentUser.storeRoles[id] === 'manager') 
         : [];
 
-    // 💡 智能锁定逻辑：如果登录的是 Manager，强行将后台分店切换为他负责的分店！
-    useEffect(() => {
-        if (!isBoss && myManagerStoreIds.length > 0) {
-            if (!myManagerStoreIds.includes(adminStoreId)) {
-                setAdminStoreId(myManagerStoreIds[0]); // 强制切回他管辖的第一家店
-            }
-        }
-    }, [isBoss, myManagerStoreIds, adminStoreId]);
+    // 💡 一步到位：组件加载时，直接精准定位他的专属门店，不再中间跳转！
+    const [adminStoreId, setAdminStoreId] = useState(() => {
+        if (isBoss) return safeStores[0]?.id; // 老板默认看第一家店
+        if (myManagerStoreIds.length > 0) return myManagerStoreIds[0]; // 经理优先进入他管辖的店
+        // 兼容旧数据：如果还没配置权限，但他在那家店的 staff 列表里
+        const legacyStore = safeStores.find((s:any) => s.staff?.includes(currentUser?.id));
+        return legacyStore ? legacyStore.id : safeStores[0]?.id;
+    });
 
     // 💡 实时监听新报修工单并弹窗 (加入备注详情显示)
     const prevRepairsLength = useRef(data.repairRequests?.length || 0);
