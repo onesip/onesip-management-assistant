@@ -2282,30 +2282,22 @@ function StaffManagementView({ data }: any) {
 
 // ============================================================================
 // 终极加固版: 盘点与备料 (InventoryView) 
-// [100% 还原排版 + 数据持久化保存 + 周末16:00动态切换]
+// [修复周六0值Bug + 仅支持周五/周六 14:00 目标]
 // ============================================================================
 function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInventoryList, onSubmit, onCancel, currentUser, isOwner }: any) {
-    // 💡 状态定义：invData 用于存储填写的补货量
     const [invData, setInvData] = useState<Record<string, { end: string }>>({});
     const [editList, setEditList] = useState<any[]>([]);
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-    
-    // 💡 本地草稿唯一标识符 (根据用户ID隔离，防止多人混用)
     const draftKey = `onesip_prep_draft_v2_${currentUser?.id || 'default'}`;
 
-    // 核心数据备份（防止云端波动）
+    // 核心数据模板（仅包含周五/六 14:00 的独立目标字段）
     const RECOVERED_DATA = [
         { id: 'r_1', name: { zh: '奶精', en: 'Creamer' }, targets: [7, 7, 7, 7, 7, 20, 12.5], targetFri14: 10, targetSat14: 0, unit: 'L' },
         { id: 'r_2', name: { zh: '茉莉绿茶', en: 'Jasmine Tea' }, targets: [12, 12, 12, 12, 12, 24, 20], targetFri14: 16, targetSat14: 8, unit: 'L' },
         { id: 'r_3', name: { zh: '红茶', en: 'Black Tea' }, targets: [8, 8, 8, 8, 8, 16, 12], targetFri14: 8, targetSat14: 4, unit: 'L' },
         { id: 'r_4', name: { zh: '桂花乌龙', en: 'Osmanthus Tea' }, targets: [8, 8, 8, 8, 8, 12, 8], targetFri14: 6, targetSat14: 0, unit: 'L' },
-        { id: 'r_5', name: { zh: '山茶花乌龙', en: 'Camellia Tea' }, targets: [0, 0, 0, 0, 0, 0, 0], targetFri14: 0, targetSat14: 0, unit: 'L' },
         { id: 'r_6', name: { zh: '芝士奶盖', en: 'Cheese Foam' }, targets: [1.5, 1, 1, 1, 1, 3, 2], targetFri14: 1, targetSat14: 0, unit: 'bucket' },
-        { id: 'r_7', name: { zh: '抹茶云顶', en: 'Matcha Cloud' }, targets: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], targetFri14: 0.5, targetSat14: 0, unit: 'bucket' },
-        { id: 'r_8', name: { zh: '芋泥奶盖', en: 'Taro Foam' }, targets: [1, 1, 1, 1, 1, 2, 2], targetFri14: 1, targetSat14: 0, unit: 'bucket' },
         { id: 'r_9', name: { zh: '火龙果预拌液', en: 'Dragon Fruit' }, targets: [3, 3, 3, 3, 3, 6, 3], targetFri14: 3, targetSat14: 0, unit: 'L' },
-        { id: 'r_10', name: { zh: '香芋预拌液', en: 'Taro' }, targets: [3, 3, 3, 3, 3, 6, 3], targetFri14: 3, targetSat14: 0, unit: 'L' },
-        { id: 'r_11', name: { zh: '泰奶预拌液', en: 'Thai' }, targets: [3, 3, 3, 3, 3, 6, 3], targetFri14: 3, targetSat14: 0, unit: 'L' },
         { id: 'r_12', name: { zh: '椰子预拌液', en: 'Coconut' }, targets: [3, 3, 3, 3, 3, 6, 6], targetFri14: 3, targetSat14: 3, unit: 'L' },
         { id: 'r_13', name: { zh: '马蹄爆爆珠', en: 'water chestnut' }, targets: [2, 2, 2, 2, 2, 2, 2], targetFri14: 2, targetSat14: 2, unit: 'kg' }
     ];
@@ -2313,20 +2305,13 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
     const FRIDGE_ITEM_ID = 'fridge_temp_check';
     const fridgeCheckItem = { id: FRIDGE_ITEM_ID, name: { zh: '🌡️ 检查冰箱温度 < 6°C', en: '🌡️ Fridge Temp < 6°C' }, unit: 'Check', isMandatory: true };
 
-    // 💡 1. 组件加载时：尝试恢复本地储存的草稿
     useEffect(() => {
         if (!isOwner) {
             const savedDraft = localStorage.getItem(draftKey);
-            if (savedDraft) {
-                try {
-                    const parsed = JSON.parse(savedDraft);
-                    setInvData(parsed);
-                } catch (e) { console.error("Draft recovery failed", e); }
-            }
+            if (savedDraft) { try { setInvData(JSON.parse(savedDraft)); } catch (e) {} }
         }
     }, [draftKey, isOwner]);
 
-    // 💡 2. 数据变动时：实时自动同步到本地储存
     useEffect(() => {
         if (!isOwner && Object.keys(invData).length > 0) {
             localStorage.setItem(draftKey, JSON.stringify(invData));
@@ -2341,7 +2326,7 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
         }
     }, [inventoryList]);
 
-    // ---------------- 👑 OWNER 模式：配置界面 (100% 还原排版) ----------------
+    // ---------------- 👑 OWNER 模式 (后台排版) ----------------
     if (isOwner) {
         const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
         const updateItem = (idx: number, field: string, val: string) => {
@@ -2384,9 +2369,10 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                                     </div>
                                 ))}
                             </div>
-                            <div className="flex items-center gap-4">
-                                <div className="flex items-center gap-2"><span className="text-[11px] text-[#e08e36] font-black uppercase">FRI 14:00:</span><input type="number" value={item.targetFri14 || ''} onChange={e=>updateItem(idx,'targetFri14',e.target.value)} className="w-16 bg-[#23323a] text-center text-gray-200 py-2 rounded-md text-sm outline-none border border-orange-500/20" /></div>
-                                <div className="flex items-center gap-2"><span className="text-[11px] text-[#e08e36] font-black uppercase">SAT 14:00:</span><input type="number" value={item.targetSat14 || ''} onChange={e=>updateItem(idx,'targetSat14',e.target.value)} className="w-16 bg-[#23323a] text-center text-gray-200 py-2 rounded-md text-sm outline-none border border-orange-500/20" /></div>
+                            {/* 💡 只保留周五/六的14:00目标 */}
+                            <div className="flex items-center gap-3 overflow-x-auto pb-1">
+                                <div className="flex items-center gap-1 shrink-0"><span className="text-[10px] text-[#e08e36] font-black uppercase">FRI 14:00:</span><input type="number" value={item.targetFri14 ?? ''} onChange={e=>updateItem(idx,'targetFri14',e.target.value)} className="w-12 bg-[#23323a] text-center text-gray-200 py-1.5 rounded text-xs outline-none border border-orange-500/20" /></div>
+                                <div className="flex items-center gap-1 shrink-0"><span className="text-[10px] text-[#e08e36] font-black uppercase">SAT 14:00:</span><input type="number" value={item.targetSat14 ?? ''} onChange={e=>updateItem(idx,'targetSat14',e.target.value)} className="w-12 bg-[#23323a] text-center text-gray-200 py-1.5 rounded text-xs outline-none border border-orange-500/20" /></div>
                             </div>
                             <button onClick={()=> {if(window.confirm("Delete?")) setEditList(editList.filter((_, i) => i !== idx));}} className="absolute -right-2 -top-2 bg-red-500/80 text-white p-1.5 rounded-full"><Icon name="X" size={12}/></button>
                         </div>
@@ -2396,6 +2382,112 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
             </div>
         );
     }
+
+    // ---------------- 🧑‍🍳 STAFF 模式 (手机端逻辑) ----------------
+    const allItems = [fridgeCheckItem, ...(editList).filter((i:any) => !i.hidden && i.id !== FRIDGE_ITEM_ID)];
+    const now = new Date();
+    const currentDayIndex = now.getDay(); // 0(Sun) - 6(Sat)
+    const currentHour = now.getHours();
+    
+    // 💡 判定当前是否处于 早班补料时段 (周五/周六 16:00之前)
+    const isFri14Active = currentDayIndex === 5 && currentHour < 16;
+    const isSat14Active = currentDayIndex === 6 && currentHour < 16;
+    const isEarlyRefillActive = isFri14Active || isSat14Active;
+
+    const getDynamicTarget = (item: any) => {
+        if (item.id === FRIDGE_ITEM_ID) return 1;
+        
+        // 💡 修复重点：明确判断 undefined 和 空字符串。哪怕填的是 0 也要执行返回 0 的逻辑！
+        if (isFri14Active && item.targetFri14 !== undefined && item.targetFri14 !== '') return parseFloat(item.targetFri14);
+        if (isSat14Active && item.targetSat14 !== undefined && item.targetSat14 !== '') return parseFloat(item.targetSat14);
+        
+        // 平时或者过了16:00，返回全天数组目标
+        return item.targets ? parseFloat(item.targets[currentDayIndex] || '0') : 0;
+    };
+
+    const handleSubmit = () => {
+        const dataToSubmit: any = {};
+        let hasData = false;
+        Object.keys(invData).forEach(id => {
+            if (invData[id].end) { dataToSubmit[id] = invData[id]; hasData = true; }
+        });
+        if (!hasData) return alert("请填写数据后再提交。");
+        onSubmit({ submittedBy: currentUser?.name, userId: currentUser?.id, data: dataToSubmit, shift: 'prep', date: new Date().toISOString() });
+        localStorage.removeItem(draftKey); 
+        setInvData({});
+        alert("✅ 提交成功！");
+    };
+
+    const missingTasks = allItems.filter((pt: any) => {
+        const target = getDynamicTarget(pt);
+        if (target <= 0) return false;
+        const actual = parseFloat(invData[pt.id]?.end || '0');
+        return actual < target;
+    });
+
+    return (
+        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
+            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3 shrink-0">
+                <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
+                <div className="flex-1">
+                    <h2 className="text-xl font-black text-blue-600">今日备料任务</h2>
+                    {isEarlyRefillActive && <p className="text-[10px] font-bold text-orange-500 uppercase">⚡ 16:00前：早班补料目标已激活</p>}
+                </div>
+            </div>
+
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                {allItems.map((item: any) => {
+                    const target = getDynamicTarget(item);
+                    const actualStr = invData[item.id]?.end;
+                    const actual = actualStr ? parseFloat(actualStr) : 0;
+                    const isDone = target > 0 && actualStr !== undefined && actualStr !== '' && actual >= target;
+                    const diff = target > 0 ? parseFloat((target - actual).toFixed(2)) : 0;
+
+                    return (
+                        <div key={item.id} className={`bg-white p-4 rounded-xl shadow-sm border ${item.isMandatory ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100'}`}>
+                            <div className="flex items-center justify-between">
+                                <div className="flex-1 min-w-0">
+                                    <div className={`font-bold text-sm ${item.isMandatory ? 'text-blue-700' : 'text-gray-800'}`}>{getLoc(item.name)}</div>
+                                    <div className="text-[10px] text-gray-400 mt-0.5">
+                                        目标: {target} {item.unit || 'L'}
+                                    </div>
+                                </div>
+                                <input
+                                    type="number"
+                                    placeholder='已备'
+                                    value={invData[item.id]?.end || ''}
+                                    onChange={e => setInvData({...invData, [item.id]: { end: e.target.value }})}
+                                    className={`w-20 p-2 text-center font-bold text-base rounded-lg border outline-none ${isDone ? 'border-green-400 bg-green-50 text-green-600' : 'border-blue-200 bg-blue-50 text-blue-800'}`}
+                                />
+                            </div>
+                            {target > 0 && (
+                                <div className="flex justify-end mt-2">
+                                    {isDone ? <span className="text-[10px] font-bold text-green-500">✅ 目标达成</span> : <span className="text-[10px] font-bold text-orange-500">⚠️ 还需: {diff > 0 ? diff : target}</span>}
+                                </div>
+                            )}
+                        </div>
+                    )
+                })}
+            </div>
+
+            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+                <div className="mb-3">
+                    {missingTasks.length === 0 ? <p className="text-xs font-bold text-green-600">🎉 所有任务已清零！</p> : (
+                        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar pb-1">
+                            <span className="text-[10px] font-bold text-gray-500 shrink-0">缺料:</span>
+                            {missingTasks.map((pt: any) => {
+                                const t = getDynamicTarget(pt);
+                                const a = parseFloat(invData[pt.id]?.end || '0');
+                                return <span key={pt.id} className="inline-block bg-orange-50 text-orange-600 border border-orange-100 text-[10px] px-1.5 py-0.5 rounded font-bold">{getLoc(pt.name)} 差 {parseFloat((t - a).toFixed(2))}</span>
+                            })}
+                        </div>
+                    )}
+                </div>
+                <button onClick={handleSubmit} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold active:scale-95 transition-all">确认并提交</button>
+            </div>
+        </div>
+    );
+}
 
     // ---------------- 🧑‍🍳 STAFF 模式 ----------------
     const allItems = [fridgeCheckItem, ...(editList).filter((i:any) => !i.hidden && i.id !== FRIDGE_ITEM_ID)];
