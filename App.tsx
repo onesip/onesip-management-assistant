@@ -3152,17 +3152,32 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
     const startOfCurrentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
 
-    const displayedDays = (scopedSchedule.days).filter((day: any) => {
-        if(!day || !day.date) return false;
-        const [m, d] = day.date.split('-').map(Number);
-        const dayDate = new Date(today.getFullYear(), m - 1, d);
-        if (today.getMonth() === 11 && m === 1) dayDate.setFullYear(today.getFullYear() + 1);
-        if (today.getMonth() === 0 && m === 12) dayDate.setFullYear(today.getFullYear() - 1);
-        return dayDate >= startOfCurrentMonth && dayDate <= endOfNextMonth;
-    }).sort((a: any, b: any) => {
-        const getDateObj = (dateStr: string) => { const [m, d] = dateStr.split('-').map(Number); const date = new Date(today.getFullYear(), m - 1, d); if (today.getMonth() === 11 && m === 1) date.setFullYear(today.getFullYear() + 1); return date; };
-        return getDateObj(a.date).getTime() - getDateObj(b.date).getTime();
-    });
+    // 💡 核心修复：自动为分店生成空白排班表（未来60天周期）
+    const displayedDays = (() => {
+        const days = [];
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        let curr = new Date(startOfCurrentMonth);
+        
+        while (curr <= endOfNextMonth) {
+            const dateStr = `${curr.getMonth() + 1}-${curr.getDate()}`;
+            // 去总排班表里找：有没有这一天、并且属于当前激活分店的排班？
+            const existing = (schedule?.days || []).find((sd: any) => sd.date === dateStr && getStoreId(sd) === activeStoreId);
+            
+            if (existing) {
+                days.push(existing); // 找到了，就用原来写好的
+            } else {
+                // 如果是新店没有格子，直接塞一个专属的空白格子给他填
+                days.push({
+                    date: dateStr,
+                    name: dayNames[curr.getDay()],
+                    shifts: [],
+                    storeId: activeStoreId
+                });
+            }
+            curr.setDate(curr.getDate() + 1);
+        }
+        return days;
+    })();
 
     const totalWeeks = Math.ceil(displayedDays.length / 7);
     const activeStaff = scopedUsers.filter((u: User) => u && u.active !== false);
