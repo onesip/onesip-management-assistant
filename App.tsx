@@ -3079,8 +3079,15 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
     const safeUsers = Array.isArray(data.users) ? data.users : [];
     const { schedule, setSchedule, logs, setLogs, t, swapRequests, users, scheduleCycles, setScheduleCycles, stores, notices } = data;
     
-    const myAssignedStores = stores?.filter((s:any) => s.staff?.includes(currentUser?.id)) || [];
-    
+    // 💡 核心修复：经理后台【只】抓取他拥有 "Manager" 权限的店，无视他的 Staff 身份！
+    const myAssignedStores = stores?.filter((s:any) => {
+        if (currentUser?.role === 'boss') return true; // 老板全通
+        if (currentUser?.storeRoles?.[s.id] === 'manager') return true; // 只有在分店被指派为 manager 才算
+        // 兼容还没配置新版权限的老店长
+        if (!currentUser?.storeRoles && currentUser?.role === 'manager' && s.staff?.includes(currentUser?.id)) return true;
+        return false;
+    }) || [];
+  
     const [activeStoreId, setActiveStoreId] = useState(() => {
         if (currentUser?.role === 'boss') return adminStoreId; 
         return myAssignedStores.length > 0 ? myAssignedStores[0].id : adminStoreId; 
