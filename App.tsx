@@ -2207,30 +2207,61 @@ function StaffManagementView({ data }: any) {
                                     <input value={formData.id} onChange={e=>setFormData({...formData, id: e.target.value})} disabled={formData.id === 'u_owner' || formData.id === 'u_lambert'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50 font-mono" placeholder="PIN code" />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Role</label>
-                                    <select value={formData.role} onChange={e=>setFormData({...formData, role: e.target.value})} disabled={formData.role === 'boss'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50">
-                                        <option value="staff">Staff</option>
-                                        <option value="manager">Manager</option>
-                                        <option value="boss">Boss</option>
+                                    {/* 💡 全局角色只保留 Boss 设定，普通员工/经理的权限转移到下方分店独立设置 */}
+                                    <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Global Override</label>
+                                    <select value={formData.role === 'boss' ? 'boss' : 'custom'} onChange={e=>{
+                                        const newRole = e.target.value;
+                                        if (newRole === 'boss') setFormData({...formData, role: 'boss'});
+                                        else setFormData({...formData, role: 'staff'}); // 如果取消 Boss，默认降为 staff，具体权限看下方
+                                    }} disabled={formData.id === 'u_owner' || formData.id === 'u_lambert'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50">
+                                        <option value="custom">Per-Branch Setup ↓</option>
+                                        <option value="boss">Boss (All Access)</option>
                                     </select>
                                 </div>
                             </div>
                             
-                            {/* 💡 动态门店分配区域 */}
-                            <div className="bg-dark-bg p-4 rounded-xl border border-white/5 shadow-inner">
-                                <label className="text-xs font-black text-dark-accent uppercase mb-3 flex items-center gap-2">
-                                    <Icon name="Store" size={14}/> Branch Assignment
-                                </label>
-                                <div className="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
-                                    {stores.map((store: any) => (
-                                        <label key={store.id} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${selectedStores.includes(store.id) ? 'bg-dark-accent/10 border-dark-accent/50 text-white shadow-sm' : 'bg-dark-surface border-white/5 text-gray-400 hover:border-white/20'}`}>
-                                            <span className="text-sm font-bold truncate pr-2">{store.name}</span>
-                                            <input type="checkbox" checked={selectedStores.includes(store.id)} onChange={() => toggleStore(store.id)} className="w-4 h-4 accent-dark-accent shrink-0" />
-                                        </label>
-                                    ))}
-                                    {stores.length === 0 && <p className="text-xs text-gray-500 italic">No branches available.</p>}
+                            {/* 💡 终极版动态门店分配区域：按门店独立设置职位 */}
+                            {formData.role !== 'boss' && (
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5 shadow-inner">
+                                    <label className="text-xs font-black text-dark-accent uppercase mb-3 flex items-center gap-2">
+                                        <Icon name="Store" size={14}/> Branch & Role Assignment
+                                    </label>
+                                    <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                                        {stores.map((store: any) => {
+                                            // 获取该员工在该店的具体角色，如果没有则认为是未分配 ('none')
+                                            const currentStoreRole = formData.storeRoles?.[store.id] || 'none';
+                                            const isAssigned = currentStoreRole !== 'none';
+                                            
+                                            return (
+                                                <div key={store.id} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${isAssigned ? 'bg-dark-accent/10 border-dark-accent/50 text-white shadow-sm' : 'bg-dark-surface border-white/5 text-gray-400 hover:border-white/20'}`}>
+                                                    <span className="text-sm font-bold truncate pr-2 flex-1">{store.name}</span>
+                                                    <select 
+                                                        value={currentStoreRole}
+                                                        onChange={(e) => {
+                                                            const newRole = e.target.value;
+                                                            const updatedStoreRoles = { ...(formData.storeRoles || {}) };
+                                                            
+                                                            if (newRole === 'none') {
+                                                                delete updatedStoreRoles[store.id]; // 移除权限
+                                                            } else {
+                                                                updatedStoreRoles[store.id] = newRole; // 赋予对应权限
+                                                            }
+                                                            
+                                                            setFormData({ ...formData, storeRoles: updatedStoreRoles });
+                                                        }}
+                                                        className={`bg-dark-bg border ${isAssigned ? 'border-dark-accent/50 text-white' : 'border-white/20 text-gray-500'} rounded p-1.5 text-xs font-bold outline-none cursor-pointer w-28 shrink-0`}
+                                                    >
+                                                        <option value="none">🚫 Unassigned</option>
+                                                        <option value="staff">👨‍🍳 Staff</option>
+                                                        <option value="manager">🧑‍💼 Manager</option>
+                                                    </select>
+                                                </div>
+                                            );
+                                        })}
+                                        {stores.length === 0 && <p className="text-xs text-gray-500 italic">No branches available.</p>}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
 
                             <label className="flex items-center gap-2 p-3 bg-red-500/5 rounded-lg border border-red-500/10 cursor-pointer hover:bg-red-500/10 transition-colors mt-2">
                                 <input type="checkbox" checked={formData.active !== false} onChange={e=>setFormData({...formData, active: e.target.checked})} className="w-4 h-4 accent-red-500" />
@@ -3041,28 +3072,39 @@ const ManualLogModal = ({ isOpen, onClose, onSave, users }: any) => {
 
 
 // ============================================================================
-// 组件 5: 经理后台 (Manager Dashboard) - [100% 数据隔离与防错修复版]
-// ============================================================================
-// ============================================================================
-// 组件 5: 经理后台 (Manager Dashboard) - [新增 Manager 自动锁定指定分店]
+// 组件 5: 经理后台 (Manager Dashboard) - [新增支持区域经理多店自由切换]
 // ============================================================================
 function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
     const { showNotification } = useNotification();
     const safeUsers = Array.isArray(data.users) ? data.users : [];
+    const { schedule, setSchedule, logs, setLogs, t, swapRequests, users, scheduleCycles, setScheduleCycles, stores, notices } = data;
     
-    // 💡 核心新增：自动锁定逻辑
-    // 1. 查找当前登录的经理被分配到了哪个分店
-    const myAssignedStore = data.stores?.find((s:any) => s.staff?.includes(currentUser?.id));
-    // 2. 强行锁定：如果是 Manager，就用他专属的店；如果是 Boss 测试看面板，就用传进来的店
-    const realStoreId = (currentUser?.role === 'manager' && myAssignedStore) ? myAssignedStore.id : adminStoreId;
+    // 💡 终极修复：只抓取该员工拥有 'manager' 权限的分店！
+    const myAssignedStores = stores?.filter((s:any) => {
+        if (currentUser?.role === 'boss') return true; // 老板拥有所有店权限
+        // 兼容旧数据：如果还没来得及配置新版权限，但全局是 manager 且在这家店，也算
+        if (!currentUser?.storeRoles && currentUser?.role === 'manager' && s.staff?.includes(currentUser?.id)) return true;
+        // 终极新逻辑：只有在这家店的独立角色被明确指定为 manager，才开放后台权限！
+        return currentUser?.storeRoles?.[s.id] === 'manager';
+    }) || [];
+    
+    // 动态决定当前激活的分店 ID
+    const [activeStoreId, setActiveStoreId] = useState(() => {
+        if (currentUser?.role === 'boss') return adminStoreId; // 老板听总控台的
+        return myAssignedStores.length > 0 ? myAssignedStores[0].id : adminStoreId; // 经理默认进第一家店
+    });
+
+    // 如果老板在总控台切了店，这里也要跟着变
+    useEffect(() => {
+        if (currentUser?.role === 'boss') setActiveStoreId(adminStoreId);
+    }, [adminStoreId, currentUser?.role]);
 
     const managerUser = safeUsers.find((u:User) => u && u.id === currentUser?.id) || { id: 'u_manager', name: 'Manager', role: 'manager', phone: '0000' };
-    const { schedule, setSchedule, logs, setLogs, t, swapRequests, users, scheduleCycles, setScheduleCycles, stores, notices } = data;
     
     const today = new Date();
     const [view, setView] = useState<'schedule' | 'logs' | 'financial' | 'requests' | 'confirmations'>('schedule');
     const [editingShift, setEditingShift] = useState<{ dayIdx: number, shift: 'morning' | 'evening' | 'night' | 'all' } | null>(null);
-    const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem(`onesip_budget_max_${realStoreId}`)) || 5000);
+    const [budgetMax, setBudgetMax] = useState<number>(() => Number(localStorage.getItem(`onesip_budget_max_${activeStoreId}`)) || 5000);
     const [financialMonth, setFinancialMonth] = useState(new Date().toISOString().slice(0, 7)); 
     const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
 
@@ -3075,36 +3117,36 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
         const currentLen = data.repairRequests?.length || 0;
         if (currentLen > prevRepairsLength.current) {
             const newTicket = data.repairRequests[currentLen - 1];
-            if ((newTicket.storeId || 'default_store') === realStoreId) {
+            if ((newTicket.storeId || 'default_store') === activeStoreId) {
                 const notesInfo = newTicket.notes ? `\n📝 备注: ${newTicket.notes}` : '';
                 showNotification({ type: 'announcement', title: '🚨 新异常提报', message: `${newTicket.submittedBy} 提报了关于 [${newTicket.item}] 的异常。${notesInfo}`, sticky: true });
             }
         }
         prevRepairsLength.current = currentLen;
-    }, [data.repairRequests, realStoreId, showNotification]);
+    }, [data.repairRequests, activeStoreId, showNotification]);
 
     // ==========================================
     // 🛡️ 经理后台严格分店数据隔离
     // ==========================================
     const getStoreId = (item: any) => item.storeId || 'default_store';
     
-    const scopedSchedule = { days: (schedule?.days || []).filter((d:any) => getStoreId(d) === realStoreId) };
-    const scopedLogs = (logs || []).filter((l:any) => getStoreId(l) === realStoreId);
-    const scopedSwapRequests = (swapRequests || []).filter((r:any) => getStoreId(r) === realStoreId);
+    const scopedSchedule = { days: (schedule?.days || []).filter((d:any) => getStoreId(d) === activeStoreId) };
+    const scopedLogs = (logs || []).filter((l:any) => getStoreId(l) === activeStoreId);
+    const scopedSwapRequests = (swapRequests || []).filter((r:any) => getStoreId(r) === activeStoreId);
     
-    const activeStore = stores?.find((s:any) => s.id === realStoreId);
+    const activeStore = stores?.find((s:any) => s.id === activeStoreId);
     const branchStaffIds = activeStore?.staff || [];
     const scopedUsers = safeUsers.filter((u:User) => branchStaffIds.includes(u.id) || u.role === 'boss');
 
     const [wages, setWages] = useState<Record<string, { type: 'hourly'|'fixed', value: number }>>(() => {
-        const saved = localStorage.getItem(`onesip_wages_v3_${realStoreId}`);
+        const saved = localStorage.getItem(`onesip_wages_v3_${activeStoreId}`);
         if (saved) return JSON.parse(saved);
         const def: any = {};
         scopedUsers.forEach((m: User) => { if (m) def[m.name] = { type: 'hourly', value: 12 }; });
         return def;
     });
 
-    const saveWages = (newWages: any) => { setWages(newWages); localStorage.setItem(`onesip_wages_v3_${realStoreId}`, JSON.stringify(newWages)); };
+    const saveWages = (newWages: any) => { setWages(newWages); localStorage.setItem(`onesip_wages_v3_${activeStoreId}`, JSON.stringify(newWages)); };
     const validStaffNames = new Set(scopedUsers.filter((u:User)=>u).map((u: User) => u.name));
     const normalizeName = (name: string) => name ? name.trim() : "Unknown";
 
@@ -3167,8 +3209,8 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
         const { dayIdx } = editingShift; 
         const targetDay = displayedDays[dayIdx];
         
-        const otherStoreDays = (schedule.days || []).filter((d:any) => !(d.date === targetDay.date && getStoreId(d) === realStoreId));
-        const updatedDay = { ...targetDay, shifts: updatedShifts, storeId: realStoreId, morning: [], evening: [], night: [] };
+        const otherStoreDays = (schedule.days || []).filter((d:any) => !(d.date === targetDay.date && getStoreId(d) === activeStoreId));
+        const updatedDay = { ...targetDay, shifts: updatedShifts, storeId: activeStoreId, morning: [], evening: [], night: [] };
         const newSched = { ...schedule, days: [...otherStoreDays, updatedDay] };
         
         setSchedule(newSched); 
@@ -3183,11 +3225,11 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
         const year = new Date().getFullYear();
         const startISO = `${year}-${startDate.split('-').map((p:string)=>p.padStart(2,'0')).join('-')}`;
         const endISO = `${year}-${endDate.split('-').map((p:string)=>p.padStart(2,'0')).join('-')}`;
-        const cycleId = `${startISO}_${endISO}_${realStoreId}`;
+        const cycleId = `${startISO}_${endISO}_${activeStoreId}`;
         const confirmations: any = {};
         activeStaff.forEach((u: User) => { confirmations[u.id] = { status: 'pending', viewed: false }; });
         
-        const newCycle = { cycleId, storeId: realStoreId, startDate: startISO, endDate: endISO, publishedAt: new Date().toISOString(), status: 'published', confirmations, snapshot: {} };
+        const newCycle = { cycleId, storeId: activeStoreId, startDate: startISO, endDate: endISO, publishedAt: new Date().toISOString(), status: 'published', confirmations, snapshot: {} };
         const updatedCycles = (scheduleCycles || []).filter((c: ScheduleCycle) => c && c.cycleId !== cycleId);
         updatedCycles.push(newCycle);
         if (typeof Cloud !== 'undefined' && Cloud.updateScheduleCycles) await Cloud.updateScheduleCycles(updatedCycles);
@@ -3196,7 +3238,7 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
         const newNotice = { 
             id: Date.now().toString(), 
             type: 'announcement', 
-            storeId: realStoreId, 
+            storeId: activeStoreId, 
             title: "📅 New Schedule", 
             content: `Schedule ${startDate} to ${endDate} is live. Please confirm.`, 
             date: new Date().toISOString(),
@@ -3217,7 +3259,7 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
         const dayIndex = newSchedule.days.findIndex((d: ScheduleDay) => {
             const dKey = d.date.split('-').map(n => parseInt(n, 10)).join('-');
             const rKey = req.requesterDate.split('-').map(n => parseInt(n, 10)).join('-');
-            return dKey === rKey && getStoreId(d) === realStoreId;
+            return dKey === rKey && getStoreId(d) === activeStoreId;
         });
         
         if (dayIndex === -1) return;
@@ -3237,8 +3279,8 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
     };
 
     const handleSaveManualLog = (inLog: LogEntry, outLog: LogEntry) => {
-        const scopedInLog = { ...inLog, storeId: realStoreId };
-        const scopedOutLog = { ...outLog, storeId: realStoreId };
+        const scopedInLog = { ...inLog, storeId: activeStoreId };
+        const scopedOutLog = { ...outLog, storeId: activeStoreId };
         if (typeof Cloud !== 'undefined' && Cloud.saveLog) { Cloud.saveLog(scopedInLog); Cloud.saveLog(scopedOutLog); }
         setIsAddingManualLog(false); alert('Manual record added.');
     };
@@ -3342,7 +3384,7 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
 
     const { stats, totalEstCost, totalActualCost, totalHourlyEst, totalHourlyAct, totalFixed } = calculateFinancials();
 
-    const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem(`onesip_budget_max_${realStoreId}`, b.toString()); };
+    const handleBudgetChange = (val: string) => { const b = parseFloat(val) || 0; setBudgetMax(b); localStorage.setItem(`onesip_budget_max_${activeStoreId}`, b.toString()); };
 
     const handleExportFinancialCSV = () => {
         let csv = "FINANCIAL SUMMARY REPORT\n";
@@ -3400,7 +3442,7 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
     const currentCycle = (scheduleCycles || []).find((c: ScheduleCycle) => {
         if (!c) return false;
         const start = new Date(c.startDate); const end = new Date(c.endDate);
-        return today >= start && today <= end && getStoreId(c) === realStoreId;
+        return today >= start && today <= end && getStoreId(c) === activeStoreId;
     });
 
     const visibleLogs = scopedLogs.filter((log: LogEntry) => !log.isDeleted).slice().reverse() || [];
@@ -3409,6 +3451,20 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
 
     return (
         <div className="flex flex-col h-full bg-dark-bg text-dark-text animate-fade-in">
+            {/* 💡 核心新增：区域经理的多店快速切换器 */}
+            {currentUser?.role === 'manager' && myAssignedStores.length > 1 && (
+                <div className="bg-[#1a262c] p-3 border-b border-white/10 flex items-center justify-between shrink-0">
+                    <span className="text-xs font-bold text-dark-accent flex items-center gap-2"><Icon name="Store" size={14}/> Switch Branch</span>
+                    <select 
+                        value={activeStoreId} 
+                        onChange={(e) => setActiveStoreId(e.target.value)}
+                        className="bg-dark-surface border border-white/20 text-white text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-dark-accent max-w-[150px]"
+                    >
+                        {myAssignedStores.map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                </div>
+            )}
+
             <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
                 {['schedule', 'requests', 'financial', 'logs', 'confirmations'].map(v => (
                     <button key={v} onClick={() => setView(v as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === v ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>
@@ -3518,9 +3574,6 @@ function ManagerDashboard({ data, adminStoreId, onExit, currentUser }: any) {
         </div>
     );
 }
-
-// ============================================================================
-
 // ============================================================================
 // 组件: 今日盘点结果卡片
 // ============================================================================
