@@ -2281,8 +2281,8 @@ function StaffManagementView({ data }: any) {
 }
 
 // ============================================================================
-// 终极加固版: 盘点与备料 (InventoryView) 
-// [修复周六0值Bug + 仅支持周五/周六 14:00 目标]
+// 终极修复版: 盘点与备料 (InventoryView) 
+// [修复重复代码导致的括号报错 + 修复0值Bug + 仅支持周五/周六 14:00]
 // ============================================================================
 function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInventoryList, onSubmit, onCancel, currentUser, isOwner }: any) {
     const [invData, setInvData] = useState<Record<string, { end: string }>>({});
@@ -2290,7 +2290,6 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
     const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
     const draftKey = `onesip_prep_draft_v2_${currentUser?.id || 'default'}`;
 
-    // 核心数据模板（仅包含周五/六 14:00 的独立目标字段）
     const RECOVERED_DATA = [
         { id: 'r_1', name: { zh: '奶精', en: 'Creamer' }, targets: [7, 7, 7, 7, 7, 20, 12.5], targetFri14: 10, targetSat14: 0, unit: 'L' },
         { id: 'r_2', name: { zh: '茉莉绿茶', en: 'Jasmine Tea' }, targets: [12, 12, 12, 12, 12, 24, 20], targetFri14: 16, targetSat14: 8, unit: 'L' },
@@ -2326,7 +2325,7 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
         }
     }, [inventoryList]);
 
-    // ---------------- 👑 OWNER 模式 (后台排版) ----------------
+    // ---------------- 👑 OWNER 模式 (后台配置) ----------------
     if (isOwner) {
         const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
         const updateItem = (idx: number, field: string, val: string) => {
@@ -2347,10 +2346,10 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
             <div className="bg-[#121c22] p-4 space-y-4 animate-fade-in h-full flex flex-col">
                 <div className="flex justify-between items-center shrink-0">
                     <div>
-                        <h3 className="text-white font-bold text-base">Prep Target Configuration</h3>
-                        <p className="text-xs text-gray-400">Manage 7-day targets + Fri/Sat 14:00 refill.</p>
+                        <h3 className="text-white font-bold text-base">Prep Target Config</h3>
+                        <p className="text-xs text-gray-400">Manage targets + Fri/Sat 14:00 refill.</p>
                     </div>
-                    <button onClick={() => { onUpdateInventoryList(editList); alert("✅ 配置已同步至云端！"); }} className="px-4 py-2 bg-[#28a745] text-white rounded-lg text-sm font-bold shadow-lg flex items-center gap-2">
+                    <button onClick={() => { onUpdateInventoryList(editList); alert("✅ Saved!"); }} className="px-4 py-2 bg-[#28a745] text-white rounded-lg text-sm font-bold flex items-center gap-2">
                         <Icon name="Save" size={16}/> Save Config
                     </button>
                 </div>
@@ -2358,8 +2357,8 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                     {editList.map((item, idx) => (
                         <div key={item.id} className="bg-[#1a262c] p-4 rounded-xl border border-white/5 relative shadow-md">
                             <div className="flex gap-3 mb-4">
-                                <input value={item.name?.zh || ''} onChange={e=>updateItem(idx,'zh',e.target.value)} className="flex-1 bg-[#23323a] text-gray-200 p-3 rounded-lg text-sm outline-none focus:ring-1 focus:ring-orange-500/50" placeholder="中文名" />
-                                <input value={item.name?.en || ''} onChange={e=>updateItem(idx,'en',e.target.value)} className="flex-1 bg-[#23323a] text-gray-200 p-3 rounded-lg text-sm outline-none focus:ring-1 focus:ring-orange-500/50" placeholder="English Name" />
+                                <input value={item.name?.zh || ''} onChange={e=>updateItem(idx,'zh',e.target.value)} className="flex-1 bg-[#23323a] text-gray-200 p-3 rounded-lg text-sm outline-none" placeholder="中文名" />
+                                <input value={item.name?.en || ''} onChange={e=>updateItem(idx,'en',e.target.value)} className="flex-1 bg-[#23323a] text-gray-200 p-3 rounded-lg text-sm outline-none" placeholder="English Name" />
                             </div>
                             <div className="grid grid-cols-7 gap-1 mb-4">
                                 {days.map((day, dIdx) => (
@@ -2369,12 +2368,11 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                                     </div>
                                 ))}
                             </div>
-                            {/* 💡 只保留周五/六的14:00目标 */}
-                            <div className="flex items-center gap-3 overflow-x-auto pb-1">
-                                <div className="flex items-center gap-1 shrink-0"><span className="text-[10px] text-[#e08e36] font-black uppercase">FRI 14:00:</span><input type="number" value={item.targetFri14 ?? ''} onChange={e=>updateItem(idx,'targetFri14',e.target.value)} className="w-12 bg-[#23323a] text-center text-gray-200 py-1.5 rounded text-xs outline-none border border-orange-500/20" /></div>
-                                <div className="flex items-center gap-1 shrink-0"><span className="text-[10px] text-[#e08e36] font-black uppercase">SAT 14:00:</span><input type="number" value={item.targetSat14 ?? ''} onChange={e=>updateItem(idx,'targetSat14',e.target.value)} className="w-12 bg-[#23323a] text-center text-gray-200 py-1.5 rounded text-xs outline-none border border-orange-500/20" /></div>
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-1"><span className="text-[10px] text-[#e08e36] font-black uppercase">FRI 14:00:</span><input type="number" value={item.targetFri14 ?? ''} onChange={e=>updateItem(idx,'targetFri14',e.target.value)} className="w-12 bg-[#23323a] text-center text-gray-200 py-1.5 rounded text-xs outline-none border border-orange-500/20" /></div>
+                                <div className="flex items-center gap-1"><span className="text-[10px] text-[#e08e36] font-black uppercase">SAT 14:00:</span><input type="number" value={item.targetSat14 ?? ''} onChange={e=>updateItem(idx,'targetSat14',e.target.value)} className="w-12 bg-[#23323a] text-center text-gray-200 py-1.5 rounded text-xs outline-none border border-orange-500/20" /></div>
                             </div>
-                            <button onClick={()=> {if(window.confirm("Delete?")) setEditList(editList.filter((_, i) => i !== idx));}} className="absolute -right-2 -top-2 bg-red-500/80 text-white p-1.5 rounded-full"><Icon name="X" size={12}/></button>
+                            <button onClick={()=> setEditList(editList.filter((_, i) => i !== idx))} className="absolute -right-2 -top-2 bg-red-500/80 text-white p-1.5 rounded-full"><Icon name="X" size={12}/></button>
                         </div>
                     ))}
                     <button onClick={addItem} className="w-full py-4 border-2 border-dashed border-white/10 rounded-xl text-gray-400 text-sm font-bold">+ Add New Item</button>
@@ -2383,29 +2381,25 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
         );
     }
 
-    // ---------------- 🧑‍🍳 STAFF 模式 (手机端逻辑) ----------------
+    // ---------------- 🧑‍🍳 STAFF 模式 (手机端) ----------------
     const allItems = [fridgeCheckItem, ...(editList).filter((i:any) => !i.hidden && i.id !== FRIDGE_ITEM_ID)];
     const now = new Date();
-    const currentDayIndex = now.getDay(); // 0(Sun) - 6(Sat)
+    const currentDayIndex = now.getDay();
     const currentHour = now.getHours();
     
-    // 💡 判定当前是否处于 早班补料时段 (周五/周六 16:00之前)
     const isFri14Active = currentDayIndex === 5 && currentHour < 16;
     const isSat14Active = currentDayIndex === 6 && currentHour < 16;
     const isEarlyRefillActive = isFri14Active || isSat14Active;
 
     const getDynamicTarget = (item: any) => {
         if (item.id === FRIDGE_ITEM_ID) return 1;
-        
-        // 💡 修复重点：明确判断 undefined 和 空字符串。哪怕填的是 0 也要执行返回 0 的逻辑！
+        // 核心修复：明确判断 undefined 和 空字符串。填 0 也要返回 0。
         if (isFri14Active && item.targetFri14 !== undefined && item.targetFri14 !== '') return parseFloat(item.targetFri14);
         if (isSat14Active && item.targetSat14 !== undefined && item.targetSat14 !== '') return parseFloat(item.targetSat14);
-        
-        // 平时或者过了16:00，返回全天数组目标
         return item.targets ? parseFloat(item.targets[currentDayIndex] || '0') : 0;
     };
 
-    const handleSubmit = () => {
+    const handleStaffSubmit = () => {
         const dataToSubmit: any = {};
         let hasData = false;
         Object.keys(invData).forEach(id => {
@@ -2415,7 +2409,7 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
         onSubmit({ submittedBy: currentUser?.name, userId: currentUser?.id, data: dataToSubmit, shift: 'prep', date: new Date().toISOString() });
         localStorage.removeItem(draftKey); 
         setInvData({});
-        alert("✅ 提交成功！");
+        alert("✅ 提交成功，草稿已清空！");
     };
 
     const missingTasks = allItems.filter((pt: any) => {
@@ -2427,11 +2421,11 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
 
     return (
         <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
-            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3 shrink-0">
+            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3">
                 <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
                 <div className="flex-1">
                     <h2 className="text-xl font-black text-blue-600">今日备料任务</h2>
-                    {isEarlyRefillActive && <p className="text-[10px] font-bold text-orange-500 uppercase">⚡ 16:00前：早班补料目标已激活</p>}
+                    {isEarlyRefillActive && <p className="text-[10px] font-bold text-orange-500 uppercase">⚡ 16:00前：早班补料模式</p>}
                 </div>
             </div>
 
@@ -2446,11 +2440,9 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                     return (
                         <div key={item.id} className={`bg-white p-4 rounded-xl shadow-sm border ${item.isMandatory ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100'}`}>
                             <div className="flex items-center justify-between">
-                                <div className="flex-1 min-w-0">
-                                    <div className={`font-bold text-sm ${item.isMandatory ? 'text-blue-700' : 'text-gray-800'}`}>{getLoc(item.name)}</div>
-                                    <div className="text-[10px] text-gray-400 mt-0.5">
-                                        目标: {target} {item.unit || 'L'}
-                                    </div>
+                                <div className="flex-1">
+                                    <div className="font-bold text-sm text-gray-800">{getLoc(item.name)}</div>
+                                    <div className="text-[10px] text-gray-400 mt-0.5">目标: {target} {item.unit || 'L'}</div>
                                 </div>
                                 <input
                                     type="number"
@@ -2470,128 +2462,21 @@ function InventoryView({ lang, t, inventoryList, setInventoryList, onUpdateInven
                 })}
             </div>
 
-            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-lg">
                 <div className="mb-3">
-                    {missingTasks.length === 0 ? <p className="text-xs font-bold text-green-600">🎉 所有任务已清零！</p> : (
-                        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar pb-1">
-                            <span className="text-[10px] font-bold text-gray-500 shrink-0">缺料:</span>
-                            {missingTasks.map((pt: any) => {
-                                const t = getDynamicTarget(pt);
-                                const a = parseFloat(invData[pt.id]?.end || '0');
-                                return <span key={pt.id} className="inline-block bg-orange-50 text-orange-600 border border-orange-100 text-[10px] px-1.5 py-0.5 rounded font-bold">{getLoc(pt.name)} 差 {parseFloat((t - a).toFixed(2))}</span>
-                            })}
+                    {missingTasks.length === 0 ? <p className="text-xs font-bold text-green-600 text-center">🎉 所有任务已清零！</p> : (
+                        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-1">
+                            <span className="text-[10px] font-bold text-gray-500">缺料:</span>
+                            {missingTasks.map((pt: any) => <span key={pt.id} className="bg-orange-50 text-orange-600 text-[10px] px-1.5 py-0.5 rounded font-bold">{getLoc(pt.name)} 差 {parseFloat((getDynamicTarget(pt) - parseFloat(invData[pt.id]?.end || '0')).toFixed(2))}</span>)}
                         </div>
                     )}
                 </div>
-                <button onClick={handleSubmit} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold active:scale-95 transition-all">确认并提交</button>
+                <button onClick={handleStaffSubmit} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold active:scale-95 transition-all">确认并提交</button>
             </div>
         </div>
     );
 }
 
-    // ---------------- 🧑‍🍳 STAFF 模式 ----------------
-    const allItems = [fridgeCheckItem, ...(editList).filter((i:any) => !i.hidden && i.id !== FRIDGE_ITEM_ID)];
-    const now = new Date();
-    const currentDayIndex = now.getDay();
-    const currentHour = now.getHours();
-    
-    const isFri14Active = currentDayIndex === 5 && currentHour < 16;
-    const isSat14Active = currentDayIndex === 6 && currentHour < 16;
-    const isWeekend14Active = isFri14Active || isSat14Active;
-
-    const getDynamicTarget = (item: any) => {
-        if (item.id === FRIDGE_ITEM_ID) return 1;
-        if (isFri14Active && item.targetFri14 !== undefined && item.targetFri14 !== '0') return parseFloat(item.targetFri14);
-        if (isSat14Active && item.targetSat14 !== undefined && item.targetSat14 !== '0') return parseFloat(item.targetSat14);
-        return item.targets ? parseFloat(item.targets[currentDayIndex] || '0') : 0;
-    };
-
-    const handleSubmit = () => {
-        const dataToSubmit: any = {};
-        let hasData = false;
-        Object.keys(invData).forEach(id => {
-            if (invData[id].end) { dataToSubmit[id] = invData[id]; hasData = true; }
-        });
-        if (!hasData) return alert("请填写数据后再提交。");
-        
-        onSubmit({ submittedBy: currentUser?.name, userId: currentUser?.id, data: dataToSubmit, shift: 'prep', date: new Date().toISOString() });
-        
-        // 💡 成功提交后，彻底清空本地草稿
-        localStorage.removeItem(draftKey); 
-        setInvData({});
-        alert(lang === 'zh' ? "✅ 备料记录已上传，本地草稿已清空。" : "✅ Report submitted. Local draft cleared.");
-    };
-
-    const missingTasks = allItems.filter((pt: any) => {
-        const target = getDynamicTarget(pt);
-        if (target <= 0) return false;
-        const actual = parseFloat(invData[pt.id]?.end || '0');
-        return actual < target;
-    });
-
-    return (
-        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
-            <div className="bg-white p-4 border-b sticky top-0 z-10 shadow-sm flex items-center gap-3 shrink-0">
-                <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><Icon name="ArrowLeft" /></button>
-                <div className="flex-1">
-                    <h2 className="text-xl font-black text-blue-600">今日备料任务</h2>
-                    {isWeekend14Active && <p className="text-[10px] font-bold text-orange-500 uppercase">⚡ 16:00前：自动切换 14:00 目标</p>}
-                </div>
-            </div>
-
-            <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                {allItems.map((item: any) => {
-                    const target = getDynamicTarget(item);
-                    const actualStr = invData[item.id]?.end;
-                    const actual = actualStr ? parseFloat(actualStr) : 0;
-                    const isDone = target > 0 && actualStr !== undefined && actualStr !== '' && actual >= target;
-                    const diff = target > 0 ? parseFloat((target - actual).toFixed(2)) : 0;
-
-                    return (
-                        <div key={item.id} className={`bg-white p-4 rounded-xl shadow-sm border ${item.isMandatory ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100'}`}>
-                            <div className="flex items-center justify-between">
-                                <div className="flex-1 min-w-0">
-                                    <div className={`font-bold text-sm ${item.isMandatory ? 'text-blue-700' : 'text-gray-800'}`}>{getLoc(item.name)}</div>
-                                    <div className="text-[10px] text-gray-400 mt-0.5">
-                                        {item.id === FRIDGE_ITEM_ID ? '食品安全项' : `单位: ${item.unit || 'L'} | 目标: ${target}`}
-                                    </div>
-                                </div>
-                                <input
-                                    type="number"
-                                    placeholder={item.id === FRIDGE_ITEM_ID ? "OK=1" : '已备'}
-                                    value={invData[item.id]?.end || ''}
-                                    onChange={e => setInvData({...invData, [item.id]: { end: e.target.value }})}
-                                    className={`w-20 p-2 text-center font-bold text-base rounded-lg border outline-none ${isDone ? 'border-green-400 bg-green-50 text-green-600' : 'border-blue-200 bg-blue-50 text-blue-800'}`}
-                                />
-                            </div>
-                            {target > 0 && (
-                                <div className="flex justify-end mt-2">
-                                    {isDone ? <span className="text-[10px] font-bold text-green-500">✅ 目标达成</span> : <span className="text-[10px] font-bold text-orange-500">⚠️ 还需: {diff > 0 ? diff : target}</span>}
-                                </div>
-                            )}
-                        </div>
-                    )
-                })}
-            </div>
-
-            <div className="p-4 bg-white border-t sticky bottom-0 z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-                <div className="mb-3">
-                    {missingTasks.length === 0 ? <p className="text-xs font-bold text-green-600">🎉 所有任务已清零！</p> : (
-                        <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap custom-scrollbar pb-1">
-                            <span className="text-[10px] font-bold text-gray-500 shrink-0">缺料:</span>
-                            {missingTasks.map((pt: any) => {
-                                const t = getDynamicTarget(pt);
-                                const a = parseFloat(invData[pt.id]?.end || '0');
-                                return <span key={pt.id} className="inline-block bg-orange-50 text-orange-600 border border-orange-100 text-[10px] px-1.5 py-0.5 rounded font-bold">{getLoc(pt.name)} 差 {parseFloat((t - a).toFixed(2))}</span>
-                            })}
-                        </div>
-                    )}
-                </div>
-                <button onClick={handleSubmit} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold active:scale-95 transition-all">确认并提交</button>
-            </div>
-        </div>
-    );
-}
 // ============================================================================
 // 组件 4: Smart Inventory View (后台仓库 - 显示当前库存 + 提交反馈)
 // ============================================================================
