@@ -4480,30 +4480,47 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
     // ==========================================
     const [isStoreUnlocked, setIsStoreUnlocked] = useState(false);
     const [pinInput, setPinInput] = useState('');
-
-
+   
     // ==========================================
-    // 🛡️ 智能权限与分店识别
+    // 🛡️ 智能权限与分店识别 (终极云端同步版)
     // ==========================================
     const safeStores = Array.isArray(stores) && stores.length > 0 ? stores : [{ id: 'default_store', name: 'Main Store', staff: [], features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true, repair: true } }];
     
-    // 判断是否为大老板 (可以切换任意门店)
-    const isBoss = adminMode === 'owner' || currentUser?.role === 'boss';
+    // 💡 绝招 1：无视本地缓存，永远从云端刚下载的 users 列表里抓取这名员工的最新数据！
+    const liveCurrentUser = users.find((u:any) => u.id === currentUser?.id) || currentUser;
 
-    // 💡 精准计算：获取当前登录经理管辖的所有分店ID
-    const myManagerStoreIds = (currentUser?.role === 'manager' && currentUser.storeRoles) 
-        ? Object.keys(currentUser.storeRoles).filter(id => currentUser.storeRoles[id] === 'manager') 
+    // 判断是否为大老板
+    const isBoss = adminMode === 'owner' || liveCurrentUser?.role === 'boss';
+
+    // 精准计算：获取当前登录经理管辖的所有分店ID
+    const myManagerStoreIds = liveCurrentUser?.storeRoles 
+        ? Object.keys(liveCurrentUser.storeRoles).filter(id => liveCurrentUser.storeRoles[id] === 'manager') 
         : [];
 
-    // 💡 一步到位：组件加载时，直接精准定位他的专属门店，不再中间跳转！
+    // 初始状态（先随便给一个，因为马上会被纠正）
     const [adminStoreId, setAdminStoreId] = useState(() => {
-        if (isBoss) return safeStores[0]?.id; // 老板默认看第一家店
-        if (myManagerStoreIds.length > 0) return myManagerStoreIds[0]; // 经理优先进入他管辖的店
-        // 兼容旧数据：如果还没配置权限，但他在那家店的 staff 列表里
-        const legacyStore = safeStores.find((s:any) => s.staff?.includes(currentUser?.id));
+        if (isBoss) return safeStores[0]?.id;
+        if (myManagerStoreIds.length > 0) return myManagerStoreIds[0];
+        const legacyStore = safeStores.find((s:any) => s.staff?.includes(liveCurrentUser?.id));
         return legacyStore ? legacyStore.id : safeStores[0]?.id;
     });
 
+    // 💡 绝招 2：云端数据一旦下载完成，立刻自动纠正门店！
+    useEffect(() => {
+        if (!isBoss && myManagerStoreIds.length > 0) {
+            // 如果他当前卡在的店，不是他管理的店，立刻强制切回他自己的店！
+            if (!myManagerStoreIds.includes(adminStoreId)) {
+                setAdminStoreId(myManagerStoreIds[0]);
+            }
+        } else if (!isBoss && myManagerStoreIds.length === 0) {
+             // 兼容老员工数据的逻辑
+             const legacyStore = safeStores.find((s:any) => s.staff?.includes(liveCurrentUser?.id));
+             if (legacyStore && adminStoreId !== legacyStore.id && legacyStore.id) {
+                 setAdminStoreId(legacyStore.id);
+             }
+        }
+    }, [isBoss, JSON.stringify(myManagerStoreIds), adminStoreId, safeStores, liveCurrentUser]);
+  
     // 💡 实时监听新报修工单并弹窗 (加入备注详情显示)
     const prevRepairsLength = useRef(data.repairRequests?.length || 0);
     useEffect(() => {
