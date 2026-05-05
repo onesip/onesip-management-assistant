@@ -4270,9 +4270,9 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             {activeFeatures.prep && (
                 <TodaysPrepReports inventoryHistory={scopedInventoryHistory} inventoryList={scopedInventoryList} lang={lang} />
             )}
-            {/* 💡 管理层专属：常驻报修提醒看板 */}
-            {(currentUser.role === 'manager' || currentUser.role === 'boss') && (
-                <div className="mb-6 space-y-3">
+            {/* 💡 管理层专属：常驻报修提醒看板 (已修复：完美识别该分店专属经理) */}
+            {(currentUser?.role === 'boss' || currentUser?.role === 'manager' || currentUser?.storeRoles?.[activeStoreId] === 'manager') && (
+                <div className="mb-6 space-y-3 mt-4">
                     {data.repairRequests?.filter((r: any) => r.status === 'pending' && (r.storeId || 'default_store') === activeStoreId).length > 0 && (
                         <h3 className="text-xs font-bold text-orange-600 uppercase flex items-center gap-1">
                             <Icon name="AlertTriangle" size={14}/>
