@@ -4527,6 +4527,28 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
          const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })); link.download = `prep_history_${adminStoreId}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
+    {ownerSubView === 'history' && (
+                    <div className="p-4 space-y-3 pb-20">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-2">
+                            <h3 className="text-lg font-bold text-dark-text">Prep & Waste History</h3>
+                            <div className="flex gap-2 w-full md:w-auto">
+                                {/* 原有的全部导出按钮 */}
+                                <button onClick={handleExportPrepCsv} className="flex-1 md:flex-none bg-green-600 text-white px-3 py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1">
+                                    <Icon name="List" size={14} /> Export All
+                                </button>
+                                {/* 💡 新增的专门导出报损按钮 */}
+                                <button onClick={handleExportWasteCsv} className="flex-1 md:flex-none bg-red-600 text-white px-3 py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 shadow-lg hover:bg-red-700 active:scale-95 transition-all">
+                                    <Icon name="Trash2" size={14} /> Export Waste Only
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* 下面是您原本的列表渲染代码，保持不变 ... */}
+                        {scopedHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found for this branch.</p>}
+                        {/* ... */}
+                    </div>
+                )}
+
     const handleExportSmartCsv = () => {
         if (scopedSmartReports.length === 0) return alert("No reports found to export.");
         let csvContent = "\uFEFFWeek,Date Range,Submitted By,Item Name,Category,Supplier,Count (Rem),Add (New),Total Stock,Safety Stock,Status\n";
