@@ -4549,7 +4549,44 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                     </div>
                 )}
 
+    const handleExportPrepCsv = () => { 
+         if (scopedHistory.length === 0) return alert("No prep history found to export.");
+         let csvContent = "\uFEFFDate,Type,Staff,Item,Added,Waste/Loss,Reason\n";
+         // ... (这里是原有的导出代码，保持不变) ...
+    };
+
+    // 👇 ============ 请把下面这段，精准地粘贴在这里！ ============ 👇
+    const handleExportWasteCsv = () => {
+        const wasteHistory = scopedHistory.filter((r: any) => r.shift === 'waste');
+        if (wasteHistory.length === 0) return alert("No waste history found to export.");
+        
+        let csvContent = "\uFEFFDate,Staff,Item,Loss Amount,Reason,Branch\n";
+        wasteHistory.forEach((r: any) => {
+            if (r && r.data) {
+                Object.entries(r.data).forEach(([id, val]: any) => {
+                    const itemDef = inventoryList.find((i:any) => i.id === id);
+                    const cleanName = (itemDef ? getLoc(itemDef.name) : id).replace(/"/g, '""');
+                    const formattedDate = new Date(r.date).toLocaleString();
+                    csvContent += `"${formattedDate}","${r.submittedBy}","${cleanName}",${val.loss ?? 0},"${val.reason || ''}","${adminStoreId}"\n`;
+                });
+            }
+        });
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `waste_records_${adminStoreId}_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+    // 👆 ======================================================= 👆
+
     const handleExportSmartCsv = () => {
+        if (scopedSmartReports.length === 0) return alert("No reports found to export.");
+        // ... (这里是原有的仓库导出代码，保持不变) ...
+  
+  const handleExportSmartCsv = () => {
         if (scopedSmartReports.length === 0) return alert("No reports found to export.");
         let csvContent = "\uFEFFWeek,Date Range,Submitted By,Item Name,Category,Supplier,Count (Rem),Add (New),Total Stock,Safety Stock,Status\n";
         scopedSmartReports.forEach((report: any) => {
