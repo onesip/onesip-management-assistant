@@ -4410,135 +4410,26 @@ function StaffBottomNav({ activeView, setActiveView, t, hasUnreadChat, features 
 }
 
 // ============================================================================
-// 组件 5: 店长总控台 (Owner Dashboard) - [自动分店识别 + 0117密码锁]
+// 组件 6: 老板总后台 (Owner Dashboard) - 包含所有报损与导出功能
 // ============================================================================
-function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, onExit: () => void, currentUser?: any, adminMode?: string }) {
+function OwnerDashboard({ data, onExit, currentUser, adminMode }: any) {
     const { showNotification } = useNotification();
     const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, stores, setStores, schedule, setSchedule } = data;
-    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
+    const ownerUser = users.find((u:any) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
     const [view, setView] = useState<'main' | 'manager'>('main');
     const [ownerSubView, setOwnerSubView] = useState<'stores' | 'presets' | 'history' | 'smart' | 'smart_history' | 'staff' | 'logs' | 'repair'>('presets');
     const [isEditingRepairDb, setIsEditingRepairDb] = useState(false);
   
-    // ==========================================
-    // 🔐 分店管理模块密码锁
-    // ==========================================
-    const [isStoreUnlocked, setIsStoreUnlocked] = useState(false);
-    const [pinInput, setPinInput] = useState('');
-   
-    // ==========================================
-    // 🛡️ 智能权限与分店识别 (终极云端同步版)
-    // ==========================================
-    const safeStores = Array.isArray(stores) && stores.length > 0 ? stores : [{ id: 'default_store', name: 'Main Store', staff: [], features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true, repair: true } }];
-    
-    // 💡 绝招 1：无视本地缓存，永远从云端刚下载的 users 列表里抓取这名员工的最新数据！
-    const liveCurrentUser = users.find((u:any) => u.id === currentUser?.id) || currentUser;
-
-    // 判断是否为大老板
-    const isBoss = adminMode === 'owner' || liveCurrentUser?.role === 'boss';
-
-    // 精准计算：获取当前登录经理管辖的所有分店ID
-    const myManagerStoreIds = liveCurrentUser?.storeRoles 
-        ? Object.keys(liveCurrentUser.storeRoles).filter(id => liveCurrentUser.storeRoles[id] === 'manager') 
-        : [];
-
-    // 初始状态（先随便给一个，因为马上会被纠正）
-    const [adminStoreId, setAdminStoreId] = useState(() => {
-        if (isBoss) return safeStores[0]?.id;
-        if (myManagerStoreIds.length > 0) return myManagerStoreIds[0];
-        const legacyStore = safeStores.find((s:any) => s.staff?.includes(liveCurrentUser?.id));
-        return legacyStore ? legacyStore.id : safeStores[0]?.id;
-    });
-
-    // 💡 绝招 2：云端数据一旦下载完成，立刻自动纠正门店！
-    useEffect(() => {
-        if (!isBoss && myManagerStoreIds.length > 0) {
-            // 如果他当前卡在的店，不是他管理的店，立刻强制切回他自己的店！
-            if (!myManagerStoreIds.includes(adminStoreId)) {
-                setAdminStoreId(myManagerStoreIds[0]);
-            }
-        } else if (!isBoss && myManagerStoreIds.length === 0) {
-             // 兼容老员工数据的逻辑
-             const legacyStore = safeStores.find((s:any) => s.staff?.includes(liveCurrentUser?.id));
-             if (legacyStore && adminStoreId !== legacyStore.id && legacyStore.id) {
-                 setAdminStoreId(legacyStore.id);
-             }
-        }
-    }, [isBoss, JSON.stringify(myManagerStoreIds), adminStoreId, safeStores, liveCurrentUser]);
-  
-    // 💡 实时监听新报修工单并弹窗 (加入备注详情显示)
-    const prevRepairsLength = useRef(data.repairRequests?.length || 0);
-    useEffect(() => {
-        const currentLen = data.repairRequests?.length || 0;
-        if (currentLen > prevRepairsLength.current) {
-            const newTicket = data.repairRequests[currentLen - 1];
-            if ((newTicket.storeId || 'default_store') === adminStoreId) {
-                // 判断员工是否写了备注，如果有就加上去
-                const notesInfo = newTicket.notes ? `\n📝 备注: ${newTicket.notes}` : '';
-                
-                showNotification({ 
-                    type: 'announcement', 
-                    title: '🚨 新异常提报 (New Ticket)', 
-                    message: `${newTicket.submittedBy} 提报了关于 [${newTicket.item}] 的异常。${notesInfo}`, 
-                    sticky: true 
-                });
-            }
-        }
-        prevRepairsLength.current = currentLen;
-    }, [data.repairRequests, adminStoreId, showNotification]);
-
-    const scopedInventoryList = inventoryList.filter((i:any) => (i.storeId || 'default_store') === adminStoreId);
-    const scopedHistory = inventoryHistory.filter((h:any) => (h.storeId || 'default_store') === adminStoreId);
-    const scopedSmartReports = smartReports.filter((r:any) => (r.storeId || 'default_store') === adminStoreId);
-    const scopedLogs = logs.filter((l:any) => (l.storeId || 'default_store') === adminStoreId);
-    const scopedRepairs = (data.repairRequests || []).filter((r:any) => (r.storeId || 'default_store') === adminStoreId);
-  
-    const getLoc = (obj: any) => obj ? (obj[lang] || obj['zh']) : '';
-
-    const handleUpdateInventoryList = (newList: any[]) => {
-        const others = inventoryList.filter((i:any) => (i.storeId || 'default_store') !== adminStoreId);
-        const mapped = newList.map(i => ({ ...i, storeId: adminStoreId }));
-        const merged = [...others, ...mapped];
-        setInventoryList(merged);
-        Cloud.saveInventoryList(merged);
-    };
-
-    const handleSaveSmartReport = async (report: any) => {
-        try {
-            const scopedReport = { ...report, storeId: adminStoreId };
-            await Cloud.saveSmartInventoryReport(scopedReport);
-            setOwnerSubView('smart_history'); 
-        } catch (error) { alert("Error uploading report."); }
-    };
-
-    function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, onExit: () => void, currentUser?: any, adminMode?: string }) {
-    const { showNotification } = useNotification();
-    const { lang, t, inventoryList, setInventoryList, inventoryHistory, users, logs, smartReports, stores, setStores, schedule, setSchedule } = data;
-    const ownerUser = users.find((u:User) => u.role === 'boss') || { id: 'u_owner', name: 'Owner', role: 'boss' };
-    const [view, setView] = useState<'main' | 'manager'>('main');
-    const [ownerSubView, setOwnerSubView] = useState<'stores' | 'presets' | 'history' | 'smart' | 'smart_history' | 'staff' | 'logs' | 'repair'>('presets');
-    const [isEditingRepairDb, setIsEditingRepairDb] = useState(false);
-  
-    // ==========================================
-    // 🔐 分店管理模块密码锁
-    // ==========================================
     const [isStoreUnlocked, setIsStoreUnlocked] = useState(false);
     const [pinInput, setPinInput] = useState('');
 
-    // ==========================================
-    // 🛡️ 智能权限与分店识别 (终极云端同步版)
-    // ==========================================
     const safeStores = Array.isArray(stores) && stores.length > 0 ? stores : [{ id: 'default_store', name: 'Main Store', staff: [], features: { prep: true, waste: true, schedule: true, swap: true, availability: true, sop: true, training: true, recipes: true, chat: true, repair: true } }];
     
-    // 抓取这名员工的最新数据
     const liveCurrentUser = users.find((u:any) => u.id === currentUser?.id) || currentUser;
-
-    // 判断是否为大老板
     const isBoss = adminMode === 'owner' || liveCurrentUser?.role === 'boss';
 
-    // 精准计算：获取当前登录经理管辖的所有分店ID
     const myManagerStoreIds = liveCurrentUser?.storeRoles 
-        ? Object.keys(liveCurrentUser.storeRoles).filter(id => liveCurrentUser.storeRoles[id] === 'manager') 
+        ? Object.keys(liveCurrentUser.storeRoles).filter((id: string) => liveCurrentUser.storeRoles[id] === 'manager') 
         : [];
 
     const [adminStoreId, setAdminStoreId] = useState(() => {
@@ -4561,7 +4452,6 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
         }
     }, [isBoss, JSON.stringify(myManagerStoreIds), adminStoreId, safeStores, liveCurrentUser]);
 
-    // 💡 实时监听新报修工单并弹窗
     const prevRepairsLength = useRef(data.repairRequests?.length || 0);
     useEffect(() => {
         const currentLen = data.repairRequests?.length || 0;
@@ -4569,12 +4459,7 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
             const newTicket = data.repairRequests[currentLen - 1];
             if ((newTicket.storeId || 'default_store') === adminStoreId) {
                 const notesInfo = newTicket.notes ? `\n📝 备注: ${newTicket.notes}` : '';
-                showNotification({ 
-                    type: 'announcement', 
-                    title: '🚨 新异常提报 (New Ticket)', 
-                    message: `${newTicket.submittedBy} 提报了关于 [${newTicket.item}] 的异常。${notesInfo}`, 
-                    sticky: true 
-                });
+                if (showNotification) showNotification({ type: 'announcement', title: '🚨 新异常提报 (New Ticket)', message: `${newTicket.submittedBy} 提报了关于 [${newTicket.item}] 的异常。${notesInfo}`, sticky: true });
             }
         }
         prevRepairsLength.current = currentLen;
@@ -4593,19 +4478,19 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
         const mapped = newList.map(i => ({ ...i, storeId: adminStoreId }));
         const merged = [...others, ...mapped];
         setInventoryList(merged);
-        Cloud.saveInventoryList(merged);
+        if (typeof Cloud !== 'undefined' && Cloud.saveInventoryList) Cloud.saveInventoryList(merged);
     };
 
     const handleSaveSmartReport = async (report: any) => {
         try {
             const scopedReport = { ...report, storeId: adminStoreId };
-            await Cloud.saveSmartInventoryReport(scopedReport);
+            if (typeof Cloud !== 'undefined' && Cloud.saveSmartInventoryReport) await Cloud.saveSmartInventoryReport(scopedReport);
             setOwnerSubView('smart_history'); 
         } catch (error) { alert("Error uploading report."); }
     };
 
     // ==========================================
-    // 💡 导出文件相关函数
+    // 💡 各种 CSV 导出函数 (修复了之前乱跑的问题)
     // ==========================================
     const handleExportPrepCsv = () => { 
          if (scopedHistory.length === 0) return alert("No prep history found to export.");
@@ -4662,6 +4547,9 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
         const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })); link.download = `smart_warehouse_${adminStoreId}.csv`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
     };
 
+    // ==========================================
+    // 💡 界面渲染区
+    // ==========================================
     if (view === 'manager') return (
         <div className="flex flex-col h-[100dvh] bg-dark-bg">
             <div className="p-4 bg-dark-surface flex justify-between items-center border-b border-white/10">
@@ -4760,7 +4648,7 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                             onSave={async (newItems: any[]) => {
                                 const newStores = safeStores.map((s:any) => s.id === adminStoreId ? { ...s, wasteItems: newItems } : s);
                                 data.setStores(newStores);
-                                if (Cloud.updateStores) await Cloud.updateStores(newStores);
+                                if (typeof Cloud !== 'undefined' && Cloud.updateStores) await Cloud.updateStores(newStores);
                                 alert("✅ Waste items configuration saved for this branch!");
                             }} 
                             onCancel={() => setOwnerSubView('presets')} 
@@ -4768,7 +4656,6 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                     </div>
                 )}
               
-                {/* 💡 这里就是带双导出按钮的 History 界面！ */}
                 {ownerSubView === 'history' && (
                     <div className="p-4 space-y-3 pb-20">
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-2">
@@ -4838,7 +4725,7 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                 )}
                 
                 {ownerSubView === 'staff' && <StaffManagementView data={data} />}
-                {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={scopedLogs} currentUser={ownerUser} onUpdateLogs={(l:any) => Cloud.updateLogs(l)} />}
+                {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={scopedLogs} currentUser={ownerUser} onUpdateLogs={(l:any) => { if(typeof Cloud !== 'undefined') Cloud.updateLogs(l); }} />}
                 
                 {ownerSubView === 'repair' && (
                     <div className="p-4 space-y-3 pb-20">
@@ -4857,7 +4744,7 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                                 onSave={async (newDb: any) => {
                                     const newStores = safeStores.map((s:any) => s.id === adminStoreId ? { ...s, repairDatabase: newDb } : s);
                                     data.setStores(newStores);
-                                    if (Cloud.updateStores) await Cloud.updateStores(newStores);
+                                    if (typeof Cloud !== 'undefined' && Cloud.updateStores) await Cloud.updateStores(newStores);
                                     alert("✅ Database configuration saved for this branch!");
                                     setIsEditingRepairDb(false);
                                 }} 
@@ -4897,7 +4784,7 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                                                                 if(!window.confirm("Mark this ticket as RESOLVED?")) return;
                                                                 const updated = data.repairRequests.map((r:any) => r.id === ticket.id ? {...r, status: 'resolved', resolvedAt: Date.now()} : r);
                                                                 data.setRepairRequests(updated);
-                                                                if (Cloud.updateRepairRequests) Cloud.updateRepairRequests(updated);
+                                                                if (typeof Cloud !== 'undefined' && Cloud.updateRepairRequests) Cloud.updateRepairRequests(updated);
                                                             }} 
                                                             className="bg-orange-500 hover:bg-orange-400 text-white text-[10px] font-bold px-3 py-1.5 rounded shadow-md transition-all active:scale-95"
                                                         >
@@ -4919,269 +4806,6 @@ function OwnerDashboard({ data, onExit, currentUser, adminMode }: { data: any, o
                                 
                                 {safeStores.filter((s:any) => isBoss || myManagerStoreIds.includes(s.id)).every((store:any) => (data.repairRequests || []).filter((r:any) => (r.storeId || 'default_store') === store.id).length === 0) && (
                                     <p className="text-dark-text-light text-center py-10">No pending tickets across all your branches.</p>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-    if (view === 'manager') return (
-        <div className="flex flex-col h-[100dvh] bg-dark-bg">
-            <div className="p-4 bg-dark-surface flex justify-between items-center border-b border-white/10">
-                <h2 className="font-black text-white text-lg">Branch Manager: {safeStores.find((s:any)=>s.id===adminStoreId)?.name}</h2>
-                <button onClick={() => setView('main')} className="bg-white/10 px-4 py-2 rounded-lg text-white font-bold text-xs">Back to Admin</button>
-            </div>
-            <div className="flex-1 overflow-hidden">
-                <ManagerDashboard 
-                    data={data} 
-                    adminStoreId={adminStoreId} 
-                    currentUser={currentUser}
-                    onExit={() => setView('home')} 
-                />
-            </div>
-        </div>
-    );
-    
-    // 💡 动态判断是否允许切换门店：老板或者管辖超过1家店的区域经理
-    const canSwitchStore = isBoss || myManagerStoreIds.length > 1;
-
-    return (
-        <div className="min-h-screen max-h-[100dvh] overflow-hidden flex flex-col bg-dark-bg text-dark-text font-sans pt-[calc(env(safe-area-inset-top)_+_2rem)] md:pt-0">
-            <div className="bg-dark-surface p-4 shadow-lg flex justify-between items-center shrink-0 border-b border-white/10">
-                  <div className="flex items-center gap-4">
-                      <h1 className="text-xl font-black tracking-tight text-white hidden md:block">Admin Panel</h1>
-                      
-                      {/* 💡 智能 UI 升级：能切店的显示下拉菜单，不能切店的显示高级徽章 */}
-                      {canSwitchStore ? (
-                          <select 
-                              value={adminStoreId} 
-                              onChange={e => setAdminStoreId(e.target.value)}
-                              className="bg-dark-bg border border-white/20 rounded-lg px-3 py-2 text-white font-bold outline-none focus:border-dark-accent text-sm shadow-inner cursor-pointer"
-                          >
-                              {safeStores
-                                  .filter((s: any) => isBoss || myManagerStoreIds.includes(s.id))
-                                  .map((s:any) => <option key={s.id} value={s.id}>{s.name}</option>)
-                              }
-                          </select>
-                      ) : (
-                          <div className="bg-dark-bg/50 border border-white/10 rounded-lg px-4 py-2 text-white font-bold text-sm flex items-center gap-2 shadow-inner">
-                              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                              {safeStores.find((s:any) => s.id === adminStoreId)?.name || 'Loading Branch...'}
-                          </div>
-                      )}
-                  </div>
-                <div className="flex gap-2">
-                    <button onClick={() => setView('manager')} className="bg-blue-600/20 text-blue-400 p-2 rounded hover:bg-blue-600/30 transition-all text-xs font-bold px-3">Manager Mode</button>
-                    <button onClick={onExit} className="bg-red-500/10 text-red-400 p-2 rounded hover:bg-red-500/20 transition-all"><Icon name="LogOut" /></button>
-                </div>
-            </div>
-            
-            <div className="flex bg-dark-bg p-2 gap-2 overflow-x-auto shrink-0 shadow-inner">
-                <button onClick={() => setOwnerSubView('stores')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'stores' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Branch Mgmt</button>
-                <div className="w-px bg-white/10 mx-1"></div>
-                <button onClick={() => setOwnerSubView('presets')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'presets' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep Target</button>
-                <button onClick={() => setOwnerSubView('waste_config' as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'waste_config' as any ? 'bg-red-500 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Waste Config</button>
-                <button onClick={() => setOwnerSubView('history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'history' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Prep History</button>
-                <div className="w-px bg-white/10 mx-1"></div>
-                <button onClick={() => setOwnerSubView('smart')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart' ? 'bg-purple-600 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Smart WH</button>
-                <button onClick={() => setOwnerSubView('smart_history')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'smart_history' ? 'bg-purple-900/50 text-purple-200 border border-purple-500/30' : 'text-dark-text-light hover:bg-white/10'}`}>WH History</button>
-                <div className="w-px bg-white/10 mx-1"></div>
-                <button onClick={() => setOwnerSubView('staff')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'staff' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Global Staff</button>
-                <button onClick={() => setOwnerSubView('logs')} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'logs' ? 'bg-dark-accent text-dark-bg shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Branch Logs</button>
-                <button onClick={() => setOwnerSubView('repair' as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${ownerSubView === 'repair' ? 'bg-orange-500 text-white shadow' : 'text-dark-text-light hover:bg-white/10'}`}>Tickets</button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto relative">
-                {/* 分店管理 - 密码锁验证区 */}
-                {ownerSubView === 'stores' && !isStoreUnlocked && (
-                    <div className="absolute inset-0 z-50 bg-dark-bg flex flex-col items-center justify-center p-6 animate-fade-in">
-                        <div className="bg-dark-surface p-8 rounded-3xl border border-white/10 text-center shadow-2xl max-w-sm w-full">
-                            <Icon name="Lock" size={40} className="mx-auto mb-4 text-dark-accent" />
-                            <h3 className="font-black text-xl text-white mb-2">Restricted Area</h3>
-                            <p className="text-xs text-dark-text-light mb-6">Please enter the security PIN to manage branches.</p>
-                            <input 
-                                type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} 
-                                className="w-full text-center text-3xl tracking-[0.5em] p-4 bg-dark-bg border border-white/20 rounded-xl mb-6 font-black text-white outline-none focus:border-dark-accent" 
-                                placeholder="PIN" autoFocus maxLength={4} 
-                                onKeyDown={e => {
-                                    if(e.key === 'Enter') {
-                                        if (pinInput === '0117') { setIsStoreUnlocked(true); setPinInput(''); } 
-                                        else { alert("Incorrect PIN"); setPinInput(''); }
-                                    }
-                                }}
-                            />
-                            <button onClick={() => { if(pinInput === '0117') { setIsStoreUnlocked(true); setPinInput(''); } else { alert("Incorrect PIN"); setPinInput(''); } }} className="w-full py-3 rounded-xl bg-dark-accent text-dark-bg font-bold text-lg active:scale-95 transition-transform">Unlock</button>
-                        </div>
-                    </div>
-                )}
-                {ownerSubView === 'stores' && isStoreUnlocked && <StoreManagementView data={data} />}
-                
-                {ownerSubView === 'presets' && <InventoryView lang={lang} t={t} inventoryList={scopedInventoryList} onUpdateInventoryList={handleUpdateInventoryList} isOwner={true} currentUser={ownerUser} />}
-
-                {ownerSubView === 'waste_config' as any && (
-                    <div className="p-4 space-y-3">
-                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Waste Report Categories</h3></div>
-                        <WasteConfigEditor 
-                            store={safeStores.find((s:any)=>s.id===adminStoreId)} 
-                            onSave={async (newItems: any[]) => {
-                                const newStores = safeStores.map((s:any) => s.id === adminStoreId ? { ...s, wasteItems: newItems } : s);
-                                data.setStores(newStores);
-                                if (Cloud.updateStores) await Cloud.updateStores(newStores);
-                                alert("✅ Waste items configuration saved for this branch!");
-                            }} 
-                            onCancel={() => setOwnerSubView('presets')} 
-                        />
-                    </div>
-                )}
-              
-                {ownerSubView === 'history' && (
-                    <div className="p-4 space-y-3">
-                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Prep & Waste History</h3><button onClick={handleExportPrepCsv} className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16} /> Export</button></div>
-                        {scopedHistory.length === 0 && <p className="text-dark-text-light text-center py-10">No history found for this branch.</p>}
-                        {scopedHistory.slice().reverse().map((report: any) => (
-                            <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 mb-3">
-                                <div className="flex justify-between items-center mb-2">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-bold text-sm text-white">{new Date(report.date).toLocaleString()}</span>
-                                        <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${report.shift === 'waste' ? 'bg-red-500/20 text-red-400' : 'bg-white/10 text-purple-300'}`}>{report.shift === 'waste' ? 'WASTE/LOSS' : report.shift}</span>
-                                    </div>
-                                    <span className="text-xs text-dark-text-light font-bold">{report.submittedBy}</span>
-                                </div>
-                                <div className="text-xs text-dark-text-light mt-2 pt-2 border-t border-white/5 space-y-1">
-                                    {Object.entries(report.data || {}).map(([itemId, val]: any) => {
-                                        const itemDef = inventoryList.find((i: any) => i.id === itemId);
-                                        return (
-                                            <div key={itemId} className="flex justify-between">
-                                                <span>{itemDef ? getLoc(itemDef.name) : itemId}</span>
-                                                {report.shift === 'waste' ? <span className="text-red-400">-{val.loss} ({val.reason})</span> : <span className="text-green-400">+{val.end}</span>}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {ownerSubView === 'smart' && <SmartInventoryView data={data} onSaveReport={handleSaveSmartReport} />}
-                
-                {ownerSubView === 'smart_history' && (
-                    <div className="p-4 space-y-3">
-                        <div className="flex justify-between items-center"><h3 className="text-lg font-bold text-dark-text">Warehouse Weekly Reports</h3><button onClick={handleExportSmartCsv} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Icon name="List" size={16} /> Export CSV</button></div>
-                        {scopedSmartReports.length === 0 && <p className="text-dark-text-light text-center py-10">No warehouse reports for this branch.</p>}
-                        {scopedSmartReports.slice().reverse().map((report: any) => {
-                            if (report.status === 'deleted') return null;
-                            return (
-                                <div key={report.id} className="bg-dark-surface p-3 rounded-xl border border-white/10 group mb-3">
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex-1">
-                                            <p className="text-sm font-bold text-white flex items-center gap-2">{report.weekStr} <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-dark-text-light font-normal">{(report.items || []).length} items</span></p>
-                                            <p className="text-xs text-dark-text-light mt-0.5">{report.dateRange} • by {report.submittedBy}</p>
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 pt-3 border-t border-white/10 text-xs space-y-2 max-h-60 overflow-y-auto animate-fade-in">
-                                        <div className="grid grid-cols-4 font-bold text-dark-text-light mb-1"><span className="col-span-2">Item</span><span className="text-center">Stock</span><span className="text-center">Status</span></div>
-                                        {(report.items || []).map((item: any, idx: number) => (
-                                            <div key={idx} className="grid grid-cols-4 items-center py-1 border-b border-white/5 last:border-0 hover:bg-white/5"><span className="col-span-2 text-white truncate">{item.name}</span><span className={`text-center font-mono ${item.currentStock === 0 ? 'text-gray-500' : 'text-purple-300 font-bold'}`}>{item.currentStock}</span><span className={`text-center font-bold ${item.status==='LOW'?'text-red-400':'text-green-400'}`}>{item.status}</span></div>
-                                        ))}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-                
-                {ownerSubView === 'staff' && <StaffManagementView data={data} />}
-                {ownerSubView === 'logs' && <OwnerInventoryLogsView logs={scopedLogs} currentUser={ownerUser} onUpdateLogs={(l:any) => Cloud.updateLogs(l)} />}
-                
-                {ownerSubView === 'repair' && (
-                    <div className="p-4 space-y-3 pb-20">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-bold text-white">Global Maintenance Tickets</h3>
-                            {!isEditingRepairDb && (
-                                <button onClick={() => setIsEditingRepairDb(true)} className="bg-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">
-                                    <Icon name="Edit" size={14} className="inline mr-1"/> Config Categories
-                                </button>
-                            )}
-                        </div>
-                        
-                        {isEditingRepairDb ? (
-                            <RepairConfigEditor 
-                                store={safeStores.find((s:any)=>s.id===adminStoreId)} 
-                                onSave={async (newDb: any) => {
-                                    const newStores = safeStores.map((s:any) => s.id === adminStoreId ? { ...s, repairDatabase: newDb } : s);
-                                    data.setStores(newStores);
-                                    if (Cloud.updateStores) await Cloud.updateStores(newStores);
-                                    alert("✅ Database configuration saved for this branch!");
-                                    setIsEditingRepairDb(false);
-                                }} 
-                                onCancel={() => setIsEditingRepairDb(false)} 
-                            />
-                        ) : (
-                            <div className="space-y-6">
-                                {/* 💡 核心升级：遍历所有他有权限管理的店，按店名分组显示报修单！ */}
-                                {safeStores.filter((s:any) => isBoss || myManagerStoreIds.includes(s.id)).map((store: any) => {
-                                    const storeTickets = (data.repairRequests || []).filter((r:any) => (r.storeId || 'default_store') === store.id);
-                                    if (storeTickets.length === 0) return null; // 如果这家店没坏东西，就不显示空壳
-                                    
-                                    return (
-                                        <div key={store.id} className="bg-dark-surface p-4 rounded-xl border border-white/10 shadow-lg">
-                                            {/* 醒目的门店名称头 */}
-                                            <h4 className="text-md font-black text-white border-b border-white/10 pb-2 mb-3 flex items-center gap-2">
-                                                <Icon name="Store" size={16} className="text-orange-400"/> {store.name}
-                                            </h4>
-                                            
-                                            {/* 待处理 (Pending) */}
-                                            {storeTickets.filter((r:any) => r.status === 'pending').slice().reverse().map((ticket: any) => (
-                                                <div key={ticket.id} className="bg-orange-500/10 p-3 rounded-lg border border-orange-500/30 mb-2">
-                                                    <div className="flex justify-between items-start mb-2">
-                                                        <div>
-                                                            <span className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded font-bold uppercase">{ticket.category}</span>
-                                                            <h5 className="font-bold text-orange-400 mt-1">{ticket.item}</h5>
-                                                        </div>
-                                                        <span className="text-xs text-dark-text-light font-mono">{new Date(ticket.date).toLocaleString()}</span>
-                                                    </div>
-                                                    <div className="bg-dark-bg p-2 rounded mt-2">
-                                                        <ul className="list-disc pl-4 text-xs text-white space-y-1 mb-1">
-                                                            {(ticket.issues || []).map((iss:string, i:number) => <li key={i}>{iss}</li>)}
-                                                        </ul>
-                                                        {ticket.notes && <p className="text-xs text-gray-400 border-t border-white/5 pt-1 font-mono">📝 备注: {ticket.notes}</p>}
-                                                    </div>
-                                                    <div className="flex justify-between items-center mt-2 pt-2 border-t border-orange-500/20">
-                                                        <span className="text-[10px] text-dark-text-light">By: <strong className="text-white">{ticket.submittedBy}</strong></span>
-                                                        <button 
-                                                            onClick={() => {
-                                                                if(!window.confirm("Mark this ticket as RESOLVED?")) return;
-                                                                const updated = data.repairRequests.map((r:any) => r.id === ticket.id ? {...r, status: 'resolved', resolvedAt: Date.now()} : r);
-                                                                data.setRepairRequests(updated);
-                                                                if (Cloud.updateRepairRequests) Cloud.updateRepairRequests(updated);
-                                                            }} 
-                                                            className="bg-orange-500 hover:bg-orange-400 text-white text-[10px] font-bold px-3 py-1.5 rounded shadow-md transition-all active:scale-95"
-                                                        >
-                                                            <Icon name="CheckCircle2" size={12} className="inline mr-1" /> Mark Resolved
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            
-                                            {/* 已解决 (Resolved) */}
-                                            {storeTickets.filter((r:any) => r.status === 'resolved').slice().reverse().map((ticket: any) => (
-                                                <div key={ticket.id} className="bg-dark-bg p-2 rounded-lg border border-green-500/20 mt-2 opacity-70">
-                                                    <div className="flex justify-between items-center"><span className="text-xs font-bold text-gray-400 line-through">{ticket.item}</span><span className="text-[9px] text-green-500 font-bold"><Icon name="Check" size={10} className="inline"/> Resolved</span></div>
-                                                    <p className="text-[9px] text-dark-text-light mt-0.5">📝 {ticket.notes || '无备注'} | By: {ticket.submittedBy}</p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )
-                                })}
-                                
-                                {/* 如果所有分店都没有报修 */}
-                                {safeStores.filter((s:any) => isBoss || myManagerStoreIds.includes(s.id)).every((store:any) => (data.repairRequests || []).filter((r:any) => (r.storeId || 'default_store') === store.id).length === 0) && (
-                                    <p className="text-dark-text-light text-center py-10">No pending tickets across all your branches. (所有门店均无报修)</p>
                                 )}
                             </div>
                         )}
