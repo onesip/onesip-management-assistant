@@ -1515,7 +1515,7 @@ function RepairReportView({ onCancel, onSubmit, currentUser, myStoreId, recipes,
 }
 
 // ============================================================================
-// 新增组件: 员工端 - SOP与培训模块 (Training View) [适配 0413 高级编辑器]
+// 新增组件: 员工端 - SOP与培训模块 (Training View) [适配 0413 高级编辑器 + 图片渲染]
 // ============================================================================
 function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
     const [searchQuery, setSearchQuery] = useState('');
@@ -1554,7 +1554,7 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
         return (<video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-xl mt-4 shadow-md bg-black object-contain" />);
     };
 
-    // 💡 核心修复：完美解析 0413 编辑器的“多段落”富文本数据
+    // 💡 核心修复：完美解析 0413 编辑器的“多段落”富文本数据，并增加图片集渲染
     const renderAdvancedContent = (item: any) => {
         // 1. 渲染 Description
         let desc = item.description || item.desc || '';
@@ -1594,13 +1594,32 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
         return (
             <div className="mt-4 pt-3 border-t border-gray-100 animate-fade-in" onClick={e => e.stopPropagation()}>
                 {/* 描述信息 */}
-                {desc && <p className="text-gray-500 text-sm italic font-medium">{desc}</p>}
-                
-                {/* 分段内容 */}
-                {sectionsOutput}
+                {desc && <p className="text-gray-500 text-sm italic font-medium whitespace-pre-line">{desc}</p>}
                 
                 {/* 教学视频 (兼容不同的字段名) */}
                 {(item.videoUrl || item.youtubeLink || item.mediaUrl) && renderVideo(item.videoUrl || item.youtubeLink || item.mediaUrl)}
+
+                {/* 💡 新增：SOP 图片集渲染逻辑 */}
+                {Array.isArray(item.images) && item.images.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2 mt-4">
+                        {item.images.map((imgUrl: string, idx: number) => {
+                            if (!imgUrl || imgUrl.trim() === '') return null;
+                            return (
+                                <a key={idx} href={imgUrl} target="_blank" rel="noreferrer" className="block active:scale-95 transition-transform">
+                                    <img 
+                                        src={imgUrl} 
+                                        alt={`Training Image ${idx + 1}`} 
+                                        className="w-full h-32 object-cover rounded-xl border border-gray-200/50 shadow-sm"
+                                        onError={(e) => { e.currentTarget.style.display = 'none'; }} // 如果链接失效则自动隐藏
+                                    />
+                                </a>
+                            );
+                        })}
+                    </div>
+                )}
+                
+                {/* 分段内容 (排在图片下面比较好看) */}
+                {sectionsOutput}
             </div>
         );
     };
@@ -1616,24 +1635,25 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
         <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
             <div className="p-4 sticky top-0 bg-secondary z-10 shadow-sm border-b border-gray-100">
                 <div className="flex items-center gap-3 mb-4">
-                    <h2 className="text-2xl font-black text-blue-600 flex items-center gap-2">
-                        <Icon name="Award" size={24} /> {lang === 'zh' ? '培训与 SOP' : 'Training & SOPs'}
+                    <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-gray-500 active:scale-95 transition-transform"><Icon name="ArrowLeft" /></button>
+                    <h2 className="text-xl font-black text-blue-600 flex items-center gap-2">
+                        <Icon name="Award" size={20} /> {lang === 'zh' ? '培训与 SOP' : 'Training & SOPs'}
                     </h2>
                 </div>
                 <div className="relative">
-                    <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+                    <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16}/>
                     <input 
                         value={searchQuery} 
                         onChange={e => setSearchQuery(e.target.value)} 
                         placeholder={lang === 'zh' ? '搜索 SOP 或培训内容...' : 'Search training...'} 
-                        className="w-full bg-white border border-gray-200 rounded-xl p-3 pl-10 text-sm outline-none focus:border-blue-400 shadow-sm" 
+                        className="w-full bg-white border border-gray-200 rounded-xl p-3 pl-9 text-sm outline-none focus:border-blue-400 shadow-sm" 
                     />
                 </div>
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 <div className="bg-blue-50 text-blue-600 p-3 rounded-lg text-xs font-bold border border-blue-100 mb-2">
-                    {lang === 'zh' ? '💡 点击卡片展开查看详细步骤和教学视频。' : '💡 Tap a card to view details and tutorial videos.'}
+                    {lang === 'zh' ? '💡 点击卡片展开查看详细步骤、图片和教学视频。' : '💡 Tap a card to view details, photos and tutorial videos.'}
                 </div>
 
                 {filteredItems.map((item: any, index: number) => {
