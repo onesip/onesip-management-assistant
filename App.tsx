@@ -1535,7 +1535,7 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
         return 'Untitled';
     };
 
-    // 💡 全能 YouTube 解析器 (自动适配链接里的参数)
+    // 💡 全能 YouTube 解析器
     const renderVideo = (url: string) => {
         if (!url) return null;
         if (url.includes('youtube.com') || url.includes('youtu.be')) {
@@ -1554,18 +1554,15 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
         return (<video src={url} controls playsInline preload="metadata" className="w-full aspect-video rounded-xl mt-4 shadow-md bg-black object-contain" />);
     };
 
-// 💡 核心修复：完美解析 0413 编辑器的“多段落”富文本数据，并增加图片集渲染
+    // 💡 完美解析“多段落”富文本数据，并增加图片集渲染 (带破解防盗链功能)
     const renderAdvancedContent = (item: any) => {
-        // 1. 渲染 Description
         let desc = item.description || item.desc || '';
         if (typeof desc === 'object') desc = desc[lang] || desc.zh || desc.en || '';
 
-        // 2. 渲染 Content Sections
         let sectionsOutput = null;
         const content = item.content;
 
         if (Array.isArray(content)) {
-            // ✅ 解析后台编辑器的 CONTENT SECTIONS
             sectionsOutput = (
                 <div className="space-y-3 mt-3">
                     {content.map((sec: any, idx: number) => {
@@ -1588,7 +1585,7 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
             if (text) sectionsOutput = <p className="text-gray-600 text-sm whitespace-pre-line mt-2">{text}</p>;
         }
 
-        // 💡 智能提取图片数组 (兼容后台存成 urls, images, gallery 等各种可能的名字)
+        // 💡 智能提取图片数组
         const imageArray = item.images || item.imageUrls || item.gallery || item.pictures || [];
         const validImages = Array.isArray(imageArray) ? imageArray.filter((url:string) => url && url.trim() !== '') : [];
 
@@ -1609,7 +1606,7 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
                                     src={imgUrl} 
                                     alt={`Training Image ${idx + 1}`} 
                                     className="w-full h-32 object-cover"
-                                    referrerPolicy="no-referrer" /* 💡 终极武器：破解免费图床的防盗链 */
+                                    referrerPolicy="no-referrer" /* 💡 破解图床防盗链，强制显示图片 */
                                 />
                                 <div className="absolute bottom-1 right-1 bg-black/60 backdrop-blur-sm text-white text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 font-bold">
                                     <Icon name="ZoomIn" size={10} /> 放大
@@ -1619,11 +1616,74 @@ function TrainingView({ lang, sopList, trainingLevels, onCancel }: any) {
                     </div>
                 )}
                 
-                {/* 分段内容 (排在图片下面比较好看) */}
+                {/* 分段内容 */}
                 {sectionsOutput}
             </div>
         );
     };
+
+    // 过滤搜索
+    const filteredItems = combinedData.filter((item: any) => {
+        const title = getTitle(item).toLowerCase();
+        const query = searchQuery.toLowerCase();
+        return title.includes(query);
+    });
+
+    return (
+        <div className="flex flex-col h-full bg-secondary pb-20 animate-fade-in-up text-text">
+            <div className="p-4 sticky top-0 bg-secondary z-10 shadow-sm border-b border-gray-100">
+                <div className="flex items-center gap-3 mb-4">
+                    <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-gray-500 active:scale-95 transition-transform"><Icon name="ArrowLeft" /></button>
+                    <h2 className="text-xl font-black text-blue-600 flex items-center gap-2">
+                        <Icon name="Award" size={20} /> {lang === 'zh' ? '培训与 SOP' : 'Training & SOPs'}
+                    </h2>
+                </div>
+                <div className="relative">
+                    <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16}/>
+                    <input 
+                        value={searchQuery} 
+                        onChange={e => setSearchQuery(e.target.value)} 
+                        placeholder={lang === 'zh' ? '搜索 SOP 或培训内容...' : 'Search training...'} 
+                        className="w-full bg-white border border-gray-200 rounded-xl p-3 pl-9 text-sm outline-none focus:border-blue-400 shadow-sm" 
+                    />
+                </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div className="bg-blue-50 text-blue-600 p-3 rounded-lg text-xs font-bold border border-blue-100 mb-2">
+                    {lang === 'zh' ? '💡 点击卡片展开查看详细步骤、图片和教学视频。' : '💡 Tap a card to view details, photos and tutorial videos.'}
+                </div>
+
+                {filteredItems.map((item: any, index: number) => {
+                    const itemId = item.id || `train_${index}`;
+                    return (
+                        <div key={itemId} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 cursor-pointer transition-all active:scale-[0.98]" onClick={() => setExpandedId(expandedId === itemId ? null : itemId)}>
+                            <div className="flex justify-between items-center">
+                                <div className="flex-1 pr-4">
+                                    <h3 className="font-bold text-gray-800 text-base">{getTitle(item)}</h3>
+                                    <p className="text-[10px] font-bold text-blue-500 bg-blue-50 inline-block px-2 py-0.5 rounded mt-1">{item.category || 'General'}</p>
+                                </div>
+                                <div className={`p-2 rounded-full transition-colors ${expandedId === itemId ? 'bg-blue-100 text-blue-600' : 'bg-gray-50 text-gray-400'}`}>
+                                    <Icon name={expandedId === itemId ? "ChevronUp" : "ChevronRight"} size={16} />
+                                </div>
+                            </div>
+                            
+                            {/* 展开后，调用高级排版器 */}
+                            {expandedId === itemId && renderAdvancedContent(item)}
+                        </div>
+                    );
+                })}
+
+                {filteredItems.length === 0 && (
+                    <div className="text-center py-10 opacity-50">
+                        <Icon name="Inbox" size={40} className="mx-auto mb-2 text-gray-400" />
+                        <p className="text-sm font-bold text-gray-500">{lang === 'zh' ? '暂无相关培训内容。' : 'No content found.'}</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
 // ============================================================================
 // 组件: 内容编辑器 (Editor Dashboard) - 支持视频直链文案 + 分店动态推送
 // ============================================================================
