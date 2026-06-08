@@ -1713,6 +1713,48 @@ function EditorDashboard({ data, onExit }: { data: any, onExit: () => void }) {
         }
     };
 
+    // 💡 专门导出【饮品配方】的 CSV 函数
+    const handleExportRecipesCsv = () => {
+        // 从全局 data 里抓取配方列表
+        const recipes = data.recipes || [];
+        if (recipes.length === 0) return alert("暂无配方可以导出 (No recipes to export).");
+
+        // CSV 表头 (\uFEFF 保证 Excel 打开不会中文乱码)
+        let csvContent = "\uFEFF配方名称(中文),Recipe Name(EN),分类(Category),类型(Type),原料清单(Ingredients),制作步骤(Steps)\n";
+
+        recipes.forEach((recipe: any) => {
+            // 安全提取名称和分类，替换掉可能破坏 CSV 格式的双引号
+            const nameZh = (recipe.name?.zh || recipe.name || '').replace(/"/g, '""');
+            const nameEn = (recipe.name?.en || '').replace(/"/g, '""');
+            const cat = (recipe.cat || recipe.category || '').replace(/"/g, '""');
+            const type = (recipe.recipeType || '').replace(/"/g, '""');
+
+            // 🔪 智能合并原料清单 (例如：奶精 10L; 糖浆 5ml)
+            const ingredientsStr = (recipe.ingredients || []).map((ing: any) => {
+                const ingName = ing.name?.zh || ing.name || '';
+                return `${ingName} ${ing.amount || ''}${ing.unit || ''}`;
+            }).join('; ').replace(/"/g, '""');
+
+            // 🔪 智能合并步骤 (把回车替换为空格，防止 CSV 表格错乱跑到下一行)
+            const stepsStr = (recipe.steps || []).map((step: any, idx: number) => {
+                const stepText = typeof step === 'string' ? step : (step.zh || step.en || '');
+                return `${idx + 1}. ${stepText.replace(/(\r\n|\n|\r)/gm, " ")}`;
+            }).join('   ').replace(/"/g, '""');
+
+            // 拼接成一行
+            csvContent += `"${nameZh}","${nameEn}","${cat}","${type}","${ingredientsStr}","${stepsStr}"\n`;
+        });
+
+        // 生成文件并下载
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `onesip_recipes_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     // 💡 新建配方时，加入 storeIds: [] 字段
     const createNewItem = () => { 
         const id = `item_${Date.now()}`; 
@@ -2025,12 +2067,27 @@ function EditorDashboard({ data, onExit }: { data: any, onExit: () => void }) {
                <h2 className="text-xl font-bold tracking-wider text-dark-accent">{t.editor_title}</h2>
                <button onClick={onExit} className="bg-white/10 p-2 rounded hover:bg-white/20 transition-all"><Icon name="X" /></button>
            </div>
+           
            <div className="flex-1 overflow-y-auto p-4">
-                <div className="flex gap-2 mb-4">
-                     {['training', 'sop', 'recipes'].map(m => (
-                         <button key={m} onClick={() => setView(m as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === m ? 'bg-dark-accent text-dark-bg shadow-lg' : 'bg-dark-surface text-dark-text-light hover:bg-white/10'}`}>{m}</button>
-                     ))}
+                {/* 💡 顶部工具栏：左侧分类切换，右侧导出按钮 */}
+                <div className="flex justify-between items-center mb-4">
+                    <div className="flex gap-2">
+                         {['training', 'sop', 'recipes'].map(m => (
+                             <button key={m} onClick={() => setView(m as any)} className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${view === m ? 'bg-dark-accent text-dark-bg shadow-lg' : 'bg-dark-surface text-dark-text-light hover:bg-white/10'}`}>{m}</button>
+                         ))}
+                    </div>
+                    
+                    {/* 💡 只在选中 recipes 时才显示配方导出按钮 */}
+                    {view === 'recipes' && !editingItem && (
+                        <button 
+                            onClick={handleExportRecipesCsv} 
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-md active:scale-95 transition-all"
+                        >
+                            <Icon name="Download" size={14} /> 导出配方
+                        </button>
+                    )}
                 </div>
+
                 {editingItem ? (
                     <div className="bg-dark-surface p-4 rounded-xl border border-white/10 animate-fade-in">
                         {renderEditorFields()}
