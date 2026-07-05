@@ -903,7 +903,9 @@ const LoginScreen = ({ users, onLogin, t, lang, setLang }: any) => {
             setError(t.enter_code);
             return;
         }
-        const user = users.find((u: User) => u.password === password);
+        
+        // 💡 核心修复：同时核对新字段 pin 和老字段 password！
+        const user = users.find((u: any) => u.pin === password || u.password === password);
 
         if (user) {
             onLogin(user, keepLoggedIn);
@@ -918,14 +920,14 @@ const LoginScreen = ({ users, onLogin, t, lang, setLang }: any) => {
     };
 
     return (
-        <div className="min-h-screen bg-secondary flex flex-col items-center justify-center p-4">
+        <div className="min-h-screen bg-secondary flex flex-col items-center justify-center p-4 animate-fade-in">
             <div className="w-full max-w-sm">
                 <div className="text-center mb-8">
                     <h1 className="text-4xl font-black text-primary tracking-tight">ONESIP</h1>
                     <p className="text-text-light">{t.login_title}</p>
                 </div>
                 <div className="bg-surface rounded-2xl shadow-lg p-8 space-y-6">
-                    {error && <p className="text-destructive text-sm text-center font-bold">{error}</p>}
+                    {error && <p className="text-destructive text-sm text-center font-bold animate-shake">{error}</p>}
                     <div>
                         <label className="text-sm font-bold text-text-light mb-2 block">{t.enter_code}</label>
                         <input
@@ -933,7 +935,7 @@ const LoginScreen = ({ users, onLogin, t, lang, setLang }: any) => {
                             value={password}
                             onChange={(e) => { setPassword(e.target.value); setError(''); }}
                             onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                            className="w-full p-4 border rounded-lg bg-secondary text-center text-xl tracking-widest font-mono"
+                            className="w-full p-4 border rounded-lg bg-secondary text-center text-xl tracking-widest font-mono outline-none focus:border-primary"
                             placeholder="••••••"
                             autoFocus
                         />
@@ -966,7 +968,7 @@ const LoginScreen = ({ users, onLogin, t, lang, setLang }: any) => {
                     </button>
                 </div>
                 <div className="text-center mt-6">
-                     <button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 text-text-light text-xs font-bold px-4 py-2 rounded-full border"> {lang === 'zh' ? 'Switch to English' : '切换到中文'} </button>
+                     <button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="bg-gray-200 text-text-light text-xs font-bold px-4 py-2 rounded-full border hover:bg-gray-300 transition-colors"> {lang === 'zh' ? 'Switch to English' : '切换到中文'} </button>
                 </div>
             </div>
         </div>
@@ -4374,7 +4376,7 @@ function StaffBottomNav({ activeView, setActiveView, t, hasUnreadChat, features 
 }
 
 // ============================================================================
-// 组件: 全局员工管理 (Staff Management) - [含密码PIN管理]
+// 组件: 全局员工管理 (Staff Management) - [含密码兼容与门店分配]
 // ============================================================================
 function StaffManagementView({ data }: any) {
     const { users, stores, setStores } = data;
@@ -4396,11 +4398,17 @@ function StaffManagementView({ data }: any) {
     const handleSave = async () => {
         if (!formData.name) return alert("Please enter a name.");
         if (!formData.id) return alert("Login ID is required.");
-        if (!formData.pin) return alert("Password / PIN is required for login.");
         
+        // 💡 兼容处理：确保不管是新存的 pin 还是老的 password，都能作为密码
+        const finalPin = formData.pin || formData.password;
+        if (!finalPin) return alert("Password / PIN is required for login.");
+        
+        // 统一把老字段 password 覆盖到规范的 pin 字段上
+        const userToSave = { ...formData, pin: finalPin };
+
         try {
             // @ts-ignore
-            if (typeof Cloud !== 'undefined' && Cloud.saveUser) await Cloud.saveUser(formData);
+            if (typeof Cloud !== 'undefined' && Cloud.saveUser) await Cloud.saveUser(userToSave);
         } catch (e) { console.error("Error saving user:", e); }
 
         const newStores = stores.map((s:any) => {
@@ -4436,7 +4444,10 @@ function StaffManagementView({ data }: any) {
                                 <h4 className="font-bold text-white text-base flex items-center gap-2">{u.name}</h4>
                                 <div className="flex items-center gap-2 mt-1">
                                     <span className="text-[10px] bg-white/10 text-dark-text-light px-2 py-0.5 rounded uppercase inline-block font-bold">{u.role}</span>
-                                    <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded font-mono font-bold border border-blue-500/30">PIN: {u.pin || 'Unset'}</span>
+                                    {/* 💡 兼容老数据：如果没找到 pin，就去找 password */}
+                                    <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded font-mono font-bold border border-blue-500/30">
+                                        PIN: {u.pin || u.password || 'Unset'}
+                                    </span>
                                 </div>
                             </div>
                             <button onClick={() => openModal(u)} className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500/20 transition-colors"><Icon name="Edit" size={14}/></button>
@@ -4472,7 +4483,8 @@ function StaffManagementView({ data }: any) {
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block text-blue-400">Password / PIN</label>
-                                    <input value={formData.pin || ''} onChange={e=>setFormData({...formData, pin: e.target.value})} className="w-full bg-dark-bg border border-blue-500/50 p-3 rounded-lg text-white outline-none focus:border-blue-400 font-mono" placeholder="e.g. 1234" />
+                                    {/* 💡 兼容老数据：编辑框也同时抓取 pin 和 password */}
+                                    <input value={formData.pin || formData.password || ''} onChange={e=>setFormData({...formData, pin: e.target.value})} className="w-full bg-dark-bg border border-blue-500/50 p-3 rounded-lg text-white outline-none focus:border-blue-400 font-mono" placeholder="e.g. 1234" />
                                 </div>
                             </div>
                             
