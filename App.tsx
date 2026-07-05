@@ -4374,6 +4374,173 @@ function StaffBottomNav({ activeView, setActiveView, t, hasUnreadChat, features 
 }
 
 // ============================================================================
+// 组件: 全局员工管理 (Staff Management) - [含密码PIN管理]
+// ============================================================================
+function StaffManagementView({ data }: any) {
+    const { users, stores, setStores } = data;
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [formData, setFormData] = useState<any>({});
+    const [selectedStores, setSelectedStores] = useState<string[]>([]);
+
+    const openModal = (user?: any) => {
+        if (user) {
+            setFormData({ ...user });
+            setSelectedStores(stores.filter((s:any) => s.staff?.includes(user.id)).map((s:any) => s.id));
+        } else {
+            setFormData({ id: `u_${Date.now()}`, name: '', role: 'staff', pin: '', active: true });
+            setSelectedStores([]);
+        }
+        setIsModalOpen(true);
+    };
+
+    const handleSave = async () => {
+        if (!formData.name) return alert("Please enter a name.");
+        if (!formData.id) return alert("Login ID is required.");
+        if (!formData.pin) return alert("Password / PIN is required for login.");
+        
+        try {
+            // @ts-ignore
+            if (typeof Cloud !== 'undefined' && Cloud.saveUser) await Cloud.saveUser(formData);
+        } catch (e) { console.error("Error saving user:", e); }
+
+        const newStores = stores.map((s:any) => {
+            const currentStaff = s.staff || [];
+            const shouldHave = selectedStores.includes(s.id);
+            const hasUser = currentStaff.includes(formData.id);
+            
+            if (shouldHave && !hasUser) return { ...s, staff: [...currentStaff, formData.id] };
+            if (!shouldHave && hasUser) return { ...s, staff: currentStaff.filter((id:string) => id !== formData.id) };
+            return s;
+        });
+        
+        setStores(newStores);
+        // @ts-ignore
+        if (typeof Cloud !== 'undefined' && Cloud.updateStores) await Cloud.updateStores(newStores);
+        
+        setIsModalOpen(false);
+    };
+
+    return (
+        <div className="p-4 space-y-4 animate-fade-in">
+            <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-white">Global Staff List</h3>
+                <button onClick={() => openModal()} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold shadow-lg hover:opacity-90 transition-all">+ Add New Staff</button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {users.map((u: any) => (
+                    <div key={u.id} className={`bg-dark-surface p-4 rounded-xl border ${u.active===false ? 'border-red-500/30 opacity-60' : 'border-white/10'} shadow-sm relative overflow-hidden`}>
+                        {u.active === false && <div className="absolute top-0 right-0 bg-red-500/20 text-red-400 text-[9px] px-2 py-0.5 font-bold rounded-bl-lg">INACTIVE</div>}
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <h4 className="font-bold text-white text-base flex items-center gap-2">{u.name}</h4>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-[10px] bg-white/10 text-dark-text-light px-2 py-0.5 rounded uppercase inline-block font-bold">{u.role}</span>
+                                    <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded font-mono font-bold border border-blue-500/30">PIN: {u.pin || 'Unset'}</span>
+                                </div>
+                            </div>
+                            <button onClick={() => openModal(u)} className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500/20 transition-colors"><Icon name="Edit" size={14}/></button>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-white/5">
+                            <p className="text-[10px] text-dark-text-light mb-1 font-bold uppercase">Assigned Branches:</p>
+                            <div className="flex flex-wrap gap-1">
+                                {stores.filter((s:any) => s.staff?.includes(u.id)).map((s:any) => (
+                                    <span key={s.id} className="text-[10px] bg-dark-bg text-gray-300 border border-white/10 px-1.5 py-0.5 rounded font-bold">{s.name}</span>
+                                ))}
+                                {stores.filter((s:any) => s.staff?.includes(u.id)).length === 0 && <span className="text-[9px] text-red-400 italic">No branch assigned</span>}
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {isModalOpen && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 animate-fade-in">
+                    <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
+                        <h3 className="text-lg font-bold text-white mb-4">{formData.id?.startsWith('u_') && !formData.name ? 'Add New Staff' : 'Edit Staff Profile'}</h3>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Full Name</label>
+                                <input value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none focus:border-dark-accent" placeholder="e.g. John Doe" />
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Login ID</label>
+                                    <input value={formData.id} onChange={e=>setFormData({...formData, id: e.target.value})} disabled={formData.id === 'u_owner' || formData.id === 'u_lambert'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50 font-mono" placeholder="e.g. user123" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block text-blue-400">Password / PIN</label>
+                                    <input value={formData.pin || ''} onChange={e=>setFormData({...formData, pin: e.target.value})} className="w-full bg-dark-bg border border-blue-500/50 p-3 rounded-lg text-white outline-none focus:border-blue-400 font-mono" placeholder="e.g. 1234" />
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block mt-2">Global Override (Admin)</label>
+                                <select value={formData.role === 'boss' ? 'boss' : 'custom'} onChange={e=>{
+                                    const newRole = e.target.value;
+                                    if (newRole === 'boss') setFormData({...formData, role: 'boss'});
+                                    else setFormData({...formData, role: 'staff'}); 
+                                }} disabled={formData.id === 'u_owner' || formData.id === 'u_lambert'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50">
+                                    <option value="custom">Per-Branch Setup ↓</option>
+                                    <option value="boss">Boss (All Access)</option>
+                                </select>
+                            </div>
+                            
+                            {formData.role !== 'boss' && (
+                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5 shadow-inner">
+                                    <label className="text-xs font-black text-dark-accent uppercase mb-3 flex items-center gap-2">
+                                        <Icon name="Store" size={14}/> Branch Assignment
+                                    </label>
+                                    <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                                        {stores.map((store: any) => {
+                                            const currentStoreRole = formData.storeRoles?.[store.id] || 'none';
+                                            const isAssigned = currentStoreRole !== 'none';
+                                            
+                                            return (
+                                                <div key={store.id} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${isAssigned ? 'bg-dark-accent/10 border-dark-accent/50 text-white shadow-sm' : 'bg-dark-surface border-white/5 text-gray-400 hover:border-white/20'}`}>
+                                                    <span className="text-sm font-bold truncate pr-2 flex-1">{store.name}</span>
+                                                    <select 
+                                                        value={currentStoreRole}
+                                                        onChange={(e) => {
+                                                            const newRole = e.target.value;
+                                                            const updatedStoreRoles = { ...(formData.storeRoles || {}) };
+                                                            if (newRole === 'none') delete updatedStoreRoles[store.id]; 
+                                                            else updatedStoreRoles[store.id] = newRole; 
+                                                            setFormData({ ...formData, storeRoles: updatedStoreRoles });
+                                                        }}
+                                                        className={`bg-dark-bg border ${isAssigned ? 'border-dark-accent/50 text-white' : 'border-white/20 text-gray-500'} rounded p-1.5 text-xs font-bold outline-none cursor-pointer w-28 shrink-0`}
+                                                    >
+                                                        <option value="none">🚫 Unassigned</option>
+                                                        <option value="staff">👨‍🍳 Staff</option>
+                                                        <option value="manager">🧑‍💼 Manager</option>
+                                                    </select>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            <label className="flex items-center gap-2 p-3 bg-red-500/5 rounded-lg border border-red-500/10 cursor-pointer hover:bg-red-500/10 transition-colors mt-2">
+                                <input type="checkbox" checked={formData.active !== false} onChange={e=>setFormData({...formData, active: e.target.checked})} className="w-4 h-4 accent-red-500" />
+                                <span className="text-sm font-bold text-red-400">Account Active (Can Login)</span>
+                            </label>
+                        </div>
+
+                        <div className="flex gap-3 mt-6">
+                            <button onClick={() => setIsModalOpen(false)} className="flex-1 py-3 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-all">Cancel</button>
+                            <button onClick={handleSave} className="flex-1 py-3 bg-dark-accent text-dark-bg rounded-xl font-black shadow-lg hover:opacity-90 transition-all active:scale-95">Save</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ============================================================================
 // 组件 6: 老板总后台 (Owner Dashboard) - 包含所有报损与导出功能
 // ============================================================================
 function OwnerDashboard({ data, onExit, currentUser, adminMode }: any) {
