@@ -2177,183 +2177,72 @@ const OwnerInventoryLogsView = ({ logs, currentUser, onUpdateLogs }: { logs: any
     );
 };
 
-// ============================================================================
-// 组件: 全局员工管理 (Staff Management) - [新增门店动态分配与云同步]
-// ============================================================================
-function StaffManagementView({ data }: any) {
-    const { users, stores, setStores } = data;
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [formData, setFormData] = useState<any>({});
-    const [selectedStores, setSelectedStores] = useState<string[]>([]);
-
-    // 打开编辑弹窗
-    const openModal = (user?: any) => {
-        if (user) {
-            setFormData({ ...user });
-            // 自动找出该员工目前被分配到了哪些门店
-            setSelectedStores(stores.filter((s:any) => s.staff?.includes(user.id)).map((s:any) => s.id));
-        } else {
-            // 新建员工
-            setFormData({ id: `u_${Date.now()}`, name: '', role: 'staff', pin: '', active: true });
-            setSelectedStores([]);
-        }
-        setIsModalOpen(true);
-    };
-
-    // 保存并同步到云端
-    const handleSave = async () => {
-        if (!formData.name) return alert("Please enter a name.");
-        if (!formData.id) return alert("Login ID / PIN is required.");
-        
-        // 1. 保存员工信息到云端
+// 💡 终极防错版：导出【饮品配方】CSV 
+    const handleExportRecipesCsv = () => {
         try {
-            // @ts-ignore
-            if (typeof Cloud !== 'undefined' && Cloud.saveUser) await Cloud.saveUser(formData);
-        } catch (e) { console.error("Error saving user:", e); }
-
-        // 2. 动态更新门店的 Staff 列表
-        const newStores = stores.map((s:any) => {
-            const currentStaff = s.staff || [];
-            const shouldHave = selectedStores.includes(s.id);
-            const hasUser = currentStaff.includes(formData.id);
+            // 1. 兼容各种可能的数据来源（如果您有解构出的 recipes 变量，也可以直接用）
+            const recipeData = data.recipes || data.drinkRecipes || [];
             
-            if (shouldHave && !hasUser) return { ...s, staff: [...currentStaff, formData.id] };
-            if (!shouldHave && hasUser) return { ...s, staff: currentStaff.filter((id:string) => id !== formData.id) };
-            return s;
-        });
-        
-        // 更新本地状态并推送到云端
-        setStores(newStores);
-        // @ts-ignore
-        if (typeof Cloud !== 'undefined' && Cloud.updateStores) await Cloud.updateStores(newStores);
-        
-        setIsModalOpen(false);
-    };
+            if (!Array.isArray(recipeData) || recipeData.length === 0) {
+                alert("未找到配方数据，或配方为空！");
+                return;
+            }
 
-    // 勾选/取消勾选门店
-    const toggleStore = (storeId: string) => {
-        setSelectedStores(prev => prev.includes(storeId) ? prev.filter(id => id !== storeId) : [...prev, storeId]);
-    };
+            // 2. CSV 表头 (\uFEFF 保证 Excel 打开不会中文乱码)
+            let csvContent = "\uFEFF配方名称(中文),Recipe Name(EN),分类(Category),类型(Type),原料清单(Ingredients),制作步骤(Steps)\n";
 
-    return (
-        <div className="p-4 space-y-4 animate-fade-in">
-            <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold text-white">Global Staff List</h3>
-                <button onClick={() => openModal()} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold shadow-lg hover:opacity-90 transition-all">+ Add New Staff</button>
-            </div>
+            recipeData.forEach((recipe: any) => {
+                if (!recipe) return;
+                
+                // 强制转为字符串并安全替换引号
+                const nameZh = (recipe.name?.zh || recipe.name || '').toString().replace(/"/g, '""');
+                const nameEn = (recipe.name?.en || '').toString().replace(/"/g, '""');
+                const cat = (recipe.cat || recipe.category || '').toString().replace(/"/g, '""');
+                const type = (recipe.recipeType || '').toString().replace(/"/g, '""');
+
+                // 🔪 极度安全的原料解析 (防止 ingredients 不是数组导致崩溃)
+                let ingredientsStr = "";
+                if (Array.isArray(recipe.ingredients)) {
+                    ingredientsStr = recipe.ingredients.map((ing: any) => {
+                        if (!ing) return '';
+                        const ingName = ing.name?.zh || ing.name || '';
+                        return `${ingName} ${ing.amount || ''}${ing.unit || ''}`;
+                    }).join('; ').replace(/"/g, '""');
+                } else if (typeof recipe.ingredients === 'string') {
+                    ingredientsStr = recipe.ingredients.replace(/"/g, '""');
+                }
+
+                // 🔪 极度安全的步骤解析 (防止 steps 不是数组导致崩溃)
+                let stepsStr = "";
+                if (Array.isArray(recipe.steps)) {
+                    stepsStr = recipe.steps.map((step: any, idx: number) => {
+                        if (!step) return '';
+                        const stepText = typeof step === 'string' ? step : (step.zh || step.en || '');
+                        return `${idx + 1}. ${stepText.toString().replace(/(\r\n|\n|\r)/gm, " ")}`;
+                    }).join('   ').replace(/"/g, '""');
+                } else if (typeof recipe.steps === 'string') {
+                    stepsStr = recipe.steps.replace(/(\r\n|\n|\r)/gm, " ").replace(/"/g, '""');
+                }
+
+                // 拼接成一行
+                csvContent += `"${nameZh}","${nameEn}","${cat}","${type}","${ingredientsStr}","${stepsStr}"\n`;
+            });
+
+            // 3. 生成并下载文件
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `onesip_recipes_${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {users.map((u: any) => (
-                    <div key={u.id} className={`bg-dark-surface p-4 rounded-xl border ${u.active===false ? 'border-red-500/30 opacity-60' : 'border-white/10'} shadow-sm relative overflow-hidden`}>
-                        {u.active === false && <div className="absolute top-0 right-0 bg-red-500/20 text-red-400 text-[9px] px-2 py-0.5 font-bold rounded-bl-lg">INACTIVE</div>}
-                        <div className="flex justify-between items-start mb-2">
-                            <div>
-                                <h4 className="font-bold text-white text-base flex items-center gap-2">{u.name}</h4>
-                                <span className="text-[10px] bg-white/10 text-dark-text-light px-2 py-0.5 rounded uppercase mt-1 inline-block font-bold">{u.role}</span>
-                            </div>
-                            <button onClick={() => openModal(u)} className="p-2 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500/20 transition-colors"><Icon name="Edit" size={14}/></button>
-                        </div>
-                        <div className="mt-3 pt-3 border-t border-white/5">
-                            <p className="text-[10px] text-dark-text-light mb-1 font-bold uppercase">Assigned Branches:</p>
-                            <div className="flex flex-wrap gap-1">
-                                {stores.filter((s:any) => s.staff?.includes(u.id)).map((s:any) => (
-                                    <span key={s.id} className="text-[10px] bg-dark-bg text-gray-300 border border-white/10 px-1.5 py-0.5 rounded font-bold">{s.name}</span>
-                                ))}
-                                {stores.filter((s:any) => s.staff?.includes(u.id)).length === 0 && <span className="text-[9px] text-red-400 italic">No branch assigned</span>}
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-
-            {isModalOpen && (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4 animate-fade-in">
-                    <div className="bg-dark-surface p-6 rounded-2xl border border-white/10 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl">
-                        <h3 className="text-lg font-bold text-white mb-4">{formData.id?.startsWith('u_') && !formData.name ? 'Add New Staff' : 'Edit Staff Profile'}</h3>
-                        
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Full Name</label>
-                                <input value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none focus:border-dark-accent" placeholder="e.g. John Doe" />
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Login ID / PIN</label>
-                                    <input value={formData.id} onChange={e=>setFormData({...formData, id: e.target.value})} disabled={formData.id === 'u_owner' || formData.id === 'u_lambert'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50 font-mono" placeholder="PIN code" />
-                                </div>
-                                <div>
-                                    {/* 💡 全局角色只保留 Boss 设定，普通员工/经理的权限转移到下方分店独立设置 */}
-                                    <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Global Override</label>
-                                    <select value={formData.role === 'boss' ? 'boss' : 'custom'} onChange={e=>{
-                                        const newRole = e.target.value;
-                                        if (newRole === 'boss') setFormData({...formData, role: 'boss'});
-                                        else setFormData({...formData, role: 'staff'}); // 如果取消 Boss，默认降为 staff，具体权限看下方
-                                    }} disabled={formData.id === 'u_owner' || formData.id === 'u_lambert'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50">
-                                        <option value="custom">Per-Branch Setup ↓</option>
-                                        <option value="boss">Boss (All Access)</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            {/* 💡 终极版动态门店分配区域：按门店独立设置职位 */}
-                            {formData.role !== 'boss' && (
-                                <div className="bg-dark-bg p-4 rounded-xl border border-white/5 shadow-inner">
-                                    <label className="text-xs font-black text-dark-accent uppercase mb-3 flex items-center gap-2">
-                                        <Icon name="Store" size={14}/> Branch & Role Assignment
-                                    </label>
-                                    <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                                        {stores.map((store: any) => {
-                                            // 获取该员工在该店的具体角色，如果没有则认为是未分配 ('none')
-                                            const currentStoreRole = formData.storeRoles?.[store.id] || 'none';
-                                            const isAssigned = currentStoreRole !== 'none';
-                                            
-                                            return (
-                                                <div key={store.id} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${isAssigned ? 'bg-dark-accent/10 border-dark-accent/50 text-white shadow-sm' : 'bg-dark-surface border-white/5 text-gray-400 hover:border-white/20'}`}>
-                                                    <span className="text-sm font-bold truncate pr-2 flex-1">{store.name}</span>
-                                                    <select 
-                                                        value={currentStoreRole}
-                                                        onChange={(e) => {
-                                                            const newRole = e.target.value;
-                                                            const updatedStoreRoles = { ...(formData.storeRoles || {}) };
-                                                            
-                                                            if (newRole === 'none') {
-                                                                delete updatedStoreRoles[store.id]; // 移除权限
-                                                            } else {
-                                                                updatedStoreRoles[store.id] = newRole; // 赋予对应权限
-                                                            }
-                                                            
-                                                            setFormData({ ...formData, storeRoles: updatedStoreRoles });
-                                                        }}
-                                                        className={`bg-dark-bg border ${isAssigned ? 'border-dark-accent/50 text-white' : 'border-white/20 text-gray-500'} rounded p-1.5 text-xs font-bold outline-none cursor-pointer w-28 shrink-0`}
-                                                    >
-                                                        <option value="none">🚫 Unassigned</option>
-                                                        <option value="staff">👨‍🍳 Staff</option>
-                                                        <option value="manager">🧑‍💼 Manager</option>
-                                                    </select>
-                                                </div>
-                                            );
-                                        })}
-                                        {stores.length === 0 && <p className="text-xs text-gray-500 italic">No branches available.</p>}
-                                    </div>
-                                </div>
-                            )}
-
-                            <label className="flex items-center gap-2 p-3 bg-red-500/5 rounded-lg border border-red-500/10 cursor-pointer hover:bg-red-500/10 transition-colors mt-2">
-                                <input type="checkbox" checked={formData.active !== false} onChange={e=>setFormData({...formData, active: e.target.checked})} className="w-4 h-4 accent-red-500" />
-                                <span className="text-sm font-bold text-red-400">Account Active (Can Login)</span>
-                            </label>
-                        </div>
-
-                        <div className="flex gap-3 mt-6">
-                            <button onClick={() => setIsModalOpen(false)} className="flex-1 py-3 bg-white/10 text-white rounded-xl font-bold hover:bg-white/20 transition-all">Cancel</button>
-                            <button onClick={handleSave} className="flex-1 py-3 bg-dark-accent text-dark-bg rounded-xl font-black shadow-lg hover:opacity-90 transition-all active:scale-95">Save Profile</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
+        } catch (error) {
+            // 💡 如果再出错，这里会直接弹窗告诉我们具体错在哪！
+            console.error("Export Error:", error);
+            alert("导出失败！遇到了未知的数据格式，请联系开发者检查。");
+        }
+    };
 
 // ============================================================================
 // 终极修复版: 盘点与备料 (InventoryView) 
