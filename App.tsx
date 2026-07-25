@@ -3785,14 +3785,12 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         return null;
     }, [schedule, currentUser, t, activeFeatures.schedule, myStoreId]);
 
-// ========================================================================
-    // 💡 核心升级：【全员广播版】强制休息监控引擎 (4.5小时规则 - 纯净版)
+    // ========================================================================
+    // 💡 核心升级：【分年龄段全员广播版】强制休息监控引擎 (4.5h / 5.5h 双轨制)
     // ========================================================================
     useEffect(() => {
-        // 如果没开启排班功能，或者今天压根没排班，就跳过
         if (!activeFeatures.schedule || !todaySchedule?.shifts) return;
 
-        // 🚀 授权“弹到手机屏幕上”的系统通知权限 (需浏览器支持)
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission().catch(e => console.log("通知授权失败", e));
         }
@@ -3801,7 +3799,6 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const now = new Date();
             const todayStr = now.toDateString();
 
-            // ⚠️ 重点：查今天店里的【所有班次 (todaySchedule.shifts)】
             todaySchedule.shifts.forEach((shift: any) => {
                 if (!shift.start || !shift.end || !shift.staff || shift.staff.length === 0) return;
 
@@ -3813,76 +3810,86 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                 
                 if (shiftEnd < shiftStart) shiftEnd.setDate(shiftEnd.getDate() + 1);
 
+                // 计算当前排班的总小时数
                 const durationHours = (shiftEnd.getTime() - shiftStart.getTime()) / (1000 * 60 * 60);
 
-                if (durationHours > 4.5) {
-                    const midpointTime = new Date(shiftStart.getTime() + (shiftEnd.getTime() - shiftStart.getTime()) / 2);
-                    const diffMins = (now.getTime() - midpointTime.getTime()) / 60000;
+                // 计算班次正中间的时间点
+                const midpointTime = new Date(shiftStart.getTime() + (shiftEnd.getTime() - shiftStart.getTime()) / 2);
+                const diffMins = (now.getTime() - midpointTime.getTime()) / 60000;
+
+                // 只有处于班次正中间往后的 30 分钟内才执行扫描，节省性能
+                if (diffMins >= 0 && diffMins <= 30) {
                     
-                    const shiftStaffNames = shift.staff.join('、');
-                    const reminderKey = `global_break_${myStoreId}_${todayStr}_${shift.start}_${shiftStaffNames}`;
-                    const hasReminded = localStorage.getItem(reminderKey);
+                    // 1. 将该班次内的员工按年龄分类
+                    const staffUnder18: string[] = [];
+                    const staffAdult: string[] = [];
 
-                    // 到了中间点 30 分钟内，且没发过提醒
-                    if (diffMins >= 0 && diffMins <= 30 && !hasReminded) {
+                    shift.staff.forEach((staffName: string) => {
+                        // 去全局用户表里查这个人的年龄设定，找不到默认当成年人
+                        const userObj = users.find((u: any) => u.name.trim().toLowerCase() === staffName.trim().toLowerCase());
+                        if (userObj?.ageGroup === 'under_18') {
+                            staffUnder18.push(staffName);
+                        } else {
+                            staffAdult.push(staffName);
+                        }
+                    });
+
+                    // 2. 核心弹窗触发函数 (按组触发)
+                    const triggerBreak = (targetStaff: string[], threshold: number) => {
+                        // 如果这一组没人，或者该班次时长没超过他们这组的阈值，直接跳过
+                        if (targetStaff.length === 0 || durationHours <= threshold) return;
+
+                        const names = targetStaff.join('、');
+                        const reminderKey = `global_break_${myStoreId}_${todayStr}_${shift.start}_${threshold}h_${names}`;
                         
-                        // 1. 本地标记已提醒
-                        localStorage.setItem(reminderKey, 'true');
+                        // 确保这一组人今天只弹一次
+                        if (!localStorage.getItem(reminderKey)) {
+                            localStorage.setItem(reminderKey, 'true');
 
-                        const alertTitle = '🛑 强制休息 (MANDATORY BREAK)';
-                        // 👇 纯净版文案
-                        const alertMsg = `【${shiftStaffNames}】的班次已过半！根据规定需要进行 30 分钟的强制休息。`;
+                            const alertTitle = `🛑 ${threshold}H 强制休息 (MANDATORY BREAK)`;
+                            const alertMsg = `【${names}】的班次已过半！根据规定需进行 30 分钟强制休息。`;
 
-                        // 2. 站内全员弹窗
-                        showNotification({
-                            type: 'alert',
-                            title: alertTitle,
-                            message: alertMsg,
-                            sticky: true,
-                            dedupeKey: reminderKey
-                        });
+                            // 全局站内弹窗
+                            showNotification({
+                                type: 'alert', title: alertTitle, message: alertMsg, sticky: true, dedupeKey: reminderKey
+                            });
 
-                        // 3. 🚀 手机系统级弹窗
-                        if ('Notification' in window && Notification.permission === 'granted') {
-                            try {
-                                new Notification(alertTitle, { 
-                                    body: alertMsg, 
-                                    icon: '/favicon.ico',
-                                    vibrate: [200, 100, 200]
-                                });
-                            } catch(e) { console.log("原生弹窗失败", e); }
-                        }
+                            // 系统手机弹窗
+                            if ('Notification' in window && Notification.permission === 'granted') {
+                                try { new Notification(alertTitle, { body: alertMsg, icon: '/favicon.ico', vibrate: [200, 100, 200] }); } catch(e) {}
+                            }
 
-                        // 4. 写入后台 Log (防重复设计)
-                        const isMyShift = shift.staff.some((name: string) => name.trim().toLowerCase() === currentUser.name.trim().toLowerCase());
-                        if (isMyShift) {
-                            const newLog = {
-                                id: `log_break_${Date.now()}`,
-                                storeId: myStoreId,
-                                type: 'SYSTEM_ALERT',
-                                // 👇 纯净版日志
-                                message: `[MANDATORY BREAK] Global alert sent for ${shiftStaffNames} (Shift: ${shift.start}-${shift.end}).`,
-                                timestamp: new Date().toISOString()
-                            };
-                            try {
-                                if (typeof Cloud !== 'undefined') {
-                                    if ((Cloud as any).saveLog) (Cloud as any).saveLog(newLog);
-                                    else if ((Cloud as any).updateLogs) {
-                                        const existingLogs = data.logs || [];
-                                        (Cloud as any).updateLogs([...existingLogs, newLog]);
+                            // 写一条后台 Log，只让当事人设备去写，避免重复
+                            const isMyShift = targetStaff.some(name => name.trim().toLowerCase() === currentUser.name.trim().toLowerCase());
+                            if (isMyShift) {
+                                const newLog = {
+                                    id: `log_break_${Date.now()}`, storeId: myStoreId, type: 'SYSTEM_ALERT',
+                                    message: `[MANDATORY BREAK] Alert sent for ${names} (Shift: ${shift.start}-${shift.end}, Rule: >${threshold}h).`,
+                                    timestamp: new Date().toISOString()
+                                };
+                                try {
+                                    if (typeof Cloud !== 'undefined') {
+                                        if ((Cloud as any).saveLog) (Cloud as any).saveLog(newLog);
+                                        else if ((Cloud as any).updateLogs) {
+                                            const existingLogs = data.logs || [];
+                                            (Cloud as any).updateLogs([...existingLogs, newLog]);
+                                        }
                                     }
-                                }
-                            } catch (e) { console.error("Log写入失败", e); }
+                                } catch (e) { console.error("Log写入失败", e); }
+                            }
                         }
-                    }
+                    };
+
+                    // 3. 分别对两组员工执行规则检查
+                    triggerBreak(staffUnder18, 4.5); // 未成年组：查 4.5 小时规则
+                    triggerBreak(staffAdult, 5.5);   // 成年组：查 5.5 小时规则
                 }
             });
         }, 60000); 
 
         return () => clearInterval(timer);
-    }, [todaySchedule, currentUser, myStoreId, showNotification, activeFeatures.schedule, data.logs]);
+    }, [todaySchedule, currentUser, myStoreId, showNotification, activeFeatures.schedule, data.logs, users]);
     // ========================================================================
-
     useEffect(() => {
         if (!needsToSubmitPrep) return;
         const timer = setInterval(() => {
@@ -4462,7 +4469,7 @@ function StaffBottomNav({ activeView, setActiveView, t, hasUnreadChat, features 
 }
 
 // ============================================================================
-// 组件: 全局员工管理 (Staff Management) - [含密码兼容与门店分配]
+// 组件: 全局员工管理 (Staff Management) - [含密码兼容、门店分配与年龄段设置]
 // ============================================================================
 function StaffManagementView({ data }: any) {
     const { users, stores, setStores } = data;
@@ -4472,10 +4479,11 @@ function StaffManagementView({ data }: any) {
 
     const openModal = (user?: any) => {
         if (user) {
-            setFormData({ ...user });
+            // 💡 默认老员工如果没有设置，统一按 >=18 岁处理
+            setFormData({ ...user, ageGroup: user.ageGroup || '18_or_above' });
             setSelectedStores(stores.filter((s:any) => s.staff?.includes(user.id)).map((s:any) => s.id));
         } else {
-            setFormData({ id: `u_${Date.now()}`, name: '', role: 'staff', pin: '', active: true });
+            setFormData({ id: `u_${Date.now()}`, name: '', role: 'staff', pin: '', active: true, ageGroup: '18_or_above' });
             setSelectedStores([]);
         }
         setIsModalOpen(true);
@@ -4485,11 +4493,9 @@ function StaffManagementView({ data }: any) {
         if (!formData.name) return alert("Please enter a name.");
         if (!formData.id) return alert("Login ID is required.");
         
-        // 💡 兼容处理：确保不管是新存的 pin 还是老的 password，都能作为密码
         const finalPin = formData.pin || formData.password;
         if (!finalPin) return alert("Password / PIN is required for login.");
         
-        // 统一把老字段 password 覆盖到规范的 pin 字段上
         const userToSave = { ...formData, pin: finalPin };
 
         try {
@@ -4528,9 +4534,14 @@ function StaffManagementView({ data }: any) {
                         <div className="flex justify-between items-start mb-2">
                             <div>
                                 <h4 className="font-bold text-white text-base flex items-center gap-2">{u.name}</h4>
-                                <div className="flex items-center gap-2 mt-1">
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
                                     <span className="text-[10px] bg-white/10 text-dark-text-light px-2 py-0.5 rounded uppercase inline-block font-bold">{u.role}</span>
-                                    {/* 💡 兼容老数据：如果没找到 pin，就去找 password */}
+                                    
+                                    {/* 💡 新增：醒目的年龄段标签 */}
+                                    <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${u.ageGroup === 'under_18' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`}>
+                                        {u.ageGroup === 'under_18' ? '< 18 岁' : '≥ 18 岁'}
+                                    </span>
+
                                     <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded font-mono font-bold border border-blue-500/30">
                                         PIN: {u.pin || u.password || 'Unset'}
                                     </span>
@@ -4569,21 +4580,30 @@ function StaffManagementView({ data }: any) {
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block text-blue-400">Password / PIN</label>
-                                    {/* 💡 兼容老数据：编辑框也同时抓取 pin 和 password */}
                                     <input value={formData.pin || formData.password || ''} onChange={e=>setFormData({...formData, pin: e.target.value})} className="w-full bg-dark-bg border border-blue-500/50 p-3 rounded-lg text-white outline-none focus:border-blue-400 font-mono" placeholder="e.g. 1234" />
                                 </div>
                             </div>
                             
-                            <div>
-                                <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block mt-2">Global Override (Admin)</label>
-                                <select value={formData.role === 'boss' ? 'boss' : 'custom'} onChange={e=>{
-                                    const newRole = e.target.value;
-                                    if (newRole === 'boss') setFormData({...formData, role: 'boss'});
-                                    else setFormData({...formData, role: 'staff'}); 
-                                }} disabled={formData.id === 'u_owner' || formData.id === 'u_lambert'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50">
-                                    <option value="custom">Per-Branch Setup ↓</option>
-                                    <option value="boss">Boss (All Access)</option>
-                                </select>
+                            {/* 💡 新增：年龄段与全局权限合并排版 */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Age Group</label>
+                                    <select value={formData.ageGroup} onChange={e=>setFormData({...formData, ageGroup: e.target.value})} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none">
+                                        <option value="18_or_above">≥ 18 岁 (5.5h 规则)</option>
+                                        <option value="under_18">{'<'} 18 岁 (4.5h 规则)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-dark-text-light uppercase mb-1 block">Global Override</label>
+                                    <select value={formData.role === 'boss' ? 'boss' : 'custom'} onChange={e=>{
+                                        const newRole = e.target.value;
+                                        if (newRole === 'boss') setFormData({...formData, role: 'boss'});
+                                        else setFormData({...formData, role: 'staff'}); 
+                                    }} disabled={formData.id === 'u_owner' || formData.id === 'u_lambert'} className="w-full bg-dark-bg border border-white/20 p-3 rounded-lg text-white outline-none disabled:opacity-50">
+                                        <option value="custom">Per-Branch ↓</option>
+                                        <option value="boss">Boss (Admin)</option>
+                                    </select>
+                                </div>
                             </div>
                             
                             {formData.role !== 'boss' && (
