@@ -3786,7 +3786,7 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
     }, [schedule, currentUser, t, activeFeatures.schedule, myStoreId]);
 
 // ========================================================================
-    // 💡 核心升级：【全员广播版】强制休息与“如如”顶班监控引擎 (4.5小时规则)
+    // 💡 核心升级：【全员广播版】强制休息监控引擎 (4.5小时规则 - 纯净版)
     // ========================================================================
     useEffect(() => {
         // 如果没开启排班功能，或者今天压根没排班，就跳过
@@ -3801,7 +3801,7 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             const now = new Date();
             const todayStr = now.toDateString();
 
-            // ⚠️ 重点：不再只查 myShiftsToday，而是查今天店里的【所有班次 (todaySchedule.shifts)】
+            // ⚠️ 重点：查今天店里的【所有班次 (todaySchedule.shifts)】
             todaySchedule.shifts.forEach((shift: any) => {
                 if (!shift.start || !shift.end || !shift.staff || shift.staff.length === 0) return;
 
@@ -3820,20 +3820,20 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                     const diffMins = (now.getTime() - midpointTime.getTime()) / 60000;
                     
                     const shiftStaffNames = shift.staff.join('、');
-                    // 标记键值加入所有员工名字，确保多设备同步
                     const reminderKey = `global_break_${myStoreId}_${todayStr}_${shift.start}_${shiftStaffNames}`;
                     const hasReminded = localStorage.getItem(reminderKey);
 
                     // 到了中间点 30 分钟内，且没发过提醒
                     if (diffMins >= 0 && diffMins <= 30 && !hasReminded) {
                         
-                        // 1. 本地标记已提醒（防止疯狂弹窗）
+                        // 1. 本地标记已提醒
                         localStorage.setItem(reminderKey, 'true');
 
                         const alertTitle = '🛑 强制休息 (MANDATORY BREAK)';
-                        const alertMsg = `【${shiftStaffNames}】的班次已过半！规定需要 30 分钟强制休息。请【如如】准备顶班！`;
+                        // 👇 纯净版文案
+                        const alertMsg = `【${shiftStaffNames}】的班次已过半！根据规定需要进行 30 分钟的强制休息。`;
 
-                        // 2. 站内全员弹窗 (所有开着APP的人都会看到)
+                        // 2. 站内全员弹窗
                         showNotification({
                             type: 'alert',
                             title: alertTitle,
@@ -3842,25 +3842,26 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                             dedupeKey: reminderKey
                         });
 
-                        // 3. 🚀 手机系统级弹窗 (弹到锁屏或通知栏)
+                        // 3. 🚀 手机系统级弹窗
                         if ('Notification' in window && Notification.permission === 'granted') {
                             try {
                                 new Notification(alertTitle, { 
                                     body: alertMsg, 
-                                    icon: '/favicon.ico', // 可以换成您系统的 LOGO 链接
-                                    vibrate: [200, 100, 200] // 手机震动提示
+                                    icon: '/favicon.ico',
+                                    vibrate: [200, 100, 200]
                                 });
                             } catch(e) { console.log("原生弹窗失败", e); }
                         }
 
-                        // 4. 写入后台 Log (⚠️防重复设计：只让正在班次上的“当事人”设备去写数据库，避免全店员工的手机同时往后台写同一条记录)
+                        // 4. 写入后台 Log (防重复设计)
                         const isMyShift = shift.staff.some((name: string) => name.trim().toLowerCase() === currentUser.name.trim().toLowerCase());
                         if (isMyShift) {
                             const newLog = {
                                 id: `log_break_${Date.now()}`,
                                 storeId: myStoreId,
                                 type: 'SYSTEM_ALERT',
-                                message: `[MANDATORY BREAK] Global alert sent for ${shiftStaffNames} (Shift: ${shift.start}-${shift.end}). Called Ruru.`,
+                                // 👇 纯净版日志
+                                message: `[MANDATORY BREAK] Global alert sent for ${shiftStaffNames} (Shift: ${shift.start}-${shift.end}).`,
                                 timestamp: new Date().toISOString()
                             };
                             try {
