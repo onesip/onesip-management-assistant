@@ -3644,7 +3644,7 @@ function WasteConfigEditor({ store, onSave, onCancel }: any) {
 }
 
 // ============================================================================
-// 组件 4: 员工端 (Staff App) - [支持门店无缝切换彻底数据隔离]
+// 组件 4: 员工端 (Staff App) - [支持门店无缝切换彻底数据隔离 + 强制休息监控]
 // ============================================================================
 function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { onSwitchMode: () => void, data: any, onLogout: () => void, currentUser: User, openAdmin: () => void }) {
     const { 
@@ -3784,6 +3784,103 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
         return null;
     }, [schedule, currentUser, t, activeFeatures.schedule, myStoreId]);
+
+// ========================================================================
+    // 💡 核心升级：【全员广播版】强制休息与“如如”顶班监控引擎 (4.5小时规则)
+    // ========================================================================
+    useEffect(() => {
+        // 如果没开启排班功能，或者今天压根没排班，就跳过
+        if (!activeFeatures.schedule || !todaySchedule?.shifts) return;
+
+        // 🚀 授权“弹到手机屏幕上”的系统通知权限 (需浏览器支持)
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission().catch(e => console.log("通知授权失败", e));
+        }
+
+        const timer = setInterval(() => {
+            const now = new Date();
+            const todayStr = now.toDateString();
+
+            // ⚠️ 重点：不再只查 myShiftsToday，而是查今天店里的【所有班次 (todaySchedule.shifts)】
+            todaySchedule.shifts.forEach((shift: any) => {
+                if (!shift.start || !shift.end || !shift.staff || shift.staff.length === 0) return;
+
+                const [startH, startM] = shift.start.split(':').map(Number);
+                const [endH, endM] = shift.end.split(':').map(Number);
+                
+                const shiftStart = new Date(now); shiftStart.setHours(startH, startM, 0, 0);
+                const shiftEnd = new Date(now); shiftEnd.setHours(endH, endM, 0, 0);
+                
+                if (shiftEnd < shiftStart) shiftEnd.setDate(shiftEnd.getDate() + 1);
+
+                const durationHours = (shiftEnd.getTime() - shiftStart.getTime()) / (1000 * 60 * 60);
+
+                if (durationHours > 4.5) {
+                    const midpointTime = new Date(shiftStart.getTime() + (shiftEnd.getTime() - shiftStart.getTime()) / 2);
+                    const diffMins = (now.getTime() - midpointTime.getTime()) / 60000;
+                    
+                    const shiftStaffNames = shift.staff.join('、');
+                    // 标记键值加入所有员工名字，确保多设备同步
+                    const reminderKey = `global_break_${myStoreId}_${todayStr}_${shift.start}_${shiftStaffNames}`;
+                    const hasReminded = localStorage.getItem(reminderKey);
+
+                    // 到了中间点 30 分钟内，且没发过提醒
+                    if (diffMins >= 0 && diffMins <= 30 && !hasReminded) {
+                        
+                        // 1. 本地标记已提醒（防止疯狂弹窗）
+                        localStorage.setItem(reminderKey, 'true');
+
+                        const alertTitle = '🛑 强制休息 (MANDATORY BREAK)';
+                        const alertMsg = `【${shiftStaffNames}】的班次已过半！规定需要 30 分钟强制休息。请【如如】准备顶班！`;
+
+                        // 2. 站内全员弹窗 (所有开着APP的人都会看到)
+                        showNotification({
+                            type: 'alert',
+                            title: alertTitle,
+                            message: alertMsg,
+                            sticky: true,
+                            dedupeKey: reminderKey
+                        });
+
+                        // 3. 🚀 手机系统级弹窗 (弹到锁屏或通知栏)
+                        if ('Notification' in window && Notification.permission === 'granted') {
+                            try {
+                                new Notification(alertTitle, { 
+                                    body: alertMsg, 
+                                    icon: '/favicon.ico', // 可以换成您系统的 LOGO 链接
+                                    vibrate: [200, 100, 200] // 手机震动提示
+                                });
+                            } catch(e) { console.log("原生弹窗失败", e); }
+                        }
+
+                        // 4. 写入后台 Log (⚠️防重复设计：只让正在班次上的“当事人”设备去写数据库，避免全店员工的手机同时往后台写同一条记录)
+                        const isMyShift = shift.staff.some((name: string) => name.trim().toLowerCase() === currentUser.name.trim().toLowerCase());
+                        if (isMyShift) {
+                            const newLog = {
+                                id: `log_break_${Date.now()}`,
+                                storeId: myStoreId,
+                                type: 'SYSTEM_ALERT',
+                                message: `[MANDATORY BREAK] Global alert sent for ${shiftStaffNames} (Shift: ${shift.start}-${shift.end}). Called Ruru.`,
+                                timestamp: new Date().toISOString()
+                            };
+                            try {
+                                if (typeof Cloud !== 'undefined') {
+                                    if ((Cloud as any).saveLog) (Cloud as any).saveLog(newLog);
+                                    else if ((Cloud as any).updateLogs) {
+                                        const existingLogs = data.logs || [];
+                                        (Cloud as any).updateLogs([...existingLogs, newLog]);
+                                    }
+                                }
+                            } catch (e) { console.error("Log写入失败", e); }
+                        }
+                    }
+                }
+            });
+        }, 60000); 
+
+        return () => clearInterval(timer);
+    }, [todaySchedule, currentUser, myStoreId, showNotification, activeFeatures.schedule, data.logs]);
+    // ========================================================================
 
     useEffect(() => {
         if (!needsToSubmitPrep) return;
@@ -3974,13 +4071,12 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             );
         }
 
-        // 💡 修复：当点击“培训”时，不再返回空白，而是渲染出上面写好的界面，并传入双份数据！
         if (view === 'training' as any && activeFeatures.training) {
             return (
                 <TrainingView 
                     lang={lang} 
                     sopList={sopList} 
-                    trainingLevels={trainingLevels} // <--- 把后台 TRAINING 的数据传进去了！
+                    trainingLevels={trainingLevels} 
                     onCancel={() => setView('home')}
                   />
             );
@@ -3988,7 +4084,6 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                   
         if (view === 'recipes' && activeFeatures.recipes) {
              const filteredRecipes = recipes
-                // 💡 新增拦截：如果没有设置分店(全员可见)，或者当前分店ID在允许列表内，才显示
                 .filter((r: any) => !r.storeIds || r.storeIds.length === 0 || r.storeIds.includes(myStoreId))
                 .filter((r: DrinkRecipe) => r.isPublished !== false)
                 .filter((r: DrinkRecipe) => (recipeTypeFilter === 'premix' ? r.recipeType === 'premix' : (r.recipeType === 'product' || !r.recipeType)))
@@ -4080,13 +4175,12 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
 
         if (view === 'waste' as any && activeFeatures.waste) {
-            // 💡 核心：优先读取后台配置的专属 Waste Items，如果没有，就降级去读日常盘点表(防止刚上线时没数据)
             const customWasteList = myStore?.wasteItems?.length > 0 ? myStore.wasteItems : scopedInventoryList.filter((i:any)=>!i.hidden);
             
             return (
                 <WasteReportView
                     lang={lang} 
-                    wasteList={customWasteList} // 👈 把上面的数据传给界面
+                    wasteList={customWasteList}
                     onSubmit={(report: any) => {
                         const completeReport = { ...report, id: Date.now().toString(), date: new Date().toISOString(), storeId: myStoreId };
                         Cloud.saveInventoryReport(completeReport);
@@ -4102,16 +4196,13 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             return (
                 <RepairReportView 
                     lang={lang} recipes={recipes} myStoreId={myStoreId} currentUser={currentUser}
-                    customDb={myStore?.repairDatabase} // 💡 这里把当前分店自定义的题库传进去
+                    customDb={myStore?.repairDatabase} 
                     onCancel={() => setView('home')}
                     onSubmit={(ticket: any) => {
-                        // 💡 修复：加上 data. 前缀，确保系统能找到存储函数并避免崩溃
                         const currentRequests = data.repairRequests || [];
                         const updatedRequests = [...currentRequests, ticket];
                         data.setRepairRequests(updatedRequests);
-                        // 💡 推送到云端！
                         if (Cloud.updateRepairRequests) Cloud.updateRepairRequests(updatedRequests);
-
                         showNotification({ type: 'message', title: '✅ 提交成功', message: '工单已发送，店长和经理将收到提醒！' });
                      }} 
                 />
@@ -4119,7 +4210,6 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
         }
       
         if (view === 'chat' && activeFeatures.chat) { 
-            // 确保管理员进入聊天时拥有发布公告等高级权限，并且数据完美隔离
             const isUserAdmin = currentUser.role === 'manager' || currentUser.role === 'boss';
             return <ChatView t={t} currentUser={currentUser} messages={scopedMessages} setMessages={setDirectMessages} notices={scopedNotices} isManager={isUserAdmin} onExit={() => setView('home')} sopList={sopList} trainingLevels={trainingLevels} allUsers={scopedUsers} />; 
         }
@@ -4143,7 +4233,6 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             <div className="flex justify-between items-start mb-6">
                 <div>
                     <h1 className="text-2xl font-black">{t.hello} {currentUser.name}</h1>
-                    {/* 给老板和被分配到多家店的员工增加门店切换器 */}
                     {userStores.length > 1 ? (
                         <select 
                             className="text-primary font-bold text-xs mt-1 px-2 py-1 bg-primary/10 rounded inline-block outline-none border border-primary/20 shadow-sm cursor-pointer"
@@ -4235,7 +4324,7 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             {activeFeatures.prep && (
                 <TodaysPrepReports inventoryHistory={scopedInventoryHistory} inventoryList={scopedInventoryList} lang={lang} />
             )}
-            {/* 💡 管理层专属：常驻报修提醒看板 (已修复：完美识别该分店专属经理) */}
+            
             {(currentUser?.role === 'boss' || currentUser?.role === 'manager' || currentUser?.storeRoles?.[activeStoreId] === 'manager') && (
                 <div className="mb-6 space-y-3 mt-4">
                     {data.repairRequests?.filter((r: any) => r.status === 'pending' && (r.storeId || 'default_store') === activeStoreId).length > 0 && (
@@ -4257,9 +4346,7 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                     </div>
                                 </div>
                                 
-                                {/* 💡 完美替换的部分：让勾选的问题和手写备注同时显示 */}
                                 <div className="bg-orange-50 p-3 rounded-lg mb-3 space-y-2">
-                                    {/* 1. 显示勾选的具体问题 */}
                                     {ticket.issues?.length > 0 && (
                                         <div className="flex items-start gap-1.5">
                                             <span className="text-orange-600 text-xs font-bold shrink-0">📍</span>
@@ -4269,7 +4356,6 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                         </div>
                                     )}
 
-                                    {/* 2. 显示文字备注（如果有的话） */}
                                     {ticket.notes && (
                                         <div className={`flex items-start gap-1.5 ${ticket.issues?.length > 0 ? 'pt-2 border-t border-orange-200/50' : ''}`}>
                                             <span className="text-orange-500 text-xs shrink-0">📝</span>
@@ -4287,7 +4373,7 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
                                             if(!window.confirm(lang === 'zh' ? "确认此问题已解决？" : "Mark as resolved?")) return;
                                             const updated = data.repairRequests.map((r:any) => r.id === ticket.id ? {...r, status: 'resolved', resolvedAt: Date.now()} : r);
                                             data.setRepairRequests(updated);
-                                            if (typeof Cloud !== 'undefined' && Cloud.updateRepairRequests) Cloud.updateRepairRequests(updated);
+                                            if (typeof Cloud !== 'undefined' && (Cloud as any).updateRepairRequests) (Cloud as any).updateRepairRequests(updated);
                                             showNotification({ type: 'message', title: 'Task Completed', message: '报修单已归档。' });
                                         }}
                                         className="bg-orange-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-md hover:bg-orange-600 active:scale-95 transition-all"
@@ -4304,7 +4390,6 @@ function StaffApp({ onSwitchMode, data, onLogout, currentUser, openAdmin }: { on
             <div className="mt-4">
                 <h3 className="font-bold text-text mb-2">My Modules</h3>
                 <div className="grid grid-cols-2 gap-3">
-                    {/* 💡 新增：培训与SOP模块入口 */}
                     {activeFeatures.training && (
                         <button onClick={() => setView('training' as any)} className="bg-blue-50 p-4 rounded-2xl shadow-sm border border-blue-100 text-left active:scale-95 transition-transform">
                             <Icon name="Award" className="mb-1 text-blue-500"/>
