@@ -18,7 +18,16 @@ export function mandatoryBreakRulesPlugin(): Plugin {
 
       const modalAnchor = 'const EditInventoryLogModal = (';
       const modalCode = `const MandatoryBreakModal = ({ alert, onAcknowledge, lang }: {
-    alert: null | { reminderKey: string; thresholdHours: number; shiftStart: string; shiftEnd: string };
+    alert: null | {
+        reminderKey: string;
+        thresholdHours: number;
+        shiftStart: string;
+        shiftEnd: string;
+        breakDate: string;
+        ageGroup: 'under_18' | '18_or_above';
+        alertedAt: string;
+        storeName: string;
+    };
     onAcknowledge: () => void;
     lang: Lang;
 }) => {
@@ -78,6 +87,10 @@ export function mandatoryBreakRulesPlugin(): Plugin {
         thresholdHours: number;
         shiftStart: string;
         shiftEnd: string;
+        breakDate: string;
+        ageGroup: 'under_18' | '18_or_above';
+        alertedAt: string;
+        storeName: string;
     }>(null);
     const breakPromptedRef = useRef(new Set<string>());
 `;
@@ -90,12 +103,13 @@ export function mandatoryBreakRulesPlugin(): Plugin {
       const oldStartMarker = '    // 💡 核心升级：【分年龄段全员广播版】强制休息监控引擎 (4.5h / 5.5h 双轨制)';
       const nextEffectMarker = '    useEffect(() => {\n        if (!needsToSubmitPrep) return;';
       const newEngine = `    // 💡 强制休息监控：只提醒当前登录员工；<18 岁 >=4.5h，>=18 岁 >=5.5h。
-    // 到班次中点后弹出不可随手关闭的强提醒，员工确认后本班次不再重复。
+    // 到班次中点后弹出不可随手关闭的强提醒；提醒和员工确认都会写入云端合规日志。
     useEffect(() => {
         if (!activeFeatures.schedule || !todaySchedule?.shifts?.length || !currentUser?.name) return;
 
         const liveUser = users.find((u: any) => u.id === currentUser.id) || currentUser;
         const isUnder18 = liveUser?.ageGroup === 'under_18';
+        const ageGroup: 'under_18' | '18_or_above' = isUnder18 ? 'under_18' : '18_or_above';
         const thresholdHours = isUnder18 ? 4.5 : 5.5;
         const thresholdMinutes = thresholdHours * 60;
         const myName = currentUser.name.trim().toLowerCase();
@@ -138,13 +152,54 @@ export function mandatoryBreakRulesPlugin(): Plugin {
                 if (localStorage.getItem(reminderKey)) continue;
                 if (breakPromptedRef.current.has(reminderKey)) continue;
 
+                const alertedAt = now.toISOString();
+                const storeName = myStore?.name || myStoreId;
                 breakPromptedRef.current.add(reminderKey);
                 setMandatoryBreakAlert({
                     reminderKey,
                     thresholdHours,
                     shiftStart: shift.start,
                     shiftEnd: shift.end,
+                    breakDate: todayKey,
+                    ageGroup,
+                    alertedAt,
+                    storeName,
                 });
+
+                // 云端留证：提醒真正展示时记录一次。用独立 localStorage key 防止刷新造成重复写日志。
+                const alertLoggedKey = reminderKey + '_alert_logged';
+                if (!localStorage.getItem(alertLoggedKey)) {
+                    localStorage.setItem(alertLoggedKey, alertedAt);
+                    const alertLog: any = {
+                        id: Date.now(),
+                        type: 'MANDATORY_BREAK_ALERT',
+                        shift: 'mandatory-break',
+                        time: alertedAt,
+                        name: currentUser.name,
+                        userId: currentUser.id,
+                        storeId: myStoreId,
+                        storeName,
+                        reminderKey,
+                        breakDate: todayKey,
+                        shiftStart: shift.start,
+                        shiftEnd: shift.end,
+                        thresholdHours,
+                        ageGroup,
+                        alertedAt,
+                        event: 'reminder_shown',
+                        status: 'alerted',
+                        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Amsterdam',
+                        reason: 'Mandatory 30-minute break reminder shown',
+                        message: 'Mandatory break reminder shown for ' + currentUser.name + ' on ' + todayKey + ', shift ' + shift.start + '-' + shift.end + ', rule >= ' + thresholdHours + 'h.'
+                    };
+                    try {
+                        if (typeof Cloud !== 'undefined' && (Cloud as any).saveLog) {
+                            (Cloud as any).saveLog(alertLog).catch((e: any) => console.error('Break alert log failed', e));
+                        }
+                    } catch (e) {
+                        console.error('Break alert log failed', e);
+                    }
+                }
 
                 if ('Notification' in window && Notification.permission === 'granted') {
                     try {
@@ -166,11 +221,45 @@ export function mandatoryBreakRulesPlugin(): Plugin {
         checkMandatoryBreak();
         const timer = window.setInterval(checkMandatoryBreak, 60000);
         return () => window.clearInterval(timer);
-    }, [todaySchedule, currentUser, myStoreId, activeFeatures.schedule, users, lang]);
+    }, [todaySchedule, currentUser, myStoreId, myStore, activeFeatures.schedule, users, lang]);
 
     const acknowledgeMandatoryBreak = () => {
         if (!mandatoryBreakAlert) return;
-        localStorage.setItem(mandatoryBreakAlert.reminderKey, new Date().toISOString());
+        const acknowledgedAt = new Date().toISOString();
+        localStorage.setItem(mandatoryBreakAlert.reminderKey, acknowledgedAt);
+
+        const ackLog: any = {
+            id: Date.now(),
+            type: 'MANDATORY_BREAK_ACK',
+            shift: 'mandatory-break',
+            time: acknowledgedAt,
+            name: currentUser.name,
+            userId: currentUser.id,
+            storeId: myStoreId,
+            storeName: mandatoryBreakAlert.storeName,
+            reminderKey: mandatoryBreakAlert.reminderKey,
+            breakDate: mandatoryBreakAlert.breakDate,
+            shiftStart: mandatoryBreakAlert.shiftStart,
+            shiftEnd: mandatoryBreakAlert.shiftEnd,
+            thresholdHours: mandatoryBreakAlert.thresholdHours,
+            ageGroup: mandatoryBreakAlert.ageGroup,
+            alertedAt: mandatoryBreakAlert.alertedAt,
+            acknowledgedAt,
+            event: 'break_acknowledged',
+            status: 'acknowledged',
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Amsterdam',
+            reason: 'Employee confirmed start of 30-minute break',
+            message: 'Employee acknowledged mandatory 30-minute break for shift ' + mandatoryBreakAlert.shiftStart + '-' + mandatoryBreakAlert.shiftEnd + '.'
+        };
+
+        try {
+            if (typeof Cloud !== 'undefined' && (Cloud as any).saveLog) {
+                (Cloud as any).saveLog(ackLog).catch((e: any) => console.error('Break acknowledgement log failed', e));
+            }
+        } catch (e) {
+            console.error('Break acknowledgement log failed', e);
+        }
+
         setMandatoryBreakAlert(null);
     };
     // ========================================================================
@@ -196,6 +285,89 @@ export function mandatoryBreakRulesPlugin(): Plugin {
       if (!code.includes('<MandatoryBreakModal\n                alert={mandatoryBreakAlert}')) {
         if (!code.includes(renderAnchor)) throw new Error('[mandatory-break] Modal render anchor not found');
         code = code.replace(renderAnchor, renderCode + renderAnchor);
+      }
+
+      const exportStub = '    const handleExportLogsCSV = () => { /* Export CSV 逻辑省略 */ };';
+      const exportCode = `    const handleExportBreakLogsCSV = () => {
+        const breakEvents = (scopedLogs || []).filter((log: any) =>
+            log && (log.type === 'MANDATORY_BREAK_ALERT' || log.type === 'MANDATORY_BREAK_ACK')
+        );
+        if (breakEvents.length === 0) {
+            alert('No mandatory break logs found for this branch.');
+            return;
+        }
+
+        const rowsByKey = new Map<string, any>();
+        breakEvents
+            .slice()
+            .sort((a: any, b: any) => new Date(a.time || 0).getTime() - new Date(b.time || 0).getTime())
+            .forEach((log: any) => {
+                const key = log.reminderKey || String(log.id);
+                const current = rowsByKey.get(key) || {
+                    reminderKey: key,
+                    breakDate: log.breakDate || '',
+                    storeId: log.storeId || activeStoreId,
+                    storeName: log.storeName || activeStore?.name || activeStoreId,
+                    staffName: log.name || '',
+                    userId: log.userId || '',
+                    ageGroup: log.ageGroup || '',
+                    thresholdHours: log.thresholdHours ?? '',
+                    shiftStart: log.shiftStart || '',
+                    shiftEnd: log.shiftEnd || '',
+                    alertedAt: '',
+                    acknowledgedAt: '',
+                    timezone: log.timezone || 'Europe/Amsterdam',
+                };
+                if (log.type === 'MANDATORY_BREAK_ALERT') current.alertedAt = log.alertedAt || log.time || '';
+                if (log.type === 'MANDATORY_BREAK_ACK') {
+                    current.acknowledgedAt = log.acknowledgedAt || log.time || '';
+                    if (!current.alertedAt) current.alertedAt = log.alertedAt || '';
+                }
+                rowsByKey.set(key, current);
+            });
+
+        const csvEscape = (value: any) => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+        const header = [
+            'Date', 'Store', 'Store ID', 'Staff', 'User ID', 'Age Group', 'Rule Threshold (Hours)',
+            'Shift Start', 'Shift End', 'Reminder Time (ISO)', 'Acknowledged Time (ISO)', 'Status',
+            'Timezone', 'Reminder Key'
+        ];
+        const lines = [header.map(csvEscape).join(',')];
+        Array.from(rowsByKey.values()).forEach((row: any) => {
+            const status = row.acknowledgedAt ? 'ACKNOWLEDGED' : 'ALERTED_NOT_ACKNOWLEDGED';
+            lines.push([
+                row.breakDate, row.storeName, row.storeId, row.staffName, row.userId, row.ageGroup,
+                row.thresholdHours, row.shiftStart, row.shiftEnd, row.alertedAt, row.acknowledgedAt,
+                status, row.timezone, row.reminderKey
+            ].map(csvEscape).join(','));
+        });
+
+        const blob = new Blob(['\\uFEFF' + lines.join('\\n')], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'mandatory_break_logs_' + activeStoreId + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+    };`;
+
+      if (code.includes(exportStub)) {
+        code = code.replace(exportStub, exportCode);
+      } else if (!code.includes('const handleExportBreakLogsCSV = () =>')) {
+        throw new Error('[mandatory-break] Manager log export anchor not found');
+      }
+
+      const logsToolbarAnchor = '<div className="flex justify-end mb-4"><button onClick={() => setIsAddingManualLog(true)} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all"><Icon name="Plus" size={16} /> Add Manual Log</button></div>';
+      const logsToolbarCode = `<div className="flex justify-end gap-2 mb-4">
+                            <button onClick={handleExportBreakLogsCSV} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-emerald-500 transition-all"><Icon name="Download" size={16} /> Export Break CSV</button>
+                            <button onClick={() => setIsAddingManualLog(true)} className="bg-dark-accent text-dark-bg px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:opacity-90 transition-all"><Icon name="Plus" size={16} /> Add Manual Log</button>
+                        </div>`;
+
+      if (code.includes(logsToolbarAnchor)) {
+        code = code.replace(logsToolbarAnchor, logsToolbarCode);
+      } else if (!code.includes('onClick={handleExportBreakLogsCSV}')) {
+        throw new Error('[mandatory-break] Manager logs toolbar anchor not found');
       }
 
       return { code, map: null };
