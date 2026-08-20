@@ -2,12 +2,9 @@ import type { Plugin } from 'vite';
 
 /**
  * Focused transform for the existing StaffApp mandatory-break engine.
- *
- * Why this lives here:
- * App.tsx is a very large legacy single-file component. Keeping this transform
- * isolated makes the break-rule change auditable and prevents unrelated code
- * from being rewritten. The transform deliberately fails if the expected
- * anchors disappear, so future refactors cannot silently disable the rule.
+ * The legacy App.tsx is very large, so this keeps the change isolated and
+ * auditable. Missing anchors intentionally fail the build instead of silently
+ * disabling the labour-break rule.
  */
 export function mandatoryBreakRulesPlugin(): Plugin {
   return {
@@ -43,8 +40,8 @@ export function mandatoryBreakRulesPlugin(): Plugin {
                 <div className="space-y-4 p-6 text-center">
                     <p className="text-sm font-bold leading-relaxed text-gray-800">
                         {lang === 'zh'
-                            ? \\`你的班次达到 \\${alert.thresholdHours} 小时休息规则。班次已过半，请现在开始 30 分钟休息。\\`
-                            : \\`Your shift meets the \\${alert.thresholdHours}-hour break rule. The shift is halfway through, so please start your 30-minute break now.\\`}
+                            ? '你的班次达到 ' + alert.thresholdHours + ' 小时休息规则。班次已过半，请现在开始 30 分钟休息。'
+                            : 'Your shift meets the ' + alert.thresholdHours + '-hour break rule. The shift is halfway through, so please start your 30-minute break now.'}
                     </p>
 
                     <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
@@ -105,7 +102,11 @@ export function mandatoryBreakRulesPlugin(): Plugin {
 
         const checkMandatoryBreak = () => {
             const now = new Date();
-            const todayKey = \\`\\${now.getFullYear()}-\\${String(now.getMonth() + 1).padStart(2, '0')}-\\${String(now.getDate()).padStart(2, '0')}\\`;
+            const todayKey = [
+                now.getFullYear(),
+                String(now.getMonth() + 1).padStart(2, '0'),
+                String(now.getDate()).padStart(2, '0')
+            ].join('-');
 
             for (const shift of todaySchedule.shifts || []) {
                 if (!shift?.start || !shift?.end || !Array.isArray(shift.staff)) continue;
@@ -130,7 +131,10 @@ export function mandatoryBreakRulesPlugin(): Plugin {
                 // 中点时没开 App，之后在班次结束前打开也会补提醒。
                 if (now < midpointTime || now > shiftEnd) continue;
 
-                const reminderKey = \\`mandatory_break_\\${myStoreId}_\\${todayKey}_\\${currentUser.id}_\\${shift.start}_\\${shift.end}_\\${thresholdHours}\\`;
+                const reminderKey = [
+                    'mandatory_break', myStoreId, todayKey, currentUser.id,
+                    shift.start, shift.end, String(thresholdHours)
+                ].join('_');
                 if (localStorage.getItem(reminderKey)) continue;
                 if (breakPromptedRef.current.has(reminderKey)) continue;
 
@@ -146,8 +150,8 @@ export function mandatoryBreakRulesPlugin(): Plugin {
                     try {
                         new Notification('🛑 MANDATORY BREAK', {
                             body: lang === 'zh'
-                                ? \\`你的班次 \\${shift.start}-\\${shift.end} 已过半，请现在开始 30 分钟休息。\\`
-                                : \\`Your \\${shift.start}-\\${shift.end} shift is halfway through. Start your 30-minute break now.\\`,
+                                ? '你的班次 ' + shift.start + '-' + shift.end + ' 已过半，请现在开始 30 分钟休息。'
+                                : 'Your ' + shift.start + '-' + shift.end + ' shift is halfway through. Start your 30-minute break now.',
                             icon: '/favicon.ico',
                             vibrate: [250, 120, 250],
                         } as any);
