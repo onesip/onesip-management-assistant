@@ -50,14 +50,16 @@ jobs:
               fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err)));
             }
             await page.waitForTimeout(3000);
-            const body = (await page.textContent('body').catch(() => '')) || '';
+            const visibleBody = await page.evaluate(() => document.body.innerText || '').catch(() => '');
+            const rootText = await page.locator('#root').innerText().catch(() => '');
             console.log('HTTP status:', response && response.status());
-            console.log('Body preview:', body.slice(0, 2000));
+            console.log('Visible body:', visibleBody.slice(0, 2000));
+            console.log('Root text:', rootText.slice(0, 2000));
             if (consoleErrors.length) console.log('Non-fatal console errors:', consoleErrors.slice(0, 20));
             if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
-            if (/Application Error|before initialization|ReferenceError:/i.test(body)) fatalErrors.push('Application error rendered in body');
-            if (!body.trim()) fatalErrors.push('Blank body');
-            if (!/ONESIP|登录|Login|工作台|Dashboard/i.test(body)) fatalErrors.push('Expected ONESIP app shell/login content not found');
+            if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
+            if (!rootText.trim()) fatalErrors.push('App root is blank');
+            if (!/ONESIP|登录|Login|工作台|Dashboard/i.test(rootText)) fatalErrors.push('Expected ONESIP app shell/login content not found');
             if (fatalErrors.length) {
               console.error('\nRUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-failure.png', fullPage: true }).catch(() => {});
