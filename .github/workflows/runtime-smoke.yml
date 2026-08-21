@@ -76,7 +76,7 @@ jobs:
           done
           cat /tmp/onesip-staff-vite.log
           exit 1
-      - name: Check logged-in staff + weekend responsibility in Chromium
+      - name: Check logged-in staff + responsibility UI in Chromium
         run: |
           node <<'NODE'
           const { chromium } = require('playwright');
@@ -103,19 +103,63 @@ jobs:
             const visibleBody = await page.evaluate(() => document.body.innerText || '').catch(() => '');
             const rootText = await page.locator('#root').innerText().catch(() => '');
             console.log('HTTP status:', response && response.status());
-            console.log('Staff root text:', rootText.slice(0, 3000));
+            console.log('Staff root text:', rootText.slice(0, 5000));
             if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
             if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
             if (!rootText.trim()) fatalErrors.push('Staff app root is blank');
             if (!/ONESIP/i.test(rootText)) fatalErrors.push('ONESIP staff shell not found');
-            if (!/ONESIP Shift Responsibility|本班责任|周六早班|Sat Opening/i.test(rootText)) fatalErrors.push('Weekend responsibility UI did not render for the simulated staff shift');
+            if (!/ONESIP Shift Responsibility|本班责任|周六早班|Sat Opening/i.test(rootText)) fatalErrors.push('Mandatory weekend responsibility UI did not render');
+            if (!/我的班次责任|My Shift Duties/i.test(rootText)) fatalErrors.push('Always-visible staff responsibility library entry did not render');
             if (fatalErrors.length) {
               console.error('\nSTAFF RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-staff-failure.png', fullPage: true }).catch(() => {});
               await browser.close();
               process.exit(1);
             }
-            console.log('STAFF + WEEKEND RESPONSIBILITY RUNTIME SMOKE PASSED');
+            console.log('STAFF RESPONSIBILITY RUNTIME SMOKE PASSED');
+            await browser.close();
+          })().catch(err => { console.error(err); process.exit(1); });
+          NODE
+
+      - name: Build CI-only manager bundle
+        run: RUNTIME_MANAGER_SMOKE=1 npm run build
+      - name: Start manager production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4175 > /tmp/onesip-manager-vite.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4175/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/onesip-manager-vite.log
+          exit 1
+      - name: Check manager responsibility library in Chromium
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            const fatalErrors = [];
+            page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
+            let response = null;
+            try { response = await page.goto('http://127.0.0.1:4175/', { waitUntil: 'domcontentloaded', timeout: 15000 }); }
+            catch (err) { fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err))); }
+            await page.waitForTimeout(3500);
+            const visibleBody = await page.evaluate(() => document.body.innerText || '').catch(() => '');
+            const rootText = await page.locator('#root').innerText().catch(() => '');
+            console.log('HTTP status:', response && response.status());
+            console.log('Manager root text:', rootText.slice(0, 5000));
+            if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
+            if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
+            if (!rootText.trim()) fatalErrors.push('Manager app root is blank');
+            if (!/班次责任|Shift Duties/i.test(rootText)) fatalErrors.push('Manager responsibility library entry did not render');
+            if (fatalErrors.length) {
+              console.error('\nMANAGER RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
+              await page.screenshot({ path: 'runtime-smoke-manager-failure.png', fullPage: true }).catch(() => {});
+              await browser.close();
+              process.exit(1);
+            }
+            console.log('MANAGER RESPONSIBILITY RUNTIME SMOKE PASSED');
             await browser.close();
           })().catch(err => { console.error(err); process.exit(1); });
           NODE
