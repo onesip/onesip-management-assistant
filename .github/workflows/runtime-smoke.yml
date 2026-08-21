@@ -21,9 +21,10 @@ jobs:
         run: |
           npm install --no-save playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Build production bundle
+
+      - name: Build normal production bundle
         run: npm run build
-      - name: Start production preview
+      - name: Start normal production preview
         run: |
           npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/onesip-vite.log 2>&1 &
           for i in {1..30}; do
@@ -32,7 +33,7 @@ jobs:
           done
           cat /tmp/onesip-vite.log
           exit 1
-      - name: Open app in Chromium and fail on runtime error
+      - name: Check login runtime in Chromium
         run: |
           node <<'NODE'
           const { chromium } = require('playwright');
@@ -40,40 +41,89 @@ jobs:
             const browser = await chromium.launch({ headless: true });
             const page = await browser.newPage();
             const fatalErrors = [];
-            const consoleErrors = [];
             page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
-            page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
             let response = null;
-            try {
-              response = await page.goto('http://127.0.0.1:4173/', { waitUntil: 'domcontentloaded', timeout: 15000 });
-            } catch (err) {
-              fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err)));
-            }
+            try { response = await page.goto('http://127.0.0.1:4173/', { waitUntil: 'domcontentloaded', timeout: 15000 }); }
+            catch (err) { fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err))); }
             await page.waitForTimeout(3000);
             const visibleBody = await page.evaluate(() => document.body.innerText || '').catch(() => '');
             const rootText = await page.locator('#root').innerText().catch(() => '');
             console.log('HTTP status:', response && response.status());
-            console.log('Visible body:', visibleBody.slice(0, 2000));
-            console.log('Root text:', rootText.slice(0, 2000));
-            if (consoleErrors.length) console.log('Non-fatal console errors:', consoleErrors.slice(0, 20));
+            console.log('Root text:', rootText.slice(0, 1600));
             if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
             if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
             if (!rootText.trim()) fatalErrors.push('App root is blank');
-            if (!/ONESIP|登录|Login|工作台|Dashboard/i.test(rootText)) fatalErrors.push('Expected ONESIP app shell/login content not found');
+            if (!/ONESIP|登录|Login/i.test(rootText)) fatalErrors.push('Login shell not found');
             if (fatalErrors.length) {
-              console.error('\nRUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
-              await page.screenshot({ path: 'runtime-smoke-failure.png', fullPage: true }).catch(() => {});
+              console.error('\nLOGIN RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
+              await page.screenshot({ path: 'runtime-smoke-login-failure.png', fullPage: true }).catch(() => {});
               await browser.close();
               process.exit(1);
             }
-            console.log('RUNTIME SMOKE PASSED');
+            console.log('LOGIN RUNTIME SMOKE PASSED');
             await browser.close();
           })().catch(err => { console.error(err); process.exit(1); });
           NODE
-      - name: Upload failure screenshot
+
+      - name: Build CI-only logged-in staff bundle
+        run: RUNTIME_STAFF_SMOKE=1 npm run build
+      - name: Start staff production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4174 > /tmp/onesip-staff-vite.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4174/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/onesip-staff-vite.log
+          exit 1
+      - name: Check logged-in staff + weekend responsibility in Chromium
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            const fatalErrors = [];
+            page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
+            await page.addInitScript(() => {
+              const OriginalDate = Date;
+              const fixedNow = OriginalDate.parse('2026-08-22T12:30:00Z');
+              class FixedDate extends OriginalDate {
+                constructor(...args) { super(...(args.length ? args : [fixedNow])); }
+                static now() { return fixedNow; }
+              }
+              FixedDate.parse = OriginalDate.parse;
+              FixedDate.UTC = OriginalDate.UTC;
+              window.Date = FixedDate;
+            });
+            let response = null;
+            try { response = await page.goto('http://127.0.0.1:4174/', { waitUntil: 'domcontentloaded', timeout: 15000 }); }
+            catch (err) { fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err))); }
+            await page.waitForTimeout(3500);
+            const visibleBody = await page.evaluate(() => document.body.innerText || '').catch(() => '');
+            const rootText = await page.locator('#root').innerText().catch(() => '');
+            console.log('HTTP status:', response && response.status());
+            console.log('Staff root text:', rootText.slice(0, 3000));
+            if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
+            if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
+            if (!rootText.trim()) fatalErrors.push('Staff app root is blank');
+            if (!/ONESIP/i.test(rootText)) fatalErrors.push('ONESIP staff shell not found');
+            if (!/ONESIP Shift Responsibility|本班责任|周六早班|Sat Opening/i.test(rootText)) fatalErrors.push('Weekend responsibility UI did not render for the simulated staff shift');
+            if (fatalErrors.length) {
+              console.error('\nSTAFF RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
+              await page.screenshot({ path: 'runtime-smoke-staff-failure.png', fullPage: true }).catch(() => {});
+              await browser.close();
+              process.exit(1);
+            }
+            console.log('STAFF + WEEKEND RESPONSIBILITY RUNTIME SMOKE PASSED');
+            await browser.close();
+          })().catch(err => { console.error(err); process.exit(1); });
+          NODE
+
+      - name: Upload failure screenshots
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: runtime-smoke-failure
-          path: runtime-smoke-failure.png
+          path: runtime-smoke-*-failure.png
           if-no-files-found: ignore
