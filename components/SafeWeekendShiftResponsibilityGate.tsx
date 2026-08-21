@@ -33,7 +33,9 @@ export function SafeWeekendShiftResponsibilityGate(props: {
 }) {
   return (
     <WeekendResponsibilityBoundary>
-      <WeekendShiftResponsibilityGate {...props} />
+      <div className="relative z-[11500]">
+        <WeekendShiftResponsibilityGate {...props} />
+      </div>
     </WeekendResponsibilityBoundary>
   );
 }
