@@ -6,7 +6,6 @@ import { mandatoryBreakRulesPlugin } from './plugins/mandatoryBreakRulesPlugin';
 import { strictBreakSchedulePlugin } from './plugins/strictBreakSchedulePlugin';
 import { breakEdgeCasePlugin } from './plugins/breakEdgeCasePlugin';
 import { staffRulesPopupPlugin } from './plugins/staffRulesPopupPlugin';
-import { weekendResponsibilityMountPlugin } from './plugins/weekendResponsibilityMountPlugin';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -15,7 +14,6 @@ export default defineConfig({
     strictBreakSchedulePlugin(),
     breakEdgeCasePlugin(),
     staffRulesPopupPlugin(),
-    weekendResponsibilityMountPlugin(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
