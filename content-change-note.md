@@ -1,0 +1,1 @@
+Temporary implementation note for PR validation: weekend opening responsibility content now requires same-day fresh Coconut Premix and a pre-peak Black Tea stock check (downstairs target 4L; if downstairs is below 4L, combine downstairs + service bucket; if total is below 8L, brew about 8L fresh Black Tea). This file can be removed after the content update is integrated.
