@@ -1,0 +1,72 @@
+name: Runtime Smoke
+
+on:
+  push:
+    branches:
+      - feature/weekend-responsibility-safe-v2
+      - main
+  pull_request:
+
+jobs:
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install app dependencies
+        run: npm install
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Build production bundle
+        run: npm run build
+      - name: Start production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/onesip-vite.log 2>&1 &
+          echo $! > /tmp/onesip-vite.pid
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/onesip-vite.log
+          exit 1
+      - name: Open app in Chromium and fail on runtime error
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            const errors = [];
+            page.on('pageerror', err => errors.push(err.stack || err.message || String(err)));
+            page.on('console', msg => {
+              if (msg.type() === 'error') errors.push('console.error: ' + msg.text());
+            });
+            const response = await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle', timeout: 30000 });
+            await page.waitForTimeout(1500);
+            const body = (await page.textContent('body')) || '';
+            console.log('HTTP status:', response && response.status());
+            console.log('Body preview:', body.slice(0, 1200));
+            if (!response || response.status() >= 400) errors.push('Bad HTTP status');
+            if (/Application Error|before initialization|ReferenceError:/i.test(body)) errors.push('Application error rendered in body');
+            if (!body.trim()) errors.push('Blank body');
+            if (errors.length) {
+              console.error('\nRUNTIME SMOKE FAILED:\n' + errors.join('\n---\n'));
+              await page.screenshot({ path: 'runtime-smoke-failure.png', fullPage: true });
+              await browser.close();
+              process.exit(1);
+            }
+            await browser.close();
+          })().catch(err => { console.error(err); process.exit(1); });
+          NODE
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-smoke-failure
+          path: runtime-smoke-failure.png
+          if-no-files-found: ignore
