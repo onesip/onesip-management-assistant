@@ -4,12 +4,14 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { mandatoryBreakRulesPlugin } from './plugins/mandatoryBreakRulesPlugin';
 import { strictBreakSchedulePlugin } from './plugins/strictBreakSchedulePlugin';
+import { breakEdgeCasePlugin } from './plugins/breakEdgeCasePlugin';
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     mandatoryBreakRulesPlugin(),
     strictBreakSchedulePlugin(),
+    breakEdgeCasePlugin(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
