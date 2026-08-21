@@ -15,11 +15,11 @@ export function weekendResponsibilityMountPlugin(): Plugin {
 
       const importAnchor = "import { useNotification } from './components/GlobalNotification';";
       if (!code.includes(importAnchor)) throw new Error('[weekend-responsibility-mount] import anchor missing');
-      code = code.replace(importAnchor, importAnchor + "\nimport { WeekendShiftResponsibilityGate } from './components/WeekendShiftResponsibilityGate';");
+      code = code.replace(importAnchor, importAnchor + "\nimport { SafeWeekendShiftResponsibilityGate } from './components/SafeWeekendShiftResponsibilityGate';");
 
       const renderAnchor = '            <ActionReminderModal isOpen={isScheduleReminderOpen}';
       if (!code.includes(renderAnchor)) throw new Error('[weekend-responsibility-mount] render anchor missing');
-      const gate = `            <WeekendShiftResponsibilityGate\n                currentUser={currentUser}\n                schedule={schedule}\n                storeId={myStoreId}\n                lang={lang}\n            />\n`;
+      const gate = `            <SafeWeekendShiftResponsibilityGate\n                currentUser={currentUser}\n                schedule={schedule}\n                storeId={myStoreId}\n                lang={lang}\n            />\n`;
       code = code.replace(renderAnchor, gate + renderAnchor);
 
       return { code, map: null };
