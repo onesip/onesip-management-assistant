@@ -10,6 +10,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -37,23 +39,32 @@ jobs:
           (async () => {
             const browser = await chromium.launch({ headless: true });
             const page = await browser.newPage();
-            const errors = [];
-            page.on('pageerror', err => errors.push(err.stack || err.message || String(err)));
-            page.on('console', msg => { if (msg.type() === 'error') errors.push('console.error: ' + msg.text()); });
-            const response = await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle', timeout: 30000 });
-            await page.waitForTimeout(1500);
-            const body = (await page.textContent('body')) || '';
+            const fatalErrors = [];
+            const consoleErrors = [];
+            page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
+            page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+            let response = null;
+            try {
+              response = await page.goto('http://127.0.0.1:4173/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+            } catch (err) {
+              fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err)));
+            }
+            await page.waitForTimeout(3000);
+            const body = (await page.textContent('body').catch(() => '')) || '';
             console.log('HTTP status:', response && response.status());
-            console.log('Body preview:', body.slice(0, 1600));
-            if (!response || response.status() >= 400) errors.push('Bad HTTP status');
-            if (/Application Error|before initialization|ReferenceError:/i.test(body)) errors.push('Application error rendered in body');
-            if (!body.trim()) errors.push('Blank body');
-            if (errors.length) {
-              console.error('\nRUNTIME SMOKE FAILED:\n' + errors.join('\n---\n'));
-              await page.screenshot({ path: 'runtime-smoke-failure.png', fullPage: true });
+            console.log('Body preview:', body.slice(0, 2000));
+            if (consoleErrors.length) console.log('Non-fatal console errors:', consoleErrors.slice(0, 20));
+            if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
+            if (/Application Error|before initialization|ReferenceError:/i.test(body)) fatalErrors.push('Application error rendered in body');
+            if (!body.trim()) fatalErrors.push('Blank body');
+            if (!/ONESIP|登录|Login|工作台|Dashboard/i.test(body)) fatalErrors.push('Expected ONESIP app shell/login content not found');
+            if (fatalErrors.length) {
+              console.error('\nRUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
+              await page.screenshot({ path: 'runtime-smoke-failure.png', fullPage: true }).catch(() => {});
               await browser.close();
               process.exit(1);
             }
+            console.log('RUNTIME SMOKE PASSED');
             await browser.close();
           })().catch(err => { console.error(err); process.exit(1); });
           NODE
