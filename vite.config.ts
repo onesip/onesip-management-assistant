@@ -7,6 +7,8 @@ import { strictBreakSchedulePlugin } from './plugins/strictBreakSchedulePlugin';
 import { breakEdgeCasePlugin } from './plugins/breakEdgeCasePlugin';
 import { staffRulesPopupPlugin } from './plugins/staffRulesPopupPlugin';
 import { staffRulesTdzFixPlugin } from './plugins/staffRulesTdzFixPlugin';
+import { weekendResponsibilityContentPlugin } from './plugins/weekendResponsibilityContentPlugin';
+import { weekendResponsibilityForceDayPlugin } from './plugins/weekendResponsibilityForceDayPlugin';
 import { weekendResponsibilityMountPlugin } from './plugins/weekendResponsibilityMountPlugin';
 import { runtimeStaffSmokePlugin } from './plugins/runtimeStaffSmokePlugin';
 import { runtimeManagerSmokePlugin } from './plugins/runtimeManagerSmokePlugin';
@@ -19,6 +21,8 @@ export default defineConfig({
     breakEdgeCasePlugin(),
     staffRulesPopupPlugin(),
     staffRulesTdzFixPlugin(),
+    weekendResponsibilityContentPlugin(),
+    weekendResponsibilityForceDayPlugin(),
     weekendResponsibilityMountPlugin(),
     runtimeStaffSmokePlugin(),
     runtimeManagerSmokePlugin(),
