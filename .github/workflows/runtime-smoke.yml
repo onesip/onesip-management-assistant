@@ -1,0 +1,77 @@
+name: Runtime Smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install app dependencies
+        run: npm install
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Build production bundle
+        run: npm run build
+      - name: Start production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/onesip-vite.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/onesip-vite.log
+          exit 1
+      - name: Open app in Chromium and fail on runtime error
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            const fatalErrors = [];
+            const consoleErrors = [];
+            page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
+            page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+            let response = null;
+            try {
+              response = await page.goto('http://127.0.0.1:4173/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+            } catch (err) {
+              fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err)));
+            }
+            await page.waitForTimeout(3000);
+            const body = (await page.textContent('body').catch(() => '')) || '';
+            console.log('HTTP status:', response && response.status());
+            console.log('Body preview:', body.slice(0, 2000));
+            if (consoleErrors.length) console.log('Non-fatal console errors:', consoleErrors.slice(0, 20));
+            if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
+            if (/Application Error|before initialization|ReferenceError:/i.test(body)) fatalErrors.push('Application error rendered in body');
+            if (!body.trim()) fatalErrors.push('Blank body');
+            if (!/ONESIP|登录|Login|工作台|Dashboard/i.test(body)) fatalErrors.push('Expected ONESIP app shell/login content not found');
+            if (fatalErrors.length) {
+              console.error('\nRUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
+              await page.screenshot({ path: 'runtime-smoke-failure.png', fullPage: true }).catch(() => {});
+              await browser.close();
+              process.exit(1);
+            }
+            console.log('RUNTIME SMOKE PASSED');
+            await browser.close();
+          })().catch(err => { console.error(err); process.exit(1); });
+          NODE
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-smoke-failure
+          path: runtime-smoke-failure.png
+          if-no-files-found: ignore
