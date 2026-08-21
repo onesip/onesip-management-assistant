@@ -143,8 +143,8 @@ export function strictBreakSchedulePlugin(): Plugin {
                                                                         </div>
                                                                         <p className="mt-1 text-[10px] leading-relaxed text-orange-800">
                                                                             {lang === 'zh'
-                                                                                ? '你的班次超过 ' + scheduleBreakThresholdHours + ' 小时。请提前联系 Manager，协调一个合适的 30 分钟休息时间。'
-                                                                                : 'Your shift is longer than ' + scheduleBreakThresholdHours + ' hours. Please contact your manager in advance to arrange a suitable 30-minute break.'}
+                                                                                ? '你的班次超过 ' + scheduleBreakThresholdHours + ' 小时。请提前和搭班同事商量一个合适的 30 分钟休息时间，并让 Manager 知道最终安排。'
+                                                                                : 'Your shift is longer than ' + scheduleBreakThresholdHours + ' hours. Please coordinate a suitable 30-minute break with the colleague(s) working the shift, and let your manager know the final arrangement.'}
                                                                         </p>
                                                                     </div>
                                                                 )}`;
