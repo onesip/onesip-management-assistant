@@ -87,7 +87,9 @@ jobs:
             page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
             await page.addInitScript(() => {
               const OriginalDate = Date;
-              const fixedNow = OriginalDate.parse('2026-08-22T12:30:00Z');
+              // The employee is scheduled 11:00-17:00, but opens the app at 06:00.
+              // The responsibility modal must still force-open because the shift is today.
+              const fixedNow = OriginalDate.parse('2026-08-22T06:00:00Z');
               class FixedDate extends OriginalDate {
                 constructor(...args) { super(...(args.length ? args : [fixedNow])); }
                 static now() { return fixedNow; }
@@ -108,7 +110,7 @@ jobs:
             if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
             if (!rootText.trim()) fatalErrors.push('Staff app root is blank');
             if (!/ONESIP/i.test(rootText)) fatalErrors.push('ONESIP staff shell not found');
-            if (!/ONESIP Shift Responsibility|本班责任|周六早班|Sat Opening/i.test(rootText)) fatalErrors.push('Mandatory weekend responsibility UI did not render');
+            if (!/ONESIP Shift Responsibility|本班责任|周六早班|Sat Opening/i.test(rootText)) fatalErrors.push('Mandatory weekend responsibility UI did not render for same-day pre-shift open');
             if (!/我的班次责任|My Shift Duties/i.test(rootText)) fatalErrors.push('Always-visible staff responsibility library entry did not render');
             if (fatalErrors.length) {
               console.error('\nSTAFF RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
@@ -116,7 +118,7 @@ jobs:
               await browser.close();
               process.exit(1);
             }
-            console.log('STAFF RESPONSIBILITY RUNTIME SMOKE PASSED');
+            console.log('STAFF RESPONSIBILITY SAME-DAY FORCE RUNTIME SMOKE PASSED');
             await browser.close();
           })().catch(err => { console.error(err); process.exit(1); });
           NODE
