@@ -9,6 +9,7 @@ import { staffRulesPopupPlugin } from './plugins/staffRulesPopupPlugin';
 import { staffRulesTdzFixPlugin } from './plugins/staffRulesTdzFixPlugin';
 import { weekendResponsibilityMountPlugin } from './plugins/weekendResponsibilityMountPlugin';
 import { runtimeStaffSmokePlugin } from './plugins/runtimeStaffSmokePlugin';
+import { runtimeManagerSmokePlugin } from './plugins/runtimeManagerSmokePlugin';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -20,6 +21,7 @@ export default defineConfig({
     staffRulesTdzFixPlugin(),
     weekendResponsibilityMountPlugin(),
     runtimeStaffSmokePlugin(),
+    runtimeManagerSmokePlugin(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
