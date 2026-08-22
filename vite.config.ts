@@ -12,6 +12,7 @@ import { satCoconut6lCleanupPlugin } from './plugins/satCoconut6lCleanupPlugin';
 import { weekendResponsibilityForceDayPlugin } from './plugins/weekendResponsibilityForceDayPlugin';
 import { weekendResponsibilityMountPlugin } from './plugins/weekendResponsibilityMountPlugin';
 import { scheduleTextImportMountPlugin } from './plugins/scheduleTextImportMountPlugin';
+import { toppingReplacementNoticeMountPlugin } from './plugins/toppingReplacementNoticeMountPlugin';
 import { runtimeStaffSmokePlugin } from './plugins/runtimeStaffSmokePlugin';
 import { runtimeManagerSmokePlugin } from './plugins/runtimeManagerSmokePlugin';
 
@@ -28,6 +29,7 @@ export default defineConfig({
     weekendResponsibilityForceDayPlugin(),
     weekendResponsibilityMountPlugin(),
     scheduleTextImportMountPlugin(),
+    toppingReplacementNoticeMountPlugin(),
     runtimeStaffSmokePlugin(),
     runtimeManagerSmokePlugin(),
     react(),
