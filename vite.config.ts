@@ -8,6 +8,7 @@ import { breakEdgeCasePlugin } from './plugins/breakEdgeCasePlugin';
 import { staffRulesPopupPlugin } from './plugins/staffRulesPopupPlugin';
 import { staffRulesTdzFixPlugin } from './plugins/staffRulesTdzFixPlugin';
 import { weekendResponsibilityContentPlugin } from './plugins/weekendResponsibilityContentPlugin';
+import { satCoconut6lCleanupPlugin } from './plugins/satCoconut6lCleanupPlugin';
 import { weekendResponsibilityForceDayPlugin } from './plugins/weekendResponsibilityForceDayPlugin';
 import { weekendResponsibilityMountPlugin } from './plugins/weekendResponsibilityMountPlugin';
 import { runtimeStaffSmokePlugin } from './plugins/runtimeStaffSmokePlugin';
@@ -22,6 +23,7 @@ export default defineConfig({
     staffRulesPopupPlugin(),
     staffRulesTdzFixPlugin(),
     weekendResponsibilityContentPlugin(),
+    satCoconut6lCleanupPlugin(),
     weekendResponsibilityForceDayPlugin(),
     weekendResponsibilityMountPlugin(),
     runtimeStaffSmokePlugin(),
