@@ -6,25 +6,27 @@ type Props = {
   currentUser: any;
 };
 
+const isCoveredRole = (role: string | undefined) => role === 'staff' || role === 'manager' || role === 'boss';
+
 function ToppingReplacementNotice({ currentUser }: Props) {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    if (!currentUser || currentUser.role !== 'staff') {
+    if (!currentUser || !isCoveredRole(currentUser.role)) {
       setIsOpen(false);
       return;
     }
 
-    const userKey = currentUser.id || currentUser.name || 'staff';
+    const userKey = currentUser.id || currentUser.name || currentUser.role || 'team';
     const storageKey = `onesip_${NOTICE_VERSION}_${userKey}`;
     const acknowledged = localStorage.getItem(storageKey);
     setIsOpen(!acknowledged);
   }, [currentUser?.id, currentUser?.name, currentUser?.role]);
 
-  if (!isOpen || currentUser?.role !== 'staff') return null;
+  if (!isOpen || !isCoveredRole(currentUser?.role)) return null;
 
   const acknowledge = () => {
-    const userKey = currentUser.id || currentUser.name || 'staff';
+    const userKey = currentUser.id || currentUser.name || currentUser.role || 'team';
     const storageKey = `onesip_${NOTICE_VERSION}_${userKey}`;
     localStorage.setItem(storageKey, new Date().toISOString());
     setIsOpen(false);
@@ -34,7 +36,7 @@ function ToppingReplacementNotice({ currentUser }: Props) {
     <div className="fixed inset-0 z-[11750] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-100">
         <div className="bg-amber-50 px-5 py-5 border-b border-amber-100">
-          <div className="text-[11px] font-black tracking-[0.18em] text-amber-700 uppercase mb-1">ONESIP Staff Notice</div>
+          <div className="text-[11px] font-black tracking-[0.18em] text-amber-700 uppercase mb-1">ONESIP Team Notice</div>
           <h2 className="text-xl font-black text-gray-900">⚠️ Topping Replacement Rule</h2>
         </div>
 

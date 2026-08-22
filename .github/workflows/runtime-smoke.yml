@@ -87,8 +87,6 @@ jobs:
             page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
             await page.addInitScript(() => {
               const OriginalDate = Date;
-              // The employee is scheduled 11:00-17:00, but opens the app at 06:00.
-              // The responsibility modal must still force-open because the shift is today.
               const fixedNow = OriginalDate.parse('2026-08-22T06:00:00Z');
               class FixedDate extends OriginalDate {
                 constructor(...args) { super(...(args.length ? args : [fixedNow])); }
@@ -135,7 +133,7 @@ jobs:
           done
           cat /tmp/onesip-manager-vite.log
           exit 1
-      - name: Check manager responsibility library in Chromium
+      - name: Check manager topping notice in Chromium
         run: |
           node <<'NODE'
           const { chromium } = require('playwright');
@@ -151,18 +149,62 @@ jobs:
             const visibleBody = await page.evaluate(() => document.body.innerText || '').catch(() => '');
             const rootText = await page.locator('#root').innerText().catch(() => '');
             console.log('HTTP status:', response && response.status());
-            console.log('Manager root text:', rootText.slice(0, 5000));
+            console.log('Manager root text:', rootText.slice(0, 6000));
             if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
             if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
             if (!rootText.trim()) fatalErrors.push('Manager app root is blank');
             if (!/班次责任|Shift Duties/i.test(rootText)) fatalErrors.push('Manager responsibility library entry did not render');
+            if (!/Topping Replacement Rule/i.test(rootText)) fatalErrors.push('Manager topping replacement notice did not render');
             if (fatalErrors.length) {
               console.error('\nMANAGER RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-manager-failure.png', fullPage: true }).catch(() => {});
               await browser.close();
               process.exit(1);
             }
-            console.log('MANAGER RESPONSIBILITY RUNTIME SMOKE PASSED');
+            console.log('MANAGER RESPONSIBILITY + TOPPING NOTICE RUNTIME SMOKE PASSED');
+            await browser.close();
+          })().catch(err => { console.error(err); process.exit(1); });
+          NODE
+
+      - name: Build CI-only owner bundle
+        run: RUNTIME_OWNER_SMOKE=1 npm run build
+      - name: Start owner production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4176 > /tmp/onesip-owner-vite.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4176/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/onesip-owner-vite.log
+          exit 1
+      - name: Check owner topping notice in Chromium
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            const fatalErrors = [];
+            page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
+            let response = null;
+            try { response = await page.goto('http://127.0.0.1:4176/', { waitUntil: 'domcontentloaded', timeout: 15000 }); }
+            catch (err) { fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err))); }
+            await page.waitForTimeout(3500);
+            const visibleBody = await page.evaluate(() => document.body.innerText || '').catch(() => '');
+            const rootText = await page.locator('#root').innerText().catch(() => '');
+            console.log('HTTP status:', response && response.status());
+            console.log('Owner root text:', rootText.slice(0, 6000));
+            if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
+            if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
+            if (!rootText.trim()) fatalErrors.push('Owner app root is blank');
+            if (!/Topping Replacement Rule/i.test(rootText)) fatalErrors.push('Owner topping replacement notice did not render');
+            if (fatalErrors.length) {
+              console.error('\nOWNER RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
+              await page.screenshot({ path: 'runtime-smoke-owner-failure.png', fullPage: true }).catch(() => {});
+              await browser.close();
+              process.exit(1);
+            }
+            console.log('OWNER TOPPING NOTICE RUNTIME SMOKE PASSED');
             await browser.close();
           })().catch(err => { console.error(err); process.exit(1); });
           NODE
