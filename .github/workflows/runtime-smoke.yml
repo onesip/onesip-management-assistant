@@ -105,20 +105,21 @@ jobs:
             const visibleBody = await page.evaluate(() => document.body.innerText || '').catch(() => '');
             const rootText = await page.locator('#root').innerText().catch(() => '');
             console.log('HTTP status:', response && response.status());
-            console.log('Staff root text:', rootText.slice(0, 5000));
+            console.log('Staff root text:', rootText.slice(0, 6000));
             if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
             if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
             if (!rootText.trim()) fatalErrors.push('Staff app root is blank');
             if (!/ONESIP/i.test(rootText)) fatalErrors.push('ONESIP staff shell not found');
             if (!/ONESIP Shift Responsibility|本班责任|周六早班|Sat Opening/i.test(rootText)) fatalErrors.push('Mandatory weekend responsibility UI did not render for same-day pre-shift open');
             if (!/我的班次责任|My Shift Duties/i.test(rootText)) fatalErrors.push('Always-visible staff responsibility library entry did not render');
+            if (!/Topping Replacement Rule/i.test(rootText)) fatalErrors.push('Staff topping replacement notice did not render');
             if (fatalErrors.length) {
               console.error('\nSTAFF RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-staff-failure.png', fullPage: true }).catch(() => {});
               await browser.close();
               process.exit(1);
             }
-            console.log('STAFF RESPONSIBILITY SAME-DAY FORCE RUNTIME SMOKE PASSED');
+            console.log('STAFF RESPONSIBILITY + TOPPING NOTICE RUNTIME SMOKE PASSED');
             await browser.close();
           })().catch(err => { console.error(err); process.exit(1); });
           NODE
