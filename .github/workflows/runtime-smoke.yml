@@ -209,6 +209,56 @@ jobs:
           })().catch(err => { console.error(err); process.exit(1); });
           NODE
 
+      - name: Build CI-only editor bundle
+        run: RUNTIME_EDITOR_SMOKE=1 npm run build
+      - name: Start editor production preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4177 > /tmp/onesip-editor-vite.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4177/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/onesip-editor-vite.log
+          exit 1
+      - name: Check 0413 recipe search in Chromium
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            const fatalErrors = [];
+            page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
+            let response = null;
+            try { response = await page.goto('http://127.0.0.1:4177/', { waitUntil: 'domcontentloaded', timeout: 15000 }); }
+            catch (err) { fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err))); }
+            await page.waitForTimeout(3000);
+            if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
+            const recipesButton = page.getByRole('button', { name: /^recipes$/i });
+            if (!(await recipesButton.count())) fatalErrors.push('Editor recipes tab not found');
+            else await recipesButton.first().click();
+            await page.waitForTimeout(500);
+            const search = page.locator('[data-testid="editor-recipe-search"]');
+            if (!(await search.count())) fatalErrors.push('0413 recipe search input did not render');
+            else {
+              await search.fill('___NO_RECIPE_SHOULD_MATCH___');
+              await page.waitForTimeout(250);
+              const editorText = await page.locator('#root').innerText().catch(() => '');
+              if (!/0 results/i.test(editorText)) fatalErrors.push('Recipe search did not filter to zero results');
+            }
+            const visibleBody = await page.evaluate(() => document.body.innerText || '').catch(() => '');
+            if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
+            if (fatalErrors.length) {
+              console.error('\nEDITOR RECIPE SEARCH SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
+              await page.screenshot({ path: 'runtime-smoke-editor-failure.png', fullPage: true }).catch(() => {});
+              await browser.close();
+              process.exit(1);
+            }
+            console.log('0413 EDITOR RECIPE SEARCH RUNTIME SMOKE PASSED');
+            await browser.close();
+          })().catch(err => { console.error(err); process.exit(1); });
+          NODE
+
       - name: Upload failure screenshots
         if: failure()
         uses: actions/upload-artifact@v4
