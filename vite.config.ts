@@ -13,8 +13,10 @@ import { weekendResponsibilityForceDayPlugin } from './plugins/weekendResponsibi
 import { weekendResponsibilityMountPlugin } from './plugins/weekendResponsibilityMountPlugin';
 import { scheduleTextImportMountPlugin } from './plugins/scheduleTextImportMountPlugin';
 import { toppingReplacementNoticeMountPlugin } from './plugins/toppingReplacementNoticeMountPlugin';
+import { editorRecipeSearchPlugin } from './plugins/editorRecipeSearchPlugin';
 import { runtimeStaffSmokePlugin } from './plugins/runtimeStaffSmokePlugin';
 import { runtimeManagerSmokePlugin } from './plugins/runtimeManagerSmokePlugin';
+import { runtimeEditorSmokePlugin } from './plugins/runtimeEditorSmokePlugin';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -30,8 +32,10 @@ export default defineConfig({
     weekendResponsibilityMountPlugin(),
     scheduleTextImportMountPlugin(),
     toppingReplacementNoticeMountPlugin(),
+    editorRecipeSearchPlugin(),
     runtimeStaffSmokePlugin(),
     runtimeManagerSmokePlugin(),
+    runtimeEditorSmokePlugin(),
     react(),
     VitePWA({
       registerType: 'autoUpdate',
