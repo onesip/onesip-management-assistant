@@ -16,6 +16,7 @@ import { toppingReplacementNoticeMountPlugin } from './plugins/toppingReplacemen
 import { foodSafetyShiftGateMountPlugin } from './plugins/foodSafetyShiftGateMountPlugin';
 import { editorRecipeSearchPlugin } from './plugins/editorRecipeSearchPlugin';
 import { runtimeStaffSmokePlugin } from './plugins/runtimeStaffSmokePlugin';
+import { runtimeFoodSafetyClosingSmokePlugin } from './plugins/runtimeFoodSafetyClosingSmokePlugin';
 import { runtimeManagerSmokePlugin } from './plugins/runtimeManagerSmokePlugin';
 import { runtimeEditorSmokePlugin } from './plugins/runtimeEditorSmokePlugin';
 
@@ -36,6 +37,7 @@ export default defineConfig({
     foodSafetyShiftGateMountPlugin(),
     editorRecipeSearchPlugin(),
     runtimeStaffSmokePlugin(),
+    runtimeFoodSafetyClosingSmokePlugin(),
     runtimeManagerSmokePlugin(),
     runtimeEditorSmokePlugin(),
     react(),
