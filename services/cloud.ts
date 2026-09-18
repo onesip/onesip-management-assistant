@@ -691,9 +691,6 @@ export const Cloud = {
     subscribeToStores,
     updateStores,
 
-    subscribeToStores,
-    updateStores,
-
     // 💡 新增：暴露报修接口
     subscribeToRepairRequests,
     updateRepairRequests
