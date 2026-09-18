@@ -13,8 +13,10 @@ import { weekendResponsibilityForceDayPlugin } from './plugins/weekendResponsibi
 import { weekendResponsibilityMountPlugin } from './plugins/weekendResponsibilityMountPlugin';
 import { scheduleTextImportMountPlugin } from './plugins/scheduleTextImportMountPlugin';
 import { toppingReplacementNoticeMountPlugin } from './plugins/toppingReplacementNoticeMountPlugin';
+import { foodSafetyShiftGateMountPlugin } from './plugins/foodSafetyShiftGateMountPlugin';
 import { editorRecipeSearchPlugin } from './plugins/editorRecipeSearchPlugin';
 import { runtimeStaffSmokePlugin } from './plugins/runtimeStaffSmokePlugin';
+import { runtimeFoodSafetyClosingSmokePlugin } from './plugins/runtimeFoodSafetyClosingSmokePlugin';
 import { runtimeManagerSmokePlugin } from './plugins/runtimeManagerSmokePlugin';
 import { runtimeEditorSmokePlugin } from './plugins/runtimeEditorSmokePlugin';
 
@@ -32,8 +34,10 @@ export default defineConfig({
     weekendResponsibilityMountPlugin(),
     scheduleTextImportMountPlugin(),
     toppingReplacementNoticeMountPlugin(),
+    foodSafetyShiftGateMountPlugin(),
     editorRecipeSearchPlugin(),
     runtimeStaffSmokePlugin(),
+    runtimeFoodSafetyClosingSmokePlugin(),
     runtimeManagerSmokePlugin(),
     runtimeEditorSmokePlugin(),
     react(),
