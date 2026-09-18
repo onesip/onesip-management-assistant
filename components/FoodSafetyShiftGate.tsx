@@ -25,6 +25,7 @@ type ItemCheck = {
 type ItemKey = 'waterchestnut' | 'yogurt' | 'lemon';
 
 const VERSION = 'food_safety_shift_check_2026_09_18_v1';
+// Deployment retry marker: no behavior change.
 
 const ITEM_META: Record<ItemKey, { zh: string; en: string }> = {
   waterchestnut: { zh: '马蹄爆爆珠', en: 'Waterchestnut boba' },
