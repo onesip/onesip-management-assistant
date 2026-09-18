@@ -87,7 +87,7 @@ jobs:
             page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
             await page.addInitScript(() => {
               const OriginalDate = Date;
-              const fixedNow = OriginalDate.parse('2026-08-22T06:00:00Z');
+              const fixedNow = OriginalDate.parse('2026-08-22T11:30:00Z');
               class FixedDate extends OriginalDate {
                 constructor(...args) { super(...(args.length ? args : [fixedNow])); }
                 static now() { return fixedNow; }
@@ -111,6 +111,7 @@ jobs:
             if (!/ONESIP Shift Responsibility|本班责任|周六早班|Sat Opening/i.test(rootText)) fatalErrors.push('Mandatory weekend responsibility UI did not render for same-day pre-shift open');
             if (!/我的班次责任|My Shift Duties/i.test(rootText)) fatalErrors.push('Always-visible staff responsibility library entry did not render');
             if (!/Topping Replacement Rule/i.test(rootText)) fatalErrors.push('Staff topping replacement notice did not render');
+            if (!/早班食品安全检查|Opening Food Safety Check/i.test(rootText)) fatalErrors.push('Opening food safety gate did not render for earliest-start staff');
             if (fatalErrors.length) {
               console.error('\nSTAFF RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-staff-failure.png', fullPage: true }).catch(() => {});
@@ -255,6 +256,60 @@ jobs:
               process.exit(1);
             }
             console.log('0413 EDITOR RECIPE SEARCH RUNTIME SMOKE PASSED');
+            await browser.close();
+          })().catch(err => { console.error(err); process.exit(1); });
+          NODE
+
+      - name: Build CI-only closing food safety bundle
+        run: RUNTIME_FOOD_SAFETY_CLOSING_SMOKE=1 npm run build
+      - name: Start closing food safety preview
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4178 > /tmp/onesip-food-safety-closing-vite.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4178/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/onesip-food-safety-closing-vite.log
+          exit 1
+      - name: Check closing food safety role in Chromium
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            const fatalErrors = [];
+            page.on('pageerror', err => fatalErrors.push(err.stack || err.message || String(err)));
+            await page.addInitScript(() => {
+              const OriginalDate = Date;
+              const fixedNow = OriginalDate.parse('2026-09-18T18:30:00Z');
+              class FixedDate extends OriginalDate {
+                constructor(...args) { super(...(args.length ? args : [fixedNow])); }
+                static now() { return fixedNow; }
+              }
+              FixedDate.parse = OriginalDate.parse;
+              FixedDate.UTC = OriginalDate.UTC;
+              window.Date = FixedDate;
+            });
+            let response = null;
+            try { response = await page.goto('http://127.0.0.1:4178/', { waitUntil: 'domcontentloaded', timeout: 15000 }); }
+            catch (err) { fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err))); }
+            await page.waitForTimeout(3500);
+            const visibleBody = await page.evaluate(() => document.body.innerText || '').catch(() => '');
+            const rootText = await page.locator('#root').innerText().catch(() => '');
+            console.log('HTTP status:', response && response.status());
+            console.log('Closing food safety root text:', rootText.slice(0, 6000));
+            if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
+            if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
+            if (!rootText.trim()) fatalErrors.push('Staff app root is blank');
+            if (!/晚班有效期标签检查|Closing Expiry Label Check/i.test(rootText)) fatalErrors.push('Closing food safety gate did not render for latest-end staff');
+            if (fatalErrors.length) {
+              console.error('\nCLOSING FOOD SAFETY SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
+              await page.screenshot({ path: 'runtime-smoke-food-safety-closing-failure.png', fullPage: true }).catch(() => {});
+              await browser.close();
+              process.exit(1);
+            }
+            console.log('CLOSING FOOD SAFETY ROLE RUNTIME SMOKE PASSED');
             await browser.close();
           })().catch(err => { console.error(err); process.exit(1); });
           NODE
