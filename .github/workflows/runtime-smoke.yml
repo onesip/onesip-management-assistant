@@ -156,6 +156,34 @@ jobs:
             if (!rootText.trim()) fatalErrors.push('Manager app root is blank');
             if (!/班次责任|Shift Duties/i.test(rootText)) fatalErrors.push('Manager responsibility library entry did not render');
             if (!/Topping Replacement Rule/i.test(rootText)) fatalErrors.push('Manager topping replacement notice did not render');
+
+            const gotIt = page.getByRole('button', { name: /Got it|知道了|明白了/i });
+            if (await gotIt.count()) await gotIt.first().click().catch(() => {});
+            const managerModeButton = page.getByRole('button', { name: /Manager Mode/i });
+            if (!(await managerModeButton.count())) {
+              fatalErrors.push('Manager Mode entry not found');
+            } else {
+              await managerModeButton.first().evaluate((el) => el.click());
+              await page.waitForTimeout(300);
+              const scheduleTab = page.getByRole('button', { name: /^schedule$/i });
+              if (!(await scheduleTab.count())) {
+                fatalErrors.push('Manager schedule tab not found');
+              } else {
+                await scheduleTab.first().evaluate((el) => el.click());
+                await page.waitForTimeout(350);
+                const exportButton = page.locator('[data-testid="export-schedule-open"]');
+                if (!(await exportButton.count())) {
+                  fatalErrors.push('Schedule export button did not render');
+                } else {
+                  await exportButton.evaluate((el) => el.click());
+                  await page.waitForTimeout(200);
+                  if (!(await page.locator('[data-testid="export-schedule-dialog"]').count())) fatalErrors.push('Schedule export dialog did not open');
+                  if (!(await page.locator('[data-testid="export-schedule-week"]').count())) fatalErrors.push('Weekly export preset missing');
+                  if (!(await page.locator('[data-testid="export-schedule-month"]').count())) fatalErrors.push('Monthly export preset missing');
+                  if (!(await page.locator('[data-testid="export-schedule-custom"]').count())) fatalErrors.push('Custom export preset missing');
+                }
+              }
+            }
             if (fatalErrors.length) {
               console.error('\nMANAGER RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-manager-failure.png', fullPage: true }).catch(() => {});
