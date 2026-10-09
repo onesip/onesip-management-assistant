@@ -129,6 +129,106 @@ function splitStaff(segment: string, availableStaff: string[]): { staff: string[
   return { staff, unknown };
 }
 
+type ExportRange = {
+  start: Date;
+  end: Date;
+};
+
+type ExportResult = {
+  text: string;
+  dayCount: number;
+};
+
+function localDate(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function startOfWeekMonday(value: Date): Date {
+  const date = localDate(value);
+  const day = date.getDay();
+  date.setDate(date.getDate() + (day === 0 ? -6 : 1 - day));
+  return date;
+}
+
+function endOfWeekSunday(value: Date): Date {
+  const date = startOfWeekMonday(value);
+  date.setDate(date.getDate() + 6);
+  return date;
+}
+
+function toDateInputValue(value: Date): string {
+  return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
+}
+
+function parseDateInputValue(value: string): Date | null {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (
+    date.getFullYear() !== Number(match[1]) ||
+    date.getMonth() !== Number(match[2]) - 1 ||
+    date.getDate() !== Number(match[3])
+  ) return null;
+  return date;
+}
+
+function dateForScheduleDayInRange(raw: unknown, range: ExportRange): Date | null {
+  const match = String(raw || '').trim().match(/^(\d{1,2})-(\d{1,2})$/);
+  if (!match) return null;
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const startYear = range.start.getFullYear() - 1;
+  const endYear = range.end.getFullYear() + 1;
+
+  for (let year = startYear; year <= endYear; year += 1) {
+    const candidate = new Date(year, month - 1, day);
+    if (
+      candidate.getFullYear() !== year ||
+      candidate.getMonth() !== month - 1 ||
+      candidate.getDate() !== day
+    ) continue;
+    if (candidate >= range.start && candidate <= range.end) return candidate;
+  }
+  return null;
+}
+
+function buildScheduleExport(schedule: any, activeStoreId: string, range: ExportRange): ExportResult {
+  const rows = (Array.isArray(schedule?.days) ? schedule.days : [])
+    .map((day: any) => {
+      const storeId = day?.storeId || 'default_store';
+      if (storeId !== activeStoreId) return null;
+      const date = dateForScheduleDayInRange(day?.date, range);
+      if (!date) return null;
+
+      const shifts = (Array.isArray(day?.shifts) ? day.shifts : [])
+        .filter((shift: any) =>
+          typeof shift?.start === 'string' &&
+          typeof shift?.end === 'string' &&
+          Array.isArray(shift?.staff) &&
+          shift.staff.filter(Boolean).length > 0
+        )
+        .sort((a: any, b: any) => minutes(a.start) - minutes(b.start));
+
+      if (shifts.length === 0) return null;
+
+      const payload = shifts
+        .map((shift: any) => `${shift.start}-${shift.end} ${shift.staff.filter(Boolean).join(', ')}`)
+        .join(', ');
+
+      return {
+        date,
+        line: `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${payload}`,
+      };
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => a.date.getTime() - b.date.getTime());
+
+  return {
+    text: rows.map((row: any) => row.line).join('\n'),
+    dayCount: rows.length,
+  };
+}
+
 export function parseScheduleText(text: string, availableStaff: string[]): ParseResult {
   const errors: ParseIssue[] = [];
   const warnings: ParseIssue[] = [];
@@ -244,6 +344,13 @@ export function ScheduleTextImporter({ schedule, setSchedule, activeStoreId, ava
   const [preview, setPreview] = useState<ParseResult | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<'week' | 'month' | 'custom'>('week');
+  const initialWeekStart = startOfWeekMonday(new Date());
+  const initialWeekEnd = endOfWeekSunday(new Date());
+  const [customStart, setCustomStart] = useState(toDateInputValue(initialWeekStart));
+  const [customEnd, setCustomEnd] = useState(toDateInputValue(initialWeekEnd));
+  const [exportMessage, setExportMessage] = useState('');
 
   const sample = useMemo(() => {
     const a = availableStaff[0] || 'Aisha';
@@ -251,6 +358,66 @@ export function ScheduleTextImporter({ schedule, setSchedule, activeStoreId, ava
     const c = availableStaff[2] || 'Olivia';
     return `8/24 11:30-16:00 ${a}, ${b}, 16:00-19:00 ${c}\n8/25 12:00-16:00 ${c}, 16:00-19:00 ${a}`;
   }, [availableStaff]);
+
+  const exportRange = useMemo<ExportRange | null>(() => {
+    const now = new Date();
+    if (exportMode === 'week') {
+      return { start: startOfWeekMonday(now), end: endOfWeekSunday(now) };
+    }
+    if (exportMode === 'month') {
+      return {
+        start: new Date(now.getFullYear(), now.getMonth(), 1),
+        end: new Date(now.getFullYear(), now.getMonth() + 1, 0),
+      };
+    }
+
+    const start = parseDateInputValue(customStart);
+    const end = parseDateInputValue(customEnd);
+    if (!start || !end || end < start) return null;
+    return { start, end };
+  }, [exportMode, customStart, customEnd]);
+
+  const exportResult = useMemo(
+    () => exportRange ? buildScheduleExport(schedule, activeStoreId, exportRange) : { text: '', dayCount: 0 },
+    [schedule, activeStoreId, exportRange]
+  );
+
+  const exportRangeLabel = exportRange
+    ? `${toDateInputValue(exportRange.start)} → ${toDateInputValue(exportRange.end)}`
+    : '请选择有效的日期范围';
+
+  const copyExportText = async () => {
+    if (!exportResult.text) return;
+    try {
+      await navigator.clipboard.writeText(exportResult.text);
+      setExportMessage('✅ 已复制，可以直接粘贴回文字排班。');
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = exportResult.text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setExportMessage('✅ 已复制，可以直接粘贴回文字排班。');
+    }
+  };
+
+  const downloadExportText = () => {
+    if (!exportResult.text || !exportRange) return;
+    const filename = `ONESIP_schedule_${toDateInputValue(exportRange.start)}_to_${toDateInputValue(exportRange.end)}.txt`;
+    const blob = new Blob(['\\uFEFF' + exportResult.text + '\\n'], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setExportMessage(`✅ 已下载 ${filename}`);
+  };
 
   const existingDateKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -330,14 +497,24 @@ export function ScheduleTextImporter({ schedule, setSchedule, activeStoreId, ava
 
   return (
     <>
-      <button
-        type="button"
-        data-testid="paste-schedule-open"
-        onClick={() => setOpen(true)}
-        className="w-full mt-3 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-400/40 text-emerald-300 font-bold py-2.5 rounded-lg transition-all active:scale-[0.99]"
-      >
-        📋 文字排班 / Paste Schedule
-      </button>
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          data-testid="paste-schedule-open"
+          onClick={() => setOpen(true)}
+          className="w-full bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-400/40 text-emerald-300 font-bold py-2.5 rounded-lg transition-all active:scale-[0.99]"
+        >
+          📋 文字排班 / Paste Schedule
+        </button>
+        <button
+          type="button"
+          data-testid="export-schedule-open"
+          onClick={() => { setExportOpen(true); setExportMessage(''); }}
+          className="w-full bg-sky-600/20 hover:bg-sky-600/30 border border-sky-400/40 text-sky-300 font-bold py-2.5 rounded-lg transition-all active:scale-[0.99]"
+        >
+          ⬇️ 导出排班 / Export Schedule
+        </button>
+      </div>
 
       {open && (
         <div className="fixed inset-0 z-[12000] bg-black/85 backdrop-blur-sm p-3 flex items-center justify-center" role="dialog" aria-modal="true">
@@ -443,6 +620,120 @@ export function ScheduleTextImporter({ schedule, setSchedule, activeStoreId, ava
                 {saving ? '正在保存…' : '确认导入并保存 / Import & Save'}
               </button>
               <p className="mt-2 text-center text-[10px] font-bold text-dark-text-light">已有班次只会在你列出的日期被替换；其他日期不会改变。</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {exportOpen && (
+        <div className="fixed inset-0 z-[12000] bg-black/85 backdrop-blur-sm p-3 flex items-center justify-center" role="dialog" aria-modal="true" data-testid="export-schedule-dialog">
+          <div className="w-full max-w-2xl max-h-[94vh] overflow-hidden rounded-2xl border border-white/10 bg-dark-surface shadow-2xl flex flex-col">
+            <div className="p-4 border-b border-white/10 flex items-start justify-between gap-3 shrink-0">
+              <div>
+                <h3 className="text-lg font-black text-white">导出当前排班 / Export Schedule</h3>
+                <p className="mt-1 text-xs text-dark-text-light">导出当前门店已经保存的实际班次，手动调整后的结果也会包含。</p>
+              </div>
+              <button type="button" onClick={() => setExportOpen(false)} className="rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-white">关闭</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  data-testid="export-schedule-week"
+                  onClick={() => { setExportMode('week'); setExportMessage(''); }}
+                  className={exportMode === 'week' ? 'rounded-xl border-2 border-sky-400 bg-sky-500/15 px-3 py-3 text-sm font-black text-sky-200' : 'rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-bold text-gray-300'}
+                >
+                  本周
+                </button>
+                <button
+                  type="button"
+                  data-testid="export-schedule-month"
+                  onClick={() => { setExportMode('month'); setExportMessage(''); }}
+                  className={exportMode === 'month' ? 'rounded-xl border-2 border-sky-400 bg-sky-500/15 px-3 py-3 text-sm font-black text-sky-200' : 'rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-bold text-gray-300'}
+                >
+                  本月
+                </button>
+                <button
+                  type="button"
+                  data-testid="export-schedule-custom"
+                  onClick={() => { setExportMode('custom'); setExportMessage(''); }}
+                  className={exportMode === 'custom' ? 'rounded-xl border-2 border-sky-400 bg-sky-500/15 px-3 py-3 text-sm font-black text-sky-200' : 'rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-bold text-gray-300'}
+                >
+                  自定义
+                </button>
+              </div>
+
+              {exportMode === 'custom' && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-bold text-dark-text-light">
+                    开始日期
+                    <input
+                      data-testid="export-schedule-start"
+                      type="date"
+                      value={customStart}
+                      onChange={event => { setCustomStart(event.target.value); setExportMessage(''); }}
+                      className="mt-1.5 w-full rounded-xl border border-white/15 bg-dark-bg p-3 text-sm text-white outline-none focus:border-sky-400"
+                    />
+                  </label>
+                  <label className="text-xs font-bold text-dark-text-light">
+                    结束日期
+                    <input
+                      data-testid="export-schedule-end"
+                      type="date"
+                      value={customEnd}
+                      onChange={event => { setCustomEnd(event.target.value); setExportMessage(''); }}
+                      className="mt-1.5 w-full rounded-xl border border-white/15 bg-dark-bg p-3 text-sm text-white outline-none focus:border-sky-400"
+                    />
+                  </label>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wide text-sky-200">导出范围</p>
+                    <p className="mt-1 font-mono text-sm font-bold text-white">{exportRangeLabel}</p>
+                  </div>
+                  <span className="rounded-full bg-sky-500/15 px-2.5 py-1 text-[10px] font-black text-sky-200">
+                    {exportResult.dayCount} DAYS WITH SHIFTS
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-sky-100/75">没有班次的日期会自动省略。导出的文字格式与“文字排班 / Paste Schedule”兼容。</p>
+              </div>
+
+              <textarea
+                data-testid="export-schedule-preview"
+                readOnly
+                value={exportResult.text}
+                placeholder={exportRange ? '这个范围内暂时没有已保存的班次。' : '请选择有效的日期范围。'}
+                className="h-56 w-full resize-y rounded-xl border border-white/15 bg-dark-bg p-3 font-mono text-sm leading-relaxed text-white outline-none"
+              />
+
+              {exportMessage && <div className="rounded-xl border border-white/10 bg-dark-bg p-3 text-sm font-bold text-white">{exportMessage}</div>}
+            </div>
+
+            <div className="shrink-0 border-t border-white/10 bg-dark-surface p-4">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  data-testid="export-schedule-copy"
+                  onClick={copyExportText}
+                  disabled={!exportResult.text}
+                  className="rounded-xl bg-white/10 py-3.5 text-sm font-black text-white disabled:opacity-40"
+                >
+                  📋 复制文字
+                </button>
+                <button
+                  type="button"
+                  data-testid="export-schedule-download"
+                  onClick={downloadExportText}
+                  disabled={!exportResult.text || !exportRange}
+                  className="rounded-xl bg-sky-500 py-3.5 text-sm font-black text-sky-950 shadow-lg disabled:bg-gray-700 disabled:text-gray-400"
+                >
+                  ⬇️ 下载 TXT
+                </button>
+              </div>
             </div>
           </div>
         </div>
