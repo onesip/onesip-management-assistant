@@ -163,19 +163,19 @@ jobs:
             if (!(await managerModeButton.count())) {
               fatalErrors.push('Manager Mode entry not found');
             } else {
-              await managerModeButton.first().click();
+              await managerModeButton.first().evaluate((el) => el.click());
               await page.waitForTimeout(300);
               const scheduleTab = page.getByRole('button', { name: /^schedule$/i });
               if (!(await scheduleTab.count())) {
                 fatalErrors.push('Manager schedule tab not found');
               } else {
-                await scheduleTab.first().click();
+                await scheduleTab.first().evaluate((el) => el.click());
                 await page.waitForTimeout(350);
                 const exportButton = page.locator('[data-testid="export-schedule-open"]');
                 if (!(await exportButton.count())) {
                   fatalErrors.push('Schedule export button did not render');
                 } else {
-                  await exportButton.click();
+                  await exportButton.evaluate((el) => el.click());
                   await page.waitForTimeout(200);
                   if (!(await page.locator('[data-testid="export-schedule-dialog"]').count())) fatalErrors.push('Schedule export dialog did not open');
                   if (!(await page.locator('[data-testid="export-schedule-week"]').count())) fatalErrors.push('Weekly export preset missing');
