@@ -19,6 +19,7 @@ import { runtimeStaffSmokePlugin } from './plugins/runtimeStaffSmokePlugin';
 import { runtimeFoodSafetyClosingSmokePlugin } from './plugins/runtimeFoodSafetyClosingSmokePlugin';
 import { runtimeManagerSmokePlugin } from './plugins/runtimeManagerSmokePlugin';
 import { runtimeEditorSmokePlugin } from './plugins/runtimeEditorSmokePlugin';
+import { octoberRecipeNoticeMountPlugin } from './plugins/octoberRecipeNoticeMountPlugin';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -36,6 +37,7 @@ export default defineConfig({
     toppingReplacementNoticeMountPlugin(),
     foodSafetyShiftGateMountPlugin(),
     editorRecipeSearchPlugin(),
+    octoberRecipeNoticeMountPlugin(),
     runtimeStaffSmokePlugin(),
     runtimeFoodSafetyClosingSmokePlugin(),
     runtimeManagerSmokePlugin(),
