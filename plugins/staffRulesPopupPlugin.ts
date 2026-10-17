@@ -49,6 +49,7 @@ const MandatoryStaffRulesModal = ({
         <div
             className="fixed inset-0 z-[13000] flex items-center justify-center bg-black/90 backdrop-blur-md p-3 sm:p-5 animate-fade-in"
             role="alertdialog"
+            data-testid="legacy-staff-rules-modal"
             aria-modal="true"
             aria-labelledby="staff-rules-title"
         >
