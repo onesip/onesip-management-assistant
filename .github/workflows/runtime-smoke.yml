@@ -112,6 +112,7 @@ jobs:
             if (!/我的班次责任|My Shift Duties/i.test(rootText)) fatalErrors.push('Always-visible staff responsibility library entry did not render');
             if (!/Topping Replacement Rule/i.test(rootText)) fatalErrors.push('Staff topping replacement notice did not render');
             if (!/早班食品安全检查|Opening Food Safety Check/i.test(rootText)) fatalErrors.push('Opening food safety gate did not render for earliest-start staff');
+            if (!(await page.locator('[data-testid="recipe-update-gate"]').count())) fatalErrors.push('Mandatory recipe update did not render for staff');
             if (fatalErrors.length) {
               console.error('\nSTAFF RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-staff-failure.png', fullPage: true }).catch(() => {});
@@ -156,6 +157,34 @@ jobs:
             if (!rootText.trim()) fatalErrors.push('Manager app root is blank');
             if (!/班次责任|Shift Duties/i.test(rootText)) fatalErrors.push('Manager responsibility library entry did not render');
             if (!/Topping Replacement Rule/i.test(rootText)) fatalErrors.push('Manager topping replacement notice did not render');
+
+            const recipeGate = page.locator('[data-testid="recipe-update-gate"]');
+            if (!(await recipeGate.count())) {
+              fatalErrors.push('Mandatory recipe quiz did not show in Manager/Admin');
+            } else {
+              const confirmQuiz = page.locator('[data-testid="recipe-update-confirm"]');
+              if (await confirmQuiz.isEnabled()) fatalErrors.push('Quiz confirmation enabled before reading');
+              await page.locator('[data-testid="recipe-update-lang-en"]').click();
+              const englishContent = await recipeGate.innerText();
+              if (!/Important Recipe Changes/i.test(englishContent) || !/400g/.test(englishContent) || !/Honey Black Tea/.test(englishContent)) {
+                fatalErrors.push('English recipe updates missing');
+              }
+              await page.locator('[data-testid="recipe-update-lang-zh"]').click();
+              await page.locator('[data-testid="recipe-update-answer-0-0"]').check();
+              await page.locator('[data-testid="recipe-update-answer-1-1"]').check();
+              await page.locator('[data-testid="recipe-update-answer-2-1"]').check();
+              if (await confirmQuiz.isEnabled()) fatalErrors.push('Wrong quiz answer allowed confirmation');
+              await page.locator('[data-testid="recipe-update-answer-0-1"]').check();
+              if (await confirmQuiz.isEnabled()) fatalErrors.push('Reading timer not enforced');
+              await page.waitForTimeout(26000);
+              if (!(await confirmQuiz.isEnabled())) fatalErrors.push('Correct quiz answers did not unlock confirmation');
+              else await confirmQuiz.click();
+              await page.waitForTimeout(250);
+              if (await recipeGate.count()) fatalErrors.push('Mandatory recipe quiz remained after completion');
+              await page.reload({ waitUntil: 'domcontentloaded' });
+              await page.waitForTimeout(1500);
+              if (await recipeGate.count()) fatalErrors.push('Recipe quiz appeared again after acknowledgement on reload');
+            }
 
             const gotIt = page.getByRole('button', { name: /Got it|知道了|明白了/i });
             if (await gotIt.count()) await gotIt.first().click().catch(() => {});
@@ -227,6 +256,7 @@ jobs:
             if (/Application Error|before initialization|ReferenceError:/i.test(visibleBody)) fatalErrors.push('Visible application error');
             if (!rootText.trim()) fatalErrors.push('Owner app root is blank');
             if (!/Topping Replacement Rule/i.test(rootText)) fatalErrors.push('Owner topping replacement notice did not render');
+            if (!(await page.locator('[data-testid="recipe-update-gate"]').count())) fatalErrors.push('Mandatory recipe update did not render for owner');
             if (fatalErrors.length) {
               console.error('\nOWNER RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-owner-failure.png', fullPage: true }).catch(() => {});
@@ -263,6 +293,18 @@ jobs:
             catch (err) { fatalErrors.push('Navigation error: ' + (err.stack || err.message || String(err))); }
             await page.waitForTimeout(3000);
             if (!response || response.status() >= 400) fatalErrors.push('Bad or missing HTTP response');
+            const editorRecipeGate = page.locator('[data-testid="recipe-update-gate"]');
+            if (!(await editorRecipeGate.count())) {
+              fatalErrors.push('Mandatory recipe quiz did not show in Editor/Admin');
+            } else {
+              for (let i = 0; i < 3; i++) await page.locator('[data-testid="recipe-update-answer-' + i + '-1"]').check();
+              const confirmQuiz = page.locator('[data-testid="recipe-update-confirm"]');
+              if (await confirmQuiz.isEnabled()) fatalErrors.push('Editor quiz bypassed reading timer');
+              await page.waitForTimeout(26000);
+              if (!(await confirmQuiz.isEnabled())) fatalErrors.push('Editor quiz remained locked despite correct answers and timer');
+              else await confirmQuiz.click();
+              if (await editorRecipeGate.count()) fatalErrors.push('Editor quiz remained after completion');
+            }
             const recipesButton = page.getByRole('button', { name: /^recipes$/i });
             if (!(await recipesButton.count())) fatalErrors.push('Editor recipes tab not found');
             else await recipesButton.first().click();
