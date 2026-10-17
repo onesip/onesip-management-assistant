@@ -5,8 +5,6 @@ import { VitePWA } from 'vite-plugin-pwa';
 import { mandatoryBreakRulesPlugin } from './plugins/mandatoryBreakRulesPlugin';
 import { strictBreakSchedulePlugin } from './plugins/strictBreakSchedulePlugin';
 import { breakEdgeCasePlugin } from './plugins/breakEdgeCasePlugin';
-import { staffRulesPopupPlugin } from './plugins/staffRulesPopupPlugin';
-import { staffRulesTdzFixPlugin } from './plugins/staffRulesTdzFixPlugin';
 import { weekendResponsibilityContentPlugin } from './plugins/weekendResponsibilityContentPlugin';
 import { satCoconut6lCleanupPlugin } from './plugins/satCoconut6lCleanupPlugin';
 import { weekendResponsibilityForceDayPlugin } from './plugins/weekendResponsibilityForceDayPlugin';
@@ -27,8 +25,6 @@ export default defineConfig({
     mandatoryBreakRulesPlugin(),
     strictBreakSchedulePlugin(),
     breakEdgeCasePlugin(),
-    staffRulesPopupPlugin(),
-    staffRulesTdzFixPlugin(),
     weekendResponsibilityContentPlugin(),
     satCoconut6lCleanupPlugin(),
     weekendResponsibilityForceDayPlugin(),
