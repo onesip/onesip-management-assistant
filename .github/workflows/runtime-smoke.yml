@@ -111,6 +111,17 @@ jobs:
             if (!/ONESIP Shift Responsibility|本班责任|周六早班|Sat Opening/i.test(rootText)) fatalErrors.push('Mandatory weekend responsibility UI did not render for same-day pre-shift open');
             if (!/我的班次责任|My Shift Duties/i.test(rootText)) fatalErrors.push('Always-visible staff responsibility library entry did not render');
             if (!/Topping Replacement Rule/i.test(rootText)) fatalErrors.push('Staff topping replacement notice did not render');
+            const legacyRules = page.locator('[data-testid="legacy-staff-rules-modal"]');
+            if (await legacyRules.count()) {
+              const legacyText = await legacyRules.innerText();
+              if (/Coconut Premix|Coconut Milk|当天全部用完|隔夜保存/i.test(legacyText)) {
+                fatalErrors.push('Withdrawn Coconut Premix rule still shown in legacy staff notice');
+              }
+              if (!/Crystal Ball/.test(legacyText)) fatalErrors.push('Crystal Ball rule missing from remaining staff notice');
+              if ((await legacyRules.locator('input[type="checkbox"]').count()) !== 1) {
+                fatalErrors.push('Remaining staff notice should require only the Crystal Ball acknowledgement');
+              }
+            }
             if (!/早班食品安全检查|Opening Food Safety Check/i.test(rootText)) fatalErrors.push('Opening food safety gate did not render for earliest-start staff');
             if (!(await page.locator('[data-testid="recipe-update-gate"]').count())) fatalErrors.push('Mandatory recipe update did not render for staff');
             const staffRecipeGateText = await page.locator('[data-testid="recipe-update-gate"]').innerText().catch(() => '');
