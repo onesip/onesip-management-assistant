@@ -113,6 +113,8 @@ jobs:
             if (!/Topping Replacement Rule/i.test(rootText)) fatalErrors.push('Staff topping replacement notice did not render');
             if (!/早班食品安全检查|Opening Food Safety Check/i.test(rootText)) fatalErrors.push('Opening food safety gate did not render for earliest-start staff');
             if (!(await page.locator('[data-testid="recipe-update-gate"]').count())) fatalErrors.push('Mandatory recipe update did not render for staff');
+            const staffRecipeGateText = await page.locator('[data-testid="recipe-update-gate"]').innerText().catch(() => '');
+            if (!/I.TEA/.test(staffRecipeGateText) || !/400g/.test(staffRecipeGateText)) fatalErrors.push('Staff recipe notice missing I’TEA-specific 400g restriction');
             if (fatalErrors.length) {
               console.error('\nSTAFF RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-staff-failure.png', fullPage: true }).catch(() => {});
@@ -166,10 +168,14 @@ jobs:
               if (await confirmQuiz.isEnabled()) fatalErrors.push('Quiz confirmation enabled before reading');
               await page.locator('[data-testid="recipe-update-lang-en"]').click();
               const englishContent = await recipeGate.innerText();
-              if (!/Important Recipe Changes/i.test(englishContent) || !/400g/.test(englishContent) || !/Honey Black Tea/.test(englishContent)) {
+              if (!/Important Recipe Changes/i.test(englishContent) || !/400g/.test(englishContent) || !/Honey Black Tea/.test(englishContent) || !/I.TEA/.test(englishContent) || !/other packaging/i.test(englishContent)) {
                 fatalErrors.push('English recipe updates missing');
               }
               await page.locator('[data-testid="recipe-update-lang-zh"]').click();
+              const chineseContent = await recipeGate.innerText();
+              if (!/仅限包装上印有 I.TEA 字样/.test(chineseContent) || !/其他包装仍按原配方/.test(chineseContent)) {
+                fatalErrors.push('Chinese I’TEA packaging restriction missing');
+              }
               await page.locator('[data-testid="recipe-update-answer-0-0"]').check();
               await page.locator('[data-testid="recipe-update-answer-1-1"]').check();
               await page.locator('[data-testid="recipe-update-answer-2-1"]').check();
