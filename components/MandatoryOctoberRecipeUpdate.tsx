@@ -17,10 +17,10 @@ type Props = {
 
 const QUESTIONS = [
   {
-    zh: 'Coconut Premix 新配方需要多少冰块？',
-    en: 'How much ice does the new Coconut Premix recipe use?',
-    optionsZh: ['1000g（旧用量）', '400g（新用量）', '600g'],
-    optionsEn: ['1000g (old amount)', '400g (new amount)', '600g'],
+    zh: '哪一种 Coconut Premix 使用 400g 冰块的新配方？',
+    en: 'Which Coconut Premix uses the new 400g ice recipe?',
+    optionsZh: ['所有 Coconut Premix 包装都用 400g', '仅印有 I’TEA 字样的新包装用 400g；其他包装按原配方', '印有 I’TEA 字样的新包装仍用 1000g'],
+    optionsEn: ['All Coconut Premix packages use 400g', 'Only new packages printed I’TEA use 400g; keep the existing recipe for other packages', 'New I’TEA packages still use 1000g'],
     correct: 1,
   },
   {
@@ -179,9 +179,9 @@ export function MandatoryOctoberRecipeUpdate({ currentUser, adminMode, logs, app
             <p className="mb-2 text-sm font-black text-amber-900">01 · Coconut Premix</p>
             <p className="text-sm leading-relaxed">
               {lang === 'zh' ? (
-                <>冰块用量已从 <strong className="line-through">1000g</strong> 改成 <strong className="text-lg text-red-700">400g</strong>。<strong>其他所有配料和步骤保持不变。</strong> 更新后的新配方已经在页面置顶，请严格按新冰块用量制作。</>
+                <>请先检查包装：<strong className="text-red-700">仅限包装上印有 I’TEA 字样的新版 Coconut Premix</strong>，冰块用量从 <strong className="line-through">1000g</strong> 改为 <strong className="text-lg text-red-700">400g</strong>。<strong>其余配料及步骤不变；其他包装仍按原配方操作。</strong> 新版配方已在页面置顶，制作前务必核对包装。</>
               ) : (
-                <>The ice amount has changed from <strong className="line-through">1000g</strong> to <strong className="text-lg text-red-700">400g</strong>. <strong>Everything else in the recipe stays the same.</strong> The updated recipe is pinned at the top of the page. Use 400g from now on.</>
+                <>Check the package first: <strong className="text-red-700">ONLY the new Coconut Premix packaging printed with I’TEA</strong> uses <strong className="text-lg text-red-700">400g</strong> ice instead of <strong className="line-through">1000g</strong>. <strong>All other ingredients and steps stay the same; for other packaging, follow the existing recipe.</strong> The new recipe is pinned at the top of the page. Always check the package before preparing it.</>
               )}
             </p>
           </section>
