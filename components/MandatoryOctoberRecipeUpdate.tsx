@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as Cloud from '../services/cloud';
 
-export const OCTOBER_RECIPE_NOTICE_VERSION = 'onesip_recipe_updates_2026_10_20_v2';
+export const OCTOBER_RECIPE_NOTICE_VERSION = 'onesip_recipe_updates_2026_10_20_v3_earlgrey_slot3';
 const READ_SECONDS = 35;
 
 type Language = 'zh' | 'en';
@@ -33,8 +33,8 @@ const UPDATES = [
   },
   {
     title: '04 · Earl Grey 取代 Honey Black Tea',
-    zh: '从 2026 年 10 月 20 日开始，停止泡 Honey Black Tea。原本使用 Honey Black Tea 的饮品与茶底统一改用 Earl Grey；Earl Grey 仍沿用之前 Honey Black Tea 的泡茶程序。',
-    en: 'Starting 20 October 2026, stop brewing Honey Black Tea. Replace Honey Black Tea with Earl Grey in all drinks and tea bases that previously used it. Brew Earl Grey using the former Honey Black Tea brewing procedure.',
+    zh: '从 2026 年 10 月 20 日开始，停止泡 Honey Black Tea。原本使用 Honey Black Tea 的饮品与茶底统一改用 Earl Grey；Earl Grey 目前放在 3 号罐。Earl Grey 仍沿用之前 Honey Black Tea 的泡茶程序。',
+    en: 'Starting 20 October 2026, stop brewing Honey Black Tea. Replace Honey Black Tea with Earl Grey in all drinks and tea bases that previously used it. Earl Grey is now in container/slot No. 3. Brew Earl Grey using the former Honey Black Tea brewing procedure.',
   },
   {
     title: '05 · 每日备料提醒 / Daily Prep',
@@ -83,7 +83,12 @@ const QUESTIONS = [
     optionsZh: ['Jasmine、Coconut、珍珠', 'Passion Fruit、Honey Black、茶冻', 'Masala、Earl Grey、Taro Premix'],
     optionsEn: ['Jasmine, Coconut and pearls', 'Passion Fruit, Honey Black and Tea Jelly', 'Masala, Earl Grey and Taro Premix'], correct: 2,
   },
-] as const;
+  {
+    zh: 'Earl Grey 现在放在几号罐？', en: 'Which container/slot now holds Earl Grey?',
+    optionsZh: ['10 号罐', '3 号罐', '原茶冻位置'],
+    optionsEn: ['No. 10', 'No. 3', 'The former Tea Jelly position'],
+    correct: 1,
+  },] as const;
 
 function getLocalKey(identity: string): string {
   return OCTOBER_RECIPE_NOTICE_VERSION + '_ack_' + identity;
@@ -230,10 +235,10 @@ export function MandatoryOctoberRecipeUpdate({ currentUser, adminMode, logs, app
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4" data-testid="recipe-update-quiz">
             <h3 className="text-base font-black">
-              {lang === 'zh' ? '理解检查 · 8 道选择题' : 'Knowledge Check · 8 Questions'}
+              {lang === 'zh' ? '理解检查 · 9 道选择题' : 'Knowledge Check · 9 Questions'}
             </h3>
             <p className="mb-4 mt-1 text-xs text-slate-600">
-              {lang === 'zh' ? '八题全部答对才能确认。答错可以重新选择。' : 'All eight answers must be correct. You may change an incorrect answer.'}
+              {lang === 'zh' ? '九题全部答对才能确认。答错可以重新选择。' : 'All nine answers must be correct. You may change an incorrect answer.'}
             </p>
             <div className="space-y-5">
               {QUESTIONS.map((question, index) => (
@@ -275,7 +280,7 @@ export function MandatoryOctoberRecipeUpdate({ currentUser, adminMode, logs, app
             className="w-full rounded-2xl bg-emerald-600 py-3.5 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500">
             {saving
               ? (lang === 'zh' ? '正在记录确认…' : 'Saving acknowledgement…')
-              : (lang === 'zh' ? '八题已答对，确认并继续使用' : 'All 8 correct · Confirm and Continue')}
+              : (lang === 'zh' ? '九题已答对，确认并继续使用' : 'All 9 correct · Confirm and Continue')}
           </button>
           {error && <p className="text-center text-xs font-bold text-red-700" role="alert">{error}</p>}
         </footer>
