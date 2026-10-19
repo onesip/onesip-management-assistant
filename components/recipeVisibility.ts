@@ -18,5 +18,18 @@ export function isSuspendedCoconutPremixRecipe(recipe: any): boolean {
     ice: recipe.ice,
     name: recipe.name,
   }) || '';
-  return /(?:400\s*(?:g|克|grams?)(?:\b|\s*冰)|(?:冰|ice)[^0-9]{0,20}400\s*(?:g|克)?)/i.test(instruction);
+  const ice400InIngredients = Array.isArray(recipe.ingredients) && recipe.ingredients.some((ingredient: any) => {
+    const ingredientName = [
+      ingredient?.name?.zh, ingredient?.name?.en,
+      typeof ingredient?.name === 'string' ? ingredient.name : '',
+    ].filter(Boolean).join(' ');
+    const amount = String(ingredient?.amount ?? ingredient?.quantity ?? ingredient?.qty ?? '');
+    const unit = String(ingredient?.unit ?? '');
+    return /ice|冰块|冰/i.test(ingredientName)
+      && /(?:^|\D)400(?:\D|$)/.test(amount)
+      && (!unit || /^(?:g|克|gram|grams)$/i.test(unit));
+  });
+
+  return ice400InIngredients ||
+    /(?:400\s*(?:g|克|grams?)(?:\b|\s*冰)|(?:冰|ice)[^0-9]{0,20}400\s*(?:g|克)?)/i.test(instruction);
 }
