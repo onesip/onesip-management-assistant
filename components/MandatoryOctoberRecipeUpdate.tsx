@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import * as Cloud from '../services/cloud';
 
-export const OCTOBER_RECIPE_NOTICE_VERSION = 'onesip_recipe_updates_2026_10_17_v1';
-const READ_SECONDS = 25;
+export const OCTOBER_RECIPE_NOTICE_VERSION = 'onesip_recipe_updates_2026_10_20_v2';
+const READ_SECONDS = 35;
 
 type Language = 'zh' | 'en';
 type AdminMode = 'manager' | 'owner' | 'editor' | null;
@@ -15,27 +15,73 @@ type Props = {
   appLang: Language;
 };
 
+const UPDATES = [
+  {
+    title: '01 · Passion Fruit',
+    zh: 'Passion Fruit 现在改为手动添加，位置在原来放茶冻的位置、芒果果肉旁边。500ml 中杯加 2 勺；660ml 大杯加 3 勺。不要再按旧的机器出料位置或旧份量操作。',
+    en: 'Passion Fruit is now added by hand. Find it in the old Tea Jelly position, next to the mango pulp. Add 2 scoops for a 500ml medium drink and 3 scoops for a 660ml large drink. Do not use the previous dispenser position or quantity.',
+  },
+  {
+    title: '02 · Tea Jelly / 茶冻',
+    zh: '茶冻已移到玻璃滑盖下面的小料台。取茶冻时请去该小料台，不要再去原来的 Passion Fruit 旁边位置找。',
+    en: 'Tea Jelly has moved to the topping station underneath the sliding glass lid. Take it from this station, not from its former position next to Passion Fruit.',
+  },
+  {
+    title: '03 · Taro / 芋头回归',
+    zh: 'Taro 已回归，放在 10 号罐（之前 Passion Fruit 的机位）。日常备料必须恢复制作 Taro Premix。不要把 Taro 放回旧的芋头位置。',
+    en: 'Taro is back. It is assigned to container/slot No. 10, where Passion Fruit used to be. Resume preparing Taro Premix as part of daily prep. Do not use the old Taro position.',
+  },
+  {
+    title: '04 · Earl Grey 取代 Honey Black Tea',
+    zh: '从 2026 年 10 月 20 日开始，停止泡 Honey Black Tea。原本使用 Honey Black Tea 的饮品与茶底统一改用 Earl Grey；Earl Grey 仍沿用之前 Honey Black Tea 的泡茶程序。',
+    en: 'Starting 20 October 2026, stop brewing Honey Black Tea. Replace Honey Black Tea with Earl Grey in all drinks and tea bases that previously used it. Brew Earl Grey using the former Honey Black Tea brewing procedure.',
+  },
+  {
+    title: '05 · 每日备料提醒 / Daily Prep',
+    zh: '备料时一定检查并按已发布配方和实际备料目标准备 Masala、Earl Grey 和 Taro Premix。不要漏掉任何一项；具体用量仍以小程序最新配方及备料目标为准。',
+    en: 'Daily prep must include checking and preparing Masala, Earl Grey and Taro Premix according to the published recipes and current prep targets. Do not miss any of these items; use the latest app recipes for exact quantities.',
+  },
+] as const;
+
 const QUESTIONS = [
   {
-    zh: '哪一种 Coconut Premix 使用 400g 冰块的新配方？',
-    en: 'Which Coconut Premix uses the new 400g ice recipe?',
-    optionsZh: ['所有 Coconut Premix 包装都用 400g', '仅印有 I’TEA 字样的新包装用 400g；其他包装按原配方', '印有 I’TEA 字样的新包装仍用 1000g'],
-    optionsEn: ['All Coconut Premix packages use 400g', 'Only new packages printed I’TEA use 400g; keep the existing recipe for other packages', 'New I’TEA packages still use 1000g'],
+    zh: 'Passion Fruit 现在放在哪里？', en: 'Where is Passion Fruit now?',
+    optionsZh: ['Taro 的旧位置', '以前茶冻的位置，芒果果肉旁边', '玻璃滑盖下面的小料台'],
+    optionsEn: ['The old Taro position', 'The former Tea Jelly position, beside mango pulp', 'The station under the sliding glass lid'],
     correct: 1,
   },
   {
-    zh: '新茶 Earl Grey 应该使用哪种泡茶程序？',
-    en: 'Which brewing procedure should be used for the new Earl Grey tea?',
-    optionsZh: ['Jasmine Tea 程序', 'Honey Black Tea 程序', '自行调整泡茶方法'],
-    optionsEn: ['Jasmine Tea procedure', 'Honey Black Tea procedure', 'Choose your own method'],
-    correct: 1,
+    zh: '500ml 中杯要手动加几勺 Passion Fruit？', en: 'How many scoops of Passion Fruit for a 500ml medium?',
+    optionsZh: ['2 勺', '1 勺', '3 勺'], optionsEn: ['2 scoops', '1 scoop', '3 scoops'], correct: 0,
   },
   {
-    zh: '制作新饮品前，应该去哪里核对已发布的配方？',
-    en: 'Where should you check the published new drink recipes before making them?',
-    optionsZh: ['靠记忆操作', '小程序内已发布的新品配方页面', '等同事口头告知'],
-    optionsEn: ['Rely on memory', 'The new recipes published in the app', 'Wait for verbal instructions'],
-    correct: 1,
+    zh: '660ml 大杯要手动加几勺 Passion Fruit？', en: 'How many scoops of Passion Fruit for a 660ml large?',
+    optionsZh: ['1 勺', '2 勺', '3 勺'], optionsEn: ['1 scoop', '2 scoops', '3 scoops'], correct: 2,
+  },
+  {
+    zh: '现在应该从哪里取茶冻？', en: 'Where do you get Tea Jelly now?',
+    optionsZh: ['芒果果肉旁边', '玻璃滑盖下面的小料台', '10 号罐'],
+    optionsEn: ['Next to mango pulp', 'The topping station under the sliding glass lid', 'Container No. 10'], correct: 1,
+  },
+  {
+    zh: 'Taro 现在放在哪个位置？', en: 'Where is Taro placed now?',
+    optionsZh: ['玻璃滑盖下面', '芒果果肉旁边', '10 号罐，原 Passion Fruit 机位'],
+    optionsEn: ['Under the sliding glass lid', 'Next to mango pulp', 'Container No. 10, the former Passion Fruit slot'], correct: 2,
+  },
+  {
+    zh: 'Taro 回归后备料要做什么？', en: 'What prep is needed now that Taro is back?',
+    optionsZh: ['恢复制作 Taro Premix', '不需要 Taro Premix', '只做 Coconut Premix'],
+    optionsEn: ['Resume making Taro Premix', 'No Taro Premix is needed', 'Only make Coconut Premix'], correct: 0,
+  },
+  {
+    zh: '从 10 月 20 日起，Honey Black Tea 应如何处理？', en: 'What changes on 20 October regarding Honey Black Tea?',
+    optionsZh: ['继续泡 Honey Black Tea', '不再泡 Honey Black Tea，全部改 Earl Grey，并沿用原 Honey Black 泡茶程序', 'Earl Grey 使用 Jasmine 的程序'],
+    optionsEn: ['Keep brewing Honey Black Tea', 'Stop Honey Black; use Earl Grey and the previous Honey Black brewing procedure', 'Brew Earl Grey with the Jasmine procedure'], correct: 1,
+  },
+  {
+    zh: '每天需要重点检查哪三项备料？', en: 'Which three prep items must be checked daily?',
+    optionsZh: ['Jasmine、Coconut、珍珠', 'Passion Fruit、Honey Black、茶冻', 'Masala、Earl Grey、Taro Premix'],
+    optionsEn: ['Jasmine, Coconut and pearls', 'Passion Fruit, Honey Black and Tea Jelly', 'Masala, Earl Grey and Taro Premix'], correct: 2,
   },
 ] as const;
 
@@ -158,7 +204,7 @@ export function MandatoryOctoberRecipeUpdate({ currentUser, adminMode, logs, app
                 {lang === 'zh' ? '重要配方更新 · 全员必读' : 'Important Recipe Changes · Please Read'}
               </h2>
               <p className="mt-1 text-xs text-slate-300">
-                {lang === 'zh' ? '阅读以下三项更新，答对小测验后才能继续。' : 'Read all three updates and answer the quiz correctly to continue.'}
+                {lang === 'zh' ? '阅读以下五项更新，并答对全部测试题后才能继续。' : 'Read all five updates and answer every quiz question correctly to continue.'}
               </p>
             </div>
             <div className="flex shrink-0 gap-1 rounded-lg border border-white/20 bg-white/10 p-1" aria-label="Language">
@@ -175,43 +221,19 @@ export function MandatoryOctoberRecipeUpdate({ currentUser, adminMode, logs, app
         </header>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
-          <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
-            <p className="mb-2 text-sm font-black text-amber-900">01 · Coconut Premix</p>
-            <p className="text-sm leading-relaxed">
-              {lang === 'zh' ? (
-                <>请先检查包装：<strong className="text-red-700">仅限包装上印有 I’TEA 字样的新版 Coconut Premix</strong>，冰块用量从 <strong className="line-through">1000g</strong> 改为 <strong className="text-lg text-red-700">400g</strong>。<strong>其余配料及步骤不变；其他包装仍按原配方操作。</strong> 新版配方已在页面置顶，制作前务必核对包装。</>
-              ) : (
-                <>Check the package first: <strong className="text-red-700">ONLY the new Coconut Premix packaging printed with I’TEA</strong> uses <strong className="text-lg text-red-700">400g</strong> ice instead of <strong className="line-through">1000g</strong>. <strong>All other ingredients and steps stay the same; for other packaging, follow the existing recipe.</strong> The new recipe is pinned at the top of the page. Always check the package before preparing it.</>
-              )}
-            </p>
-          </section>
-
-          <section className="rounded-2xl border border-sky-300 bg-sky-50 p-4">
-            <p className="mb-2 text-sm font-black text-sky-900">02 · Earl Grey</p>
-            <p className="text-sm leading-relaxed">
-              {lang === 'zh'
-                ? '现在新增 Earl Grey 茶。泡茶时请使用与 Honey Black Tea 完全相同的泡茶程序，不要自行换成其他茶的程序。'
-                : 'Earl Grey tea has been added. Brew it using the same procedure as Honey Black Tea. Do not substitute another tea-brewing procedure.'}
-            </p>
-          </section>
-
-          <section className="rounded-2xl border border-emerald-300 bg-emerald-50 p-4">
-            <p className="mb-2 text-sm font-black text-emerald-900">
-              {lang === 'zh' ? '03 · 新品配方已发布' : '03 · New Recipes Published'}
-            </p>
-            <p className="text-sm leading-relaxed">
-              {lang === 'zh'
-                ? '几个新品的配方现已发布在小程序页面。制作前请先打开配方页面核对最新版本，不要仅凭记忆操作。'
-                : 'Recipes for several new drinks are now published in the app. Check the latest recipes on the recipe page before making these drinks instead of relying on memory.'}
-            </p>
-          </section>
+          {UPDATES.map((update, index) => (
+            <section key={update.title} className="rounded-2xl border border-amber-200 bg-amber-50 p-4" data-testid={'recipe-update-section-' + index}>
+              <p className="mb-2 text-sm font-black text-amber-900">{update.title}</p>
+              <p className="text-sm font-semibold leading-relaxed text-slate-800">{lang === 'zh' ? update.zh : update.en}</p>
+            </section>
+          ))}
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4" data-testid="recipe-update-quiz">
             <h3 className="text-base font-black">
-              {lang === 'zh' ? '理解检查 · 3 道选择题' : 'Knowledge Check · 3 Questions'}
+              {lang === 'zh' ? '理解检查 · 8 道选择题' : 'Knowledge Check · 8 Questions'}
             </h3>
             <p className="mb-4 mt-1 text-xs text-slate-600">
-              {lang === 'zh' ? '三题全部答对才能确认。答错可以重新选择。' : 'All three answers must be correct. You may change an incorrect answer.'}
+              {lang === 'zh' ? '八题全部答对才能确认。答错可以重新选择。' : 'All eight answers must be correct. You may change an incorrect answer.'}
             </p>
             <div className="space-y-5">
               {QUESTIONS.map((question, index) => (
@@ -253,7 +275,7 @@ export function MandatoryOctoberRecipeUpdate({ currentUser, adminMode, logs, app
             className="w-full rounded-2xl bg-emerald-600 py-3.5 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500">
             {saving
               ? (lang === 'zh' ? '正在记录确认…' : 'Saving acknowledgement…')
-              : (lang === 'zh' ? '三题已答对，确认并继续使用' : 'All correct · Confirm and Continue')}
+              : (lang === 'zh' ? '八题已答对，确认并继续使用' : 'All 8 correct · Confirm and Continue')}
           </button>
           {error && <p className="text-center text-xs font-bold text-red-700" role="alert">{error}</p>}
         </footer>
