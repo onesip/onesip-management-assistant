@@ -33,6 +33,12 @@ export function runtimeStaffSmokePlugin(): Plugin {
       if (!code.includes(scheduleSub)) throw new Error('[runtime-staff-smoke] schedule subscription anchor missing');
       code = code.replace(scheduleSub, "            (() => {}) as any,");
 
+      // CI must not depend on whether a real staff account has already confirmed
+      // a versioned notice in production Cloud logs.
+      const logsSub = "            Cloud.subscribeToLogs(setLogs),";
+      if (!code.includes(logsSub)) throw new Error('[runtime-staff-smoke] logs subscription anchor missing');
+      code = code.replace(logsSub, "            (() => {}) as any,");
+
       const storeSub = "            (Cloud.subscribeToStores ? Cloud.subscribeToStores(setStores) : () => {}),";
       if (code.includes(storeSub)) code = code.replace(storeSub, "            (() => {}) as any,");
 

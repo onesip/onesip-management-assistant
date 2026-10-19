@@ -1,11 +1,11 @@
 import type { Plugin } from 'vite';
 
 /**
- * Forces the 2026-08-21 Coconut Premix + Crystal Ball rules in the Staff app.
+ * Shows the remaining 2026-08-21 Crystal Ball handling rule to Staff; the outdated Coconut Premix notice was withdrawn.
  *
  * Behaviour:
  * - Staff users see a full-screen, non-dismissible rules modal after login.
- * - Both rule-specific acknowledgement checkboxes must be ticked before confirm.
+ * - The Crystal Ball acknowledgement checkbox must be ticked before confirm.
  * - Shown + acknowledged events are written to Cloud logs for manager review.
  * - A versioned per-user local acknowledgement prevents repeat prompts on the same device.
  *   Using a new RULES_VERSION in a future update will force the new rules again.
@@ -29,30 +29,27 @@ export function staffRulesPopupPlugin(): Plugin {
 
 const MandatoryStaffRulesModal = ({
     isOpen,
-    coconutChecked,
     crystalChecked,
-    onCoconutChange,
     onCrystalChange,
     onConfirm,
     isSaving,
     lang,
 }: {
     isOpen: boolean;
-    coconutChecked: boolean;
     crystalChecked: boolean;
-    onCoconutChange: (checked: boolean) => void;
     onCrystalChange: (checked: boolean) => void;
     onConfirm: () => void;
     isSaving: boolean;
     lang: Lang;
 }) => {
     if (!isOpen) return null;
-    const canConfirm = coconutChecked && crystalChecked && !isSaving;
+    const canConfirm = crystalChecked && !isSaving;
 
     return (
         <div
             className="fixed inset-0 z-[13000] flex items-center justify-center bg-black/90 backdrop-blur-md p-3 sm:p-5 animate-fade-in"
             role="alertdialog"
+            data-testid="legacy-staff-rules-modal"
             aria-modal="true"
             aria-labelledby="staff-rules-title"
         >
@@ -66,35 +63,11 @@ const MandatoryStaffRulesModal = ({
                         {lang === 'zh' ? '最新员工规定 · 必须遵守' : 'Latest Staff Rules – MUST FOLLOW'}
                     </h2>
                     <p className="mt-1 text-xs font-bold text-red-100">
-                        {lang === 'zh' ? '请完整阅读并逐项确认。此确认会被记录。' : 'Read everything and confirm both rules. Your acknowledgement is recorded.'}
+                        {lang === 'zh' ? '请阅读并确认这项规定。此确认会被记录。' : 'Read the rule and confirm your understanding. Your acknowledgement is recorded.'}
                     </p>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-                    <section className="rounded-2xl border-2 border-orange-300 bg-orange-50 p-4 shadow-sm">
-                        <div className="flex items-center gap-2 mb-3">
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-500 text-sm font-black text-white">1</span>
-                            <h3 className="text-lg font-black text-orange-900">Coconut Premix</h3>
-                        </div>
-                        {lang === 'zh' ? (
-                            <ul className="space-y-2 text-sm font-semibold leading-relaxed text-gray-800">
-                                <li>• 每天现做，并且<strong className="text-red-600">当天全部用完</strong>。</li>
-                                <li>• <strong className="text-red-600">绝对不要隔夜保存。</strong></li>
-                                <li>• 当天售完就标记 <strong>SOLD OUT</strong>，第二天再做新的一批。</li>
-                                <li>• <strong className="text-red-600">不要提前为第二天的班次制作</strong> Coconut Premix，因为隔夜可能变酸。</li>
-                                <li>• <strong>晚班：</strong>把 coconut milk container 拿出来并放进洗碗机。</li>
-                            </ul>
-                        ) : (
-                            <ul className="space-y-2 text-sm font-semibold leading-relaxed text-gray-800">
-                                <li>• Make it <strong>fresh every day</strong> and <strong className="text-red-600">use it up the same day</strong>.</li>
-                                <li>• <strong className="text-red-600">Do not keep it overnight.</strong></li>
-                                <li>• If sold out, mark it <strong>SOLD OUT</strong> and make a fresh batch the next day.</li>
-                                <li>• <strong className="text-red-600">Do not prepare Coconut Premix for the next day’s shift</strong>, because it can turn sour overnight.</li>
-                                <li>• <strong>Closing shift:</strong> take out the coconut milk container and put it in the dishwasher.</li>
-                            </ul>
-                        )}
-                    </section>
-
                     <section className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-4 shadow-sm">
                         <div className="flex items-center gap-2 mb-3">
                             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-600 text-sm font-black text-white">2</span>
@@ -118,20 +91,6 @@ const MandatoryStaffRulesModal = ({
                     </section>
 
                     <div className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-orange-200 bg-white p-3 transition active:scale-[0.99]">
-                            <input
-                                type="checkbox"
-                                checked={coconutChecked}
-                                onChange={(e) => onCoconutChange(e.target.checked)}
-                                className="mt-0.5 h-5 w-5 shrink-0 accent-red-600"
-                            />
-                            <span className="text-sm font-black leading-snug text-gray-900">
-                                {lang === 'zh'
-                                    ? '我已理解：Coconut Premix 必须当天做、当天用完，不能隔夜或提前给第二天制作。'
-                                    : 'I understand: Coconut Premix must be made and used the same day, never kept overnight or prepared for the next day.'}
-                            </span>
-                        </label>
-
                         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-sky-200 bg-white p-3 transition active:scale-[0.99]">
                             <input
                                 type="checkbox"
@@ -161,9 +120,9 @@ const MandatoryStaffRulesModal = ({
                             ? (lang === 'zh' ? '正在记录确认…' : 'Recording acknowledgement…')
                             : (lang === 'zh' ? '我已阅读、理解并会遵守以上规定' : 'I HAVE READ, UNDERSTAND & WILL FOLLOW')}
                     </button>
-                    {!coconutChecked || !crystalChecked ? (
+                    {!crystalChecked ? (
                         <p className="mt-2 text-center text-[11px] font-bold text-red-500">
-                            {lang === 'zh' ? '必须勾选上面两项后才能继续使用系统。' : 'You must confirm BOTH rules before continuing.'}
+                            {lang === 'zh' ? '请勾选确认后继续使用系统。' : 'Please confirm this rule before continuing.'}
                         </p>
                     ) : null}
                 </div>
@@ -181,7 +140,6 @@ const MandatoryStaffRulesModal = ({
       }
 
       const stateCode = `    const [showMandatoryStaffRules, setShowMandatoryStaffRules] = useState(false);
-    const [staffRulesCoconutChecked, setStaffRulesCoconutChecked] = useState(false);
     const [staffRulesCrystalChecked, setStaffRulesCrystalChecked] = useState(false);
     const [staffRulesSaving, setStaffRulesSaving] = useState(false);
     const staffRulesShownRef = useRef(false);
@@ -205,7 +163,6 @@ const MandatoryStaffRulesModal = ({
             return;
         }
 
-        setStaffRulesCoconutChecked(false);
         setStaffRulesCrystalChecked(false);
         setShowMandatoryStaffRules(true);
 
@@ -231,7 +188,7 @@ const MandatoryStaffRulesModal = ({
                 rulesVersion: STAFF_RULES_VERSION,
                 event: 'rules_popup_shown',
                 status: 'shown_not_yet_acknowledged',
-                reason: 'Mandatory Coconut Premix and Crystal Ball rules shown',
+                reason: 'Mandatory Crystal Ball handling rule shown',
                 message: 'Mandatory staff rules popup shown to ' + currentUser.name + '.'
             };
             try {
@@ -252,7 +209,7 @@ const MandatoryStaffRulesModal = ({
 
     const acknowledgeMandatoryStaffRules = async () => {
         if (!currentUser?.id || currentUser.role !== 'staff') return;
-        if (!staffRulesCoconutChecked || !staffRulesCrystalChecked || staffRulesSaving) return;
+        if (!staffRulesCrystalChecked || staffRulesSaving) return;
 
         setStaffRulesSaving(true);
         const acknowledgedAt = new Date().toISOString();
@@ -266,13 +223,12 @@ const MandatoryStaffRulesModal = ({
             userId: currentUser.id,
             storeId: myStoreId,
             rulesVersion: STAFF_RULES_VERSION,
-            coconutPremixConfirmed: true,
             crystalBallConfirmed: true,
             event: 'rules_acknowledged',
             status: 'acknowledged',
             acknowledgedAt,
-            reason: 'Employee explicitly confirmed both mandatory staff rules',
-            message: 'Employee acknowledged Coconut Premix same-day-only rule and Crystal Ball rinse rule.'
+            reason: 'Employee explicitly confirmed the Crystal Ball handling rule',
+            message: 'Employee acknowledged the Crystal Ball rinse rule.'
         };
 
         try {
@@ -301,9 +257,7 @@ const MandatoryStaffRulesModal = ({
 
       const renderCode = `            <MandatoryStaffRulesModal
                 isOpen={showMandatoryStaffRules}
-                coconutChecked={staffRulesCoconutChecked}
                 crystalChecked={staffRulesCrystalChecked}
-                onCoconutChange={setStaffRulesCoconutChecked}
                 onCrystalChange={setStaffRulesCrystalChecked}
                 onConfirm={acknowledgeMandatoryStaffRules}
                 isSaving={staffRulesSaving}
