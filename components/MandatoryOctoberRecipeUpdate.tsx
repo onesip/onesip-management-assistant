@@ -28,13 +28,13 @@ const UPDATES = [
   },
   {
     title: '03 · Taro / 芋头回归',
-    zh: 'Taro 已回归，放在 10 号罐（之前 Passion Fruit 的机位）。日常备料必须恢复制作 Taro Premix。不要把 Taro 放回旧的芋头位置。',
-    en: 'Taro is back. It is assigned to container/slot No. 10, where Passion Fruit used to be. Resume preparing Taro Premix as part of daily prep. Do not use the old Taro position.',
+    zh: 'Taro 已回归，放在 10 号管（之前 Passion Fruit 的机位）。日常备料必须恢复制作 Taro Premix。不要把 Taro 放回旧的芋头位置。',
+    en: 'Taro is back. It is assigned to dispensing line No. 10, formerly used for Passion Fruit. Resume preparing Taro Premix as part of daily prep. Do not use the old Taro position.',
   },
   {
     title: '04 · Earl Grey 取代 Honey Black Tea',
-    zh: '从 2026 年 10 月 20 日开始，停止泡 Honey Black Tea。原本使用 Honey Black Tea 的饮品与茶底统一改用 Earl Grey；Earl Grey 目前放在 3 号罐。Earl Grey 仍沿用之前 Honey Black Tea 的泡茶程序。',
-    en: 'Starting 20 October 2026, stop brewing Honey Black Tea. Replace Honey Black Tea with Earl Grey in all drinks and tea bases that previously used it. Earl Grey is now in container/slot No. 3. Brew Earl Grey using the former Honey Black Tea brewing procedure.',
+    zh: '从 2026 年 10 月 20 日开始，停止泡 Honey Black Tea。原本使用 Honey Black Tea 的饮品与茶底统一改用 Earl Grey；Earl Grey 目前放在 3 号管。Earl Grey 仍沿用之前 Honey Black Tea 的泡茶程序。',
+    en: 'Starting 20 October 2026, stop brewing Honey Black Tea. Replace Honey Black Tea with Earl Grey in all drinks and tea bases that previously used it. Earl Grey is now on dispensing line No. 3. Brew Earl Grey using the former Honey Black Tea brewing procedure.',
   },
   {
     title: '05 · 每日备料提醒 / Daily Prep',
@@ -60,13 +60,13 @@ const QUESTIONS = [
   },
   {
     zh: '现在应该从哪里取茶冻？', en: 'Where do you get Tea Jelly now?',
-    optionsZh: ['芒果果肉旁边', '玻璃滑盖下面的小料台', '10 号罐'],
-    optionsEn: ['Next to mango pulp', 'The topping station under the sliding glass lid', 'Container No. 10'], correct: 1,
+    optionsZh: ['芒果果肉旁边', '玻璃滑盖下面的小料台', '10 号管'],
+    optionsEn: ['Next to mango pulp', 'The topping station under the sliding glass lid', 'Dispensing line No. 10'], correct: 1,
   },
   {
     zh: 'Taro 现在放在哪个位置？', en: 'Where is Taro placed now?',
-    optionsZh: ['玻璃滑盖下面', '芒果果肉旁边', '10 号罐，原 Passion Fruit 机位'],
-    optionsEn: ['Under the sliding glass lid', 'Next to mango pulp', 'Container No. 10, the former Passion Fruit slot'], correct: 2,
+    optionsZh: ['玻璃滑盖下面', '芒果果肉旁边', '10 号管，原 Passion Fruit 机位'],
+    optionsEn: ['Under the sliding glass lid', 'Next to mango pulp', 'Dispensing line No. 10, formerly for Passion Fruit'], correct: 2,
   },
   {
     zh: 'Taro 回归后备料要做什么？', en: 'What prep is needed now that Taro is back?',
@@ -84,9 +84,9 @@ const QUESTIONS = [
     optionsEn: ['Jasmine, Coconut and pearls', 'Passion Fruit, Honey Black and Tea Jelly', 'Masala, Earl Grey and Taro Premix'], correct: 2,
   },
   {
-    zh: 'Earl Grey 现在放在几号罐？', en: 'Which container/slot now holds Earl Grey?',
-    optionsZh: ['10 号罐', '3 号罐', '原茶冻位置'],
-    optionsEn: ['No. 10', 'No. 3', 'The former Tea Jelly position'],
+    zh: 'Earl Grey 现在放在几号管？', en: 'Which dispensing line is Earl Grey on now?',
+    optionsZh: ['10 号管', '3 号管', '原茶冻位置'],
+    optionsEn: ['Line No. 10', 'Line No. 3', 'The former Tea Jelly position'],
     correct: 1,
   },] as const;
 
