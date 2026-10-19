@@ -114,7 +114,8 @@ jobs:
             if (!/早班食品安全检查|Opening Food Safety Check/i.test(rootText)) fatalErrors.push('Opening food safety gate did not render for earliest-start staff');
             if (!(await page.locator('[data-testid="recipe-update-gate"]').count())) fatalErrors.push('Mandatory recipe update did not render for staff');
             const staffRecipeGateText = await page.locator('[data-testid="recipe-update-gate"]').innerText().catch(() => '');
-            if (!/I.TEA/.test(staffRecipeGateText) || !/400g/.test(staffRecipeGateText)) fatalErrors.push('Staff recipe notice missing I’TEA-specific 400g restriction');
+            if (!/Passion Fruit/.test(staffRecipeGateText) || !/Taro Premix/.test(staffRecipeGateText) || !/Earl Grey/.test(staffRecipeGateText)) fatalErrors.push('Staff recipe notice missing October 20 updates');
+            if (/400g|400克/.test(staffRecipeGateText)) fatalErrors.push('Suspended Coconut 400g notice still visible');
             if (fatalErrors.length) {
               console.error('\nSTAFF RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-staff-failure.png', fullPage: true }).catch(() => {});
@@ -168,21 +169,22 @@ jobs:
               if (await confirmQuiz.isEnabled()) fatalErrors.push('Quiz confirmation enabled before reading');
               await page.locator('[data-testid="recipe-update-lang-en"]').click();
               const englishContent = await recipeGate.innerText();
-              if (!/Important Recipe Changes/i.test(englishContent) || !/400g/.test(englishContent) || !/Honey Black Tea/.test(englishContent) || !/I.TEA/.test(englishContent) || !/other packaging/i.test(englishContent)) {
+              if (!/Important Recipe Changes/i.test(englishContent) || !/Passion Fruit/.test(englishContent) || !/Tea Jelly/.test(englishContent) || !/Taro Premix/.test(englishContent) || !/Earl Grey/.test(englishContent) || /400g/.test(englishContent)) {
                 fatalErrors.push('English recipe updates missing');
               }
               await page.locator('[data-testid="recipe-update-lang-zh"]').click();
               const chineseContent = await recipeGate.innerText();
-              if (!/仅限包装上印有 I.TEA 字样/.test(chineseContent) || !/其他包装仍按原配方/.test(chineseContent)) {
-                fatalErrors.push('Chinese I’TEA packaging restriction missing');
+              if (!/芒果果肉旁边/.test(chineseContent) || !/玻璃滑盖下面/.test(chineseContent) || !/10 号罐/.test(chineseContent) || !/Masala/.test(chineseContent)) {
+                fatalErrors.push('Chinese placement and prep updates missing');
               }
-              await page.locator('[data-testid="recipe-update-answer-0-0"]').check();
-              await page.locator('[data-testid="recipe-update-answer-1-1"]').check();
-              await page.locator('[data-testid="recipe-update-answer-2-1"]').check();
+              const correctAnswerIndexes = [1, 0, 2, 1, 2, 0, 1, 2];
+              for (let i = 0; i < correctAnswerIndexes.length; i++) {
+                await page.locator('[data-testid="recipe-update-answer-' + i + '-' + (i === 0 ? 0 : correctAnswerIndexes[i]) + '"]').check();
+              }
               if (await confirmQuiz.isEnabled()) fatalErrors.push('Wrong quiz answer allowed confirmation');
               await page.locator('[data-testid="recipe-update-answer-0-1"]').check();
               if (await confirmQuiz.isEnabled()) fatalErrors.push('Reading timer not enforced');
-              await page.waitForTimeout(26000);
+              await page.waitForTimeout(36000);
               if (!(await confirmQuiz.isEnabled())) fatalErrors.push('Correct quiz answers did not unlock confirmation');
               else await confirmQuiz.click();
               await page.waitForTimeout(250);
@@ -303,10 +305,11 @@ jobs:
             if (!(await editorRecipeGate.count())) {
               fatalErrors.push('Mandatory recipe quiz did not show in Editor/Admin');
             } else {
-              for (let i = 0; i < 3; i++) await page.locator('[data-testid="recipe-update-answer-' + i + '-1"]').check();
+              const correctAnswerIndexes = [1, 0, 2, 1, 2, 0, 1, 2];
+              for (let i = 0; i < correctAnswerIndexes.length; i++) await page.locator('[data-testid="recipe-update-answer-' + i + '-' + correctAnswerIndexes[i] + '"]').check();
               const confirmQuiz = page.locator('[data-testid="recipe-update-confirm"]');
               if (await confirmQuiz.isEnabled()) fatalErrors.push('Editor quiz bypassed reading timer');
-              await page.waitForTimeout(26000);
+              await page.waitForTimeout(36000);
               if (!(await confirmQuiz.isEnabled())) fatalErrors.push('Editor quiz remained locked despite correct answers and timer');
               else await confirmQuiz.click();
               if (await editorRecipeGate.count()) fatalErrors.push('Editor quiz remained after completion');
