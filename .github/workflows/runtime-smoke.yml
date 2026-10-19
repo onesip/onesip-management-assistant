@@ -169,15 +169,15 @@ jobs:
               if (await confirmQuiz.isEnabled()) fatalErrors.push('Quiz confirmation enabled before reading');
               await page.locator('[data-testid="recipe-update-lang-en"]').click();
               const englishContent = await recipeGate.innerText();
-              if (!/Important Recipe Changes/i.test(englishContent) || !/Passion Fruit/.test(englishContent) || !/Tea Jelly/.test(englishContent) || !/Taro Premix/.test(englishContent) || !/Earl Grey/.test(englishContent) || /400g/.test(englishContent)) {
+              if (!/Important Recipe Changes/i.test(englishContent) || !/Passion Fruit/.test(englishContent) || !/Tea Jelly/.test(englishContent) || !/Taro Premix/.test(englishContent) || !/Earl Grey/.test(englishContent) || !/No\. 3/.test(englishContent) || /400g/.test(englishContent)) {
                 fatalErrors.push('English recipe updates missing');
               }
               await page.locator('[data-testid="recipe-update-lang-zh"]').click();
               const chineseContent = await recipeGate.innerText();
-              if (!/芒果果肉旁边/.test(chineseContent) || !/玻璃滑盖下面/.test(chineseContent) || !/10 号罐/.test(chineseContent) || !/Masala/.test(chineseContent)) {
+              if (!/芒果果肉旁边/.test(chineseContent) || !/玻璃滑盖下面/.test(chineseContent) || !/10 号罐/.test(chineseContent) || !/Masala/.test(chineseContent) || !/3 号罐/.test(chineseContent)) {
                 fatalErrors.push('Chinese placement and prep updates missing');
               }
-              const correctAnswerIndexes = [1, 0, 2, 1, 2, 0, 1, 2];
+              const correctAnswerIndexes = [1, 0, 2, 1, 2, 0, 1, 2, 1];
               for (let i = 0; i < correctAnswerIndexes.length; i++) {
                 await page.locator('[data-testid="recipe-update-answer-' + i + '-' + (i === 0 ? 0 : correctAnswerIndexes[i]) + '"]').check();
               }
@@ -305,7 +305,7 @@ jobs:
             if (!(await editorRecipeGate.count())) {
               fatalErrors.push('Mandatory recipe quiz did not show in Editor/Admin');
             } else {
-              const correctAnswerIndexes = [1, 0, 2, 1, 2, 0, 1, 2];
+              const correctAnswerIndexes = [1, 0, 2, 1, 2, 0, 1, 2, 1];
               for (let i = 0; i < correctAnswerIndexes.length; i++) await page.locator('[data-testid="recipe-update-answer-' + i + '-' + correctAnswerIndexes[i] + '"]').check();
               const confirmQuiz = page.locator('[data-testid="recipe-update-confirm"]');
               if (await confirmQuiz.isEnabled()) fatalErrors.push('Editor quiz bypassed reading timer');
