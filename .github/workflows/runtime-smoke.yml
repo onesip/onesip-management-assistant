@@ -174,7 +174,7 @@ jobs:
               }
               await page.locator('[data-testid="recipe-update-lang-zh"]').click();
               const chineseContent = await recipeGate.innerText();
-              if (!/芒果果肉旁边/.test(chineseContent) || !/玻璃滑盖下面/.test(chineseContent) || !/10 号罐/.test(chineseContent) || !/Masala/.test(chineseContent) || !/3 号罐/.test(chineseContent)) {
+              if (!/芒果果肉旁边/.test(chineseContent) || !/玻璃滑盖下面/.test(chineseContent) || !/10 号管/.test(chineseContent) || !/Masala/.test(chineseContent) || !/3 号管/.test(chineseContent)) {
                 fatalErrors.push('Chinese placement and prep updates missing');
               }
               const correctAnswerIndexes = [1, 0, 2, 1, 2, 0, 1, 2, 1];
