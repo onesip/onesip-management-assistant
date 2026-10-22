@@ -13,6 +13,7 @@ import { scheduleTextImportMountPlugin } from './plugins/scheduleTextImportMount
 import { toppingReplacementNoticeMountPlugin } from './plugins/toppingReplacementNoticeMountPlugin';
 import { foodSafetyShiftGateMountPlugin } from './plugins/foodSafetyShiftGateMountPlugin';
 import { editorRecipeSearchPlugin } from './plugins/editorRecipeSearchPlugin';
+import { editorRecipeBulkImportPlugin } from './plugins/editorRecipeBulkImportPlugin';
 import { runtimeStaffSmokePlugin } from './plugins/runtimeStaffSmokePlugin';
 import { runtimeFoodSafetyClosingSmokePlugin } from './plugins/runtimeFoodSafetyClosingSmokePlugin';
 import { runtimeManagerSmokePlugin } from './plugins/runtimeManagerSmokePlugin';
@@ -34,6 +35,7 @@ export default defineConfig({
     toppingReplacementNoticeMountPlugin(),
     foodSafetyShiftGateMountPlugin(),
     editorRecipeSearchPlugin(),
+    editorRecipeBulkImportPlugin(),
     suspendedCoconutPremixVisibilityPlugin(),
     octoberRecipeNoticeMountPlugin(),
     runtimeStaffSmokePlugin(),
