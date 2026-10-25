@@ -299,6 +299,15 @@ export const subscribeToLogs = (callback: (data: any) => void) => {
     });
 };
 
+/**
+ * Records mandatory knife-ban acknowledgements atomically, without replacing
+ * historical logs. Unlike saveLog this must fail explicitly when Cloud is offline.
+ */
+export const saveKnifeSafetyAcknowledgement = async (logEntry: any): Promise<void> => {
+    if (!db) throw new Error('Cloud database is not connected');
+    await setDoc(doc(db, 'data', 'logs'), { entries: arrayUnion(logEntry) }, { merge: true });
+};
+
 export const saveLog = async (logEntry: any) => {
     if (!db) return;
     await updateDoc(doc(db, 'data', 'logs'), {
