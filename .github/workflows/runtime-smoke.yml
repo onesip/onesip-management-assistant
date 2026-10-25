@@ -116,6 +116,14 @@ jobs:
             const staffRecipeGateText = await page.locator('[data-testid="recipe-update-gate"]').innerText().catch(() => '');
             if (!/Passion Fruit/.test(staffRecipeGateText) || !/Taro Premix/.test(staffRecipeGateText) || !/Earl Grey/.test(staffRecipeGateText)) fatalErrors.push('Staff recipe notice missing October 20 updates');
             if (/400g|400克/.test(staffRecipeGateText)) fatalErrors.push('Suspended Coconut 400g notice still visible');
+            const knifeGate = page.locator('[data-testid="knife-safety-gate"]');
+            if (!(await knifeGate.count())) fatalErrors.push('Mandatory knife safety acknowledgement did not render for staff');
+            else {
+              const knifeText = await knifeGate.innerText();
+              if (!/工作区域严禁出现任何刀具/.test(knifeText) || !/剪刀/.test(knifeText)) fatalErrors.push('Chinese knife ban or scissors policy missing');
+              if (!(await page.locator('[data-testid="knife-safety-checkbox"]').count())) fatalErrors.push('Knife safety acknowledgement checkbox missing');
+              if (await page.locator('[data-testid="knife-safety-confirm"]').isEnabled()) fatalErrors.push('Knife safety confirmation is enabled before consent and reading');
+            }
             if (fatalErrors.length) {
               console.error('\nSTAFF RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-staff-failure.png', fullPage: true }).catch(() => {});
