@@ -20,6 +20,7 @@ import { runtimeManagerSmokePlugin } from './plugins/runtimeManagerSmokePlugin';
 import { runtimeEditorSmokePlugin } from './plugins/runtimeEditorSmokePlugin';
 import { octoberRecipeNoticeMountPlugin } from './plugins/octoberRecipeNoticeMountPlugin';
 import { mandatoryKnifeSafetyMountPlugin } from './plugins/mandatoryKnifeSafetyMountPlugin';
+import { mandatoryCustomerComplaintTrainingMountPlugin } from './plugins/mandatoryCustomerComplaintTrainingMountPlugin';
 import { suspendedCoconutPremixVisibilityPlugin } from './plugins/suspendedCoconutPremixVisibilityPlugin';
 
 // https://vitejs.dev/config/
@@ -40,6 +41,7 @@ export default defineConfig({
     suspendedCoconutPremixVisibilityPlugin(),
     octoberRecipeNoticeMountPlugin(),
     mandatoryKnifeSafetyMountPlugin(),
+    mandatoryCustomerComplaintTrainingMountPlugin(),
     runtimeStaffSmokePlugin(),
     runtimeFoodSafetyClosingSmokePlugin(),
     runtimeManagerSmokePlugin(),
