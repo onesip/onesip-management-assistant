@@ -124,6 +124,53 @@ jobs:
               if (!(await page.locator('[data-testid="knife-safety-checkbox"]').count())) fatalErrors.push('Knife safety acknowledgement checkbox missing');
               if (await page.locator('[data-testid="knife-safety-confirm"]').isEnabled()) fatalErrors.push('Knife safety confirmation is enabled before consent and reading');
             }
+            // Mandatory complaint training: verify every section and that all 12 answers gate completion.
+            const complaintGate = page.locator('[data-testid="complaint-training-gate"]');
+            if (!(await complaintGate.count())) {
+              fatalErrors.push('Customer complaint mandatory training not rendered for staff');
+            } else {
+              const initialText = await complaintGate.innerText();
+              if (!/顾客疑问与客诉应对/.test(initialText) || !/11/.test(initialText) || !/12/.test(initialText)) {
+                fatalErrors.push('Complaint course title or section/question counts incorrect');
+              }
+              const nextButton = page.locator('[data-testid="complaint-next"]');
+              if (await nextButton.isEnabled()) fatalErrors.push('Complaint course bypassed reading requirement');
+              await page.evaluate(() => {
+                window.__complaintNow = Date.now();
+                Date.now = () => window.__complaintNow;
+              });
+              for (let i = 0; i < 11; i++) {
+                const section = page.locator('[data-testid="complaint-section-' + i + '"]');
+                if (!(await section.count())) {
+                  fatalErrors.push('Complaint section ' + i + ' not rendered');
+                  break;
+                }
+                await page.locator('[data-testid="complaint-read-check"]').check();
+                if (await nextButton.isEnabled()) fatalErrors.push('Complaint section bypassed minimum time at index ' + i);
+                await page.evaluate(() => { window.__complaintNow += 6000; });
+                await page.waitForTimeout(550);
+                if (!(await nextButton.isEnabled())) {
+                  fatalErrors.push('Complaint section did not unlock after minimum reading time at index ' + i);
+                  break;
+                }
+                await nextButton.click();
+              }
+              const complaintQuiz = page.locator('[data-testid="complaint-quiz"]');
+              if (!(await complaintQuiz.count())) {
+                fatalErrors.push('Complaint scenario quiz did not unlock after 11 sections');
+              } else {
+                const submit = page.locator('[data-testid="complaint-submit"]');
+                if (await submit.isEnabled()) fatalErrors.push('Complaint quiz submitted without all answers');
+                const correct = [1, 1, 2, 1, 0, 1, 2, 0, 0, 1, 1, 2];
+                for (let i = 0; i < correct.length; i++) {
+                  await page.locator('[data-testid="complaint-answer-' + i + '-' + (i === 0 ? 0 : correct[i]) + '"]').check();
+                }
+                if (await submit.isEnabled()) fatalErrors.push('Complaint quiz accepted a wrong answer');
+                await page.locator('[data-testid="complaint-answer-0-1"]').check();
+                if (!(await submit.isEnabled())) fatalErrors.push('Complaint quiz did not unlock after all 12 correct');
+                // Do not submit in smoke: that would create a real cloud acknowledgement.
+              }
+            }
             if (fatalErrors.length) {
               console.error('\nSTAFF RUNTIME SMOKE FAILED:\n' + fatalErrors.join('\n---\n'));
               await page.screenshot({ path: 'runtime-smoke-staff-failure.png', fullPage: true }).catch(() => {});
