@@ -303,6 +303,19 @@ export const subscribeToLogs = (callback: (data: any) => void) => {
  * Records mandatory knife-ban acknowledgements atomically, without replacing
  * historical logs. Unlike saveLog this must fail explicitly when Cloud is offline.
  */
+/**
+ * Atomically save a passed customer-care training record without overwriting
+ * older employee logs. An offline or denied write must reject, not mark passed.
+ */
+export const saveCustomerComplaintTrainingCompletion = async (entry: any): Promise<void> => {
+    if (!db) throw new Error('Cloud database is not connected');
+    if (entry?.type !== 'COMPLAINT_TRAINING_PASS' || entry?.passed !== true ||
+        entry?.questionsCorrect !== 12 || entry?.sectionsRead !== 11) {
+        throw new Error('Customer training is not completed');
+    }
+    await setDoc(doc(db, 'data', 'logs'), { entries: arrayUnion(entry) }, { merge: true });
+};
+
 export const saveKnifeSafetyAcknowledgement = async (logEntry: any): Promise<void> => {
     if (!db) throw new Error('Cloud database is not connected');
     await setDoc(doc(db, 'data', 'logs'), { entries: arrayUnion(logEntry) }, { merge: true });
