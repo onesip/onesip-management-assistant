@@ -307,6 +307,24 @@ export const subscribeToLogs = (callback: (data: any) => void) => {
  * Atomically save a passed customer-care training record without overwriting
  * older employee logs. An offline or denied write must reject, not mark passed.
  */
+/**
+ * Persist completed Grape Rose recipe quizzes atomically without overwriting logs.
+ * Do not permit a local-only/offline acknowledgement.
+ */
+export const saveGrapeRoseQuizCompletion = async (entry: any): Promise<void> => {
+    if (!db) throw new Error('Cloud database is not connected');
+    if (entry?.type !== 'GRAPE_ROSE_QUIZ_PASS' ||
+        entry?.noticeVersion !== 'onesip_grape_rose_measuring_2026_11_02_v1' ||
+        entry?.passed !== true || entry?.questionsCorrect !== 4 ||
+        entry?.questionCount !== 4 || entry?.scorePercent !== 100 ||
+        entry?.correctRecipe?.tool !== 'small measuring cup' ||
+        entry?.correctRecipe?.['500ml'] !== '10ml' ||
+        entry?.correctRecipe?.['660ml'] !== '15ml') {
+        throw new Error('Grape Rose training is not completed or parameters are invalid');
+    }
+    await setDoc(doc(db, 'data', 'logs'), { entries: arrayUnion(entry) }, { merge: true });
+};
+
 export const saveCustomerComplaintTrainingCompletion = async (entry: any): Promise<void> => {
     if (!db) throw new Error('Cloud database is not connected');
     if (entry?.type !== 'COMPLAINT_TRAINING_PASS' || entry?.passed !== true ||
