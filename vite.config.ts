@@ -21,6 +21,7 @@ import { runtimeEditorSmokePlugin } from './plugins/runtimeEditorSmokePlugin';
 import { octoberRecipeNoticeMountPlugin } from './plugins/octoberRecipeNoticeMountPlugin';
 import { mandatoryKnifeSafetyMountPlugin } from './plugins/mandatoryKnifeSafetyMountPlugin';
 import { mandatoryCustomerComplaintTrainingMountPlugin } from './plugins/mandatoryCustomerComplaintTrainingMountPlugin';
+import { mandatoryGrapeRoseNoticeMountPlugin } from './plugins/mandatoryGrapeRoseNoticeMountPlugin';
 import { customerComplaintTrainingProgressMountPlugin } from './plugins/customerComplaintTrainingProgressMountPlugin';
 import { suspendedCoconutPremixVisibilityPlugin } from './plugins/suspendedCoconutPremixVisibilityPlugin';
 
@@ -43,6 +44,7 @@ export default defineConfig({
     octoberRecipeNoticeMountPlugin(),
     mandatoryKnifeSafetyMountPlugin(),
     mandatoryCustomerComplaintTrainingMountPlugin(),
+    mandatoryGrapeRoseNoticeMountPlugin(),
     customerComplaintTrainingProgressMountPlugin(),
     runtimeStaffSmokePlugin(),
     runtimeFoodSafetyClosingSmokePlugin(),
